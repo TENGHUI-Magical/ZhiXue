@@ -18,15 +18,15 @@
           <el-upload
             class="ocr-upload"
             drag
-            accept="image/jpeg,image/png,image/webp"
+            accept="image/jpeg,image/png"
             :show-file-list="false"
             :http-request="handleUpload"
           >
             <div class="upload-title">拖拽错题图片，或点击上传</div>
-            <div class="upload-sub">JPG/PNG/WEBP，≤10MB；识别失败可直接手动输入</div>
+            <div class="upload-sub">JPG/PNG，≤5MB；识别失败可直接手动输入</div>
           </el-upload>
           <div v-if="parsing" class="ocr-status">
-            <span class="ocr-dot" />识别中…（1.5 秒轮询）
+            <span class="ocr-dot" />识别中…（2 秒轮询）
           </div>
           <el-alert
             v-if="lowConfidence"
@@ -36,6 +36,14 @@
             class="ocr-alert"
             title="识别置信度低于 0.75，请人工核对题干后再分析"
           />
+          <el-button
+            v-if="lowConfidence"
+            size="small"
+            class="ocr-confirm"
+            @click="lowConfidence = false"
+          >
+            我已核对，继续
+          </el-button>
           <el-alert
             v-if="ocrError"
             type="error"
@@ -63,7 +71,7 @@
             </el-select>
           </el-form-item>
           <div class="actions">
-            <el-button type="primary" :loading="matching" @click="analyze">
+            <el-button type="primary" :loading="matching" :disabled="lowConfidence" @click="analyze">
               分析知识点
             </el-button>
             <el-tag v-if="mapResult" :type="decisionType">{{ decisionLabel }}</el-tag>
@@ -258,14 +266,14 @@ const pollTask = (taskId: string) => {
   stopPolling();
   pollTimer = window.setInterval(async () => {
     attempts += 1;
-    if (attempts > 40) {
+    if (attempts > 30) {
       stopPolling();
       parsing.value = false;
       ocrError.value = "识别超时，请手动录入题干";
       return;
     }
     try {
-      const task = await api.get<OcrTask>(`/api/diagnosis/ocr/task/${taskId}`);
+      const task = await api.get<OcrTask>(`/api/error/ocr/task/${taskId}`);
       if (task.status === "SUCCESS") {
         stopPolling();
         parsing.value = false;
@@ -283,7 +291,7 @@ const pollTask = (taskId: string) => {
       stopPolling();
       parsing.value = false;
     }
-  }, 1500);
+  }, 2000);
 };
 
 const handleUpload = async (options: UploadRequestOptions) => {
@@ -292,10 +300,10 @@ const handleUpload = async (options: UploadRequestOptions) => {
   lowConfidence.value = false;
   ocrError.value = "";
   const form = new FormData();
-  form.append("image", options.file);
+  form.append("file", options.file);
   form.append("clientToken", crypto.randomUUID());
   try {
-    const data = await api.upload<{ taskId: string }>("/api/diagnosis/ocr/parse", form);
+    const data = await api.upload<{ taskId: string }>("/api/error/upload", form);
     pollTask(data.taskId);
   } catch {
     parsing.value = false;
@@ -603,6 +611,9 @@ onBeforeUnmount(() => {
   }
 }
 .ocr-alert {
+  margin-bottom: 10px;
+}
+.ocr-confirm {
   margin-bottom: 10px;
 }
 .error-type {

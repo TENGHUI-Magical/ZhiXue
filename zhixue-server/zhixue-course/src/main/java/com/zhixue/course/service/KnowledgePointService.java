@@ -6,7 +6,9 @@ import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.KpMatchProfile;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.KpKeyword;
+import com.zhixue.course.entity.KnowledgePrereq;
 import com.zhixue.course.mapper.KnowledgePointMapper;
+import com.zhixue.course.mapper.KnowledgePrereqMapper;
 import com.zhixue.course.mapper.KpKeywordMapper;
 import org.springframework.stereotype.Service;
 
@@ -23,11 +25,14 @@ public class KnowledgePointService {
 
     private final KnowledgePointMapper knowledgePointMapper;
     private final KpKeywordMapper kpKeywordMapper;
+    private final KnowledgePrereqMapper knowledgePrereqMapper;
 
     public KnowledgePointService(KnowledgePointMapper knowledgePointMapper,
-                                 KpKeywordMapper kpKeywordMapper) {
+                                 KpKeywordMapper kpKeywordMapper,
+                                 KnowledgePrereqMapper knowledgePrereqMapper) {
         this.knowledgePointMapper = knowledgePointMapper;
         this.kpKeywordMapper = kpKeywordMapper;
+        this.knowledgePrereqMapper = knowledgePrereqMapper;
     }
 
     /**
@@ -68,5 +73,19 @@ public class KnowledgePointService {
                 .map(kp -> new KpMatchProfile(kp.getKpId(), kp.getName(), kp.getConceptText(),
                         byKp.getOrDefault(kp.getKpId(), Collections.emptyList())))
                 .toList();
+    }
+
+    /** 直接先修知识点（1 跳）。 */
+    public List<String> prerequisites(String kpId) {
+        return knowledgePrereqMapper.selectList(new LambdaQueryWrapper<KnowledgePrereq>()
+                        .eq(KnowledgePrereq::getKpId, kpId))
+                .stream().map(KnowledgePrereq::getPrereqKpId).toList();
+    }
+
+    /** 直接后继知识点（1 跳）。 */
+    public List<String> successors(String kpId) {
+        return knowledgePrereqMapper.selectList(new LambdaQueryWrapper<KnowledgePrereq>()
+                        .eq(KnowledgePrereq::getPrereqKpId, kpId))
+                .stream().map(KnowledgePrereq::getKpId).toList();
     }
 }

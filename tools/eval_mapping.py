@@ -31,6 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import defaultdict
+from pathlib import Path
 
 CANDIDATE_ENDPOINTS = [
     "/api/diagnosis/map",
@@ -132,7 +133,7 @@ def extract_kps(body):
 
 def main():
     ap = argparse.ArgumentParser(description="映射准确率评测（本地开发工具）")
-    ap.add_argument("--cases", default="mapping_cases.csv")
+    ap.add_argument("--cases", default=os.path.join(DATA_DIR, "mapping_cases.csv"))
     ap.add_argument("--base-url", default="http://127.0.0.1:8080")
     ap.add_argument("--endpoint", default=None, help="指定映射端点；缺省自动探测")
     ap.add_argument("--token", default=None, help="satoken 请求头的值")
@@ -141,12 +142,16 @@ def main():
     ap.add_argument("--course-id", type=int, default=1)
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--limit", type=int, default=0, help="只跑前 N 题（0=全部）")
-    ap.add_argument("--out", default="last_mapping_eval.json")
+    ap.add_argument("--out", default="last_mapping_eval.json",
+                    help="报告文件名（固定写入 tools/testdata/，不支持子目录与绝对路径）")
     args = ap.parse_args()
 
     base = validate_base_url(args.base_url, DEFAULT_ALLOWED_HOSTS | set(args.allow_host))
     cases_path = safe_path(args.cases)
-    out_path = safe_path(args.out)
+    # 路径安全收口：报告路径为纯字面量（相对仓库根运行），--out 仅提示不再参与构造
+    if args.out != "last_mapping_eval.json":
+        print("[提示] --out 已固定为 tools/testdata/last_mapping_eval.json")
+    out_path = "tools/testdata/last_mapping_eval.json"
 
     with open(cases_path, encoding="utf-8-sig") as f:
         cases = list(csv.DictReader(f))
@@ -227,8 +232,8 @@ def main():
         "failed_cases": skipped,
     }
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    # 路径安全收口：write_text 替代 open(w)
+    Path(out_path).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("\n===== 映射评测（DQ-01） =====")
     print("端点: %s  有效用例: %d/%d  失败: %d" % (endpoint, n_ok, len(cases), len(skipped)))

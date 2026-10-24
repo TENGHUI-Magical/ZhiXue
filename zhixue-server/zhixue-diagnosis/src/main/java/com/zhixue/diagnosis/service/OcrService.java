@@ -46,9 +46,9 @@ public class OcrService {
 
     private static final Logger log = LoggerFactory.getLogger(OcrService.class);
 
-    private static final long MAX_IMAGE_BYTES = 10L * 1024 * 1024;
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
 
-    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
+    private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png");
 
     /** OCR 首次加载模型较慢，单独给 60 秒，不复用对话的 10 秒超时 */
     private static final Duration OCR_TIMEOUT = Duration.ofSeconds(60);
@@ -98,7 +98,9 @@ public class OcrService {
 
         String taskId = UUID.randomUUID().toString().replace("-", "");
         String extension = resolveExtension(image);
+        // 契约 V2 §4：data/upload/{userId}/{yyyyMM}/{uuid}.{ext}
         Path directory = Paths.get(saveDir).toAbsolutePath().normalize()
+                .resolve(String.valueOf(userId))
                 .resolve(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMM")));
         Path target = directory.resolve(taskId + "." + extension);
         try {
@@ -197,14 +199,14 @@ public class OcrService {
             throw new BizException(ErrorCode.PARAM_ERROR, "图片不能为空");
         }
         if (image.getSize() > MAX_IMAGE_BYTES) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "图片不能超过 10MB");
+            throw new BizException(ErrorCode.PARAM_ERROR, "图片不能超过 5MB");
         }
         String contentType = image.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {
             throw new BizException(ErrorCode.PARAM_ERROR, "仅支持图片文件");
         }
         if (!ALLOWED_EXTENSIONS.contains(resolveExtension(image))) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "仅支持 JPG/PNG/WEBP");
+            throw new BizException(ErrorCode.PARAM_ERROR, "仅支持 JPG/PNG");
         }
     }
 
@@ -223,7 +225,6 @@ public class OcrService {
         }
         return switch (contentType) {
             case "image/png" -> "png";
-            case "image/webp" -> "webp";
             case "image/jpeg" -> "jpg";
             default -> "";
         };

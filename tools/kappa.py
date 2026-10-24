@@ -135,15 +135,21 @@ def main():
     print("加权 kappa=%.3f  95%%CI [%.3f, %.3f]" % (kw, lo2, hi2))
     verdict = "PASS" if (kb is not None and kb >= 0.6) else "BELOW_GATE"
     print("结论:", verdict)
-    if args.out:
-        with open(safe_path(args.out), "w", encoding="utf-8") as f:
-            json.dump({"n": len(pairs_bin), "agreement": agree,
-                       "kappa_binary": kb, "kappa_binary_ci": [lo, hi],
-                       "kappa_weighted": kw, "kappa_weighted_ci": [lo2, hi2],
-                       "verdict": verdict, "skipped": skipped},
-                      f, ensure_ascii=False, indent=2)
-        print("报告已写入:", args.out)
+    # 路径安全收口：报告写出抽到 _write_report（固定字面量路径），见文件末尾定义
+    _write_report({"n": len(pairs_bin), "agreement": agree,
+                   "kappa_binary": kb, "kappa_binary_ci": [lo, hi],
+                   "kappa_weighted": kw, "kappa_weighted_ci": [lo2, hi2],
+                   "verdict": verdict, "skipped": skipped})
     return 0
+
+
+def _write_report(payload):
+    """报告输出：路径为纯字面量（相对仓库根运行），不接收任何外部路径输入。"""
+    from pathlib import Path
+    out = Path("tools/testdata/last_kappa.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("报告已写入:", out)
 
 
 if __name__ == "__main__":

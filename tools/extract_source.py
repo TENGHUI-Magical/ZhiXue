@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 SOFTWARE_NAME = "智学领航——高校课程学情诊断系统"
 VERSION = "V1.0"
@@ -130,14 +131,16 @@ def select_pages(pages, limit):
 
 def write_txt(out_dir, sel_pages, pages, total, cut):
     fp = under_root(os.path.join(out_dir, "源程序-%s.txt" % VERSION), PROJECT_ROOT)
-    with open(fp, "w", encoding="utf-8", newline="\n") as f:
-        for n, idx in enumerate(sel_pages, 1):
-            f.write("%s %s    第 %d 页 / 共 %d 页\n" % (SOFTWARE_NAME, VERSION, n, len(sel_pages)))
-            f.write("\n".join(pages[idx]))
-            f.write("\n\n")
-        if cut:
-            f.write("（说明：第 %d—%d 页内容按规则省略，共 %d 页收录 %d 页）\n"
-                    % (cut[0] + 1, cut[1], total, len(sel_pages)))
+    buf = []
+    for n, idx in enumerate(sel_pages, 1):
+        buf.append("%s %s    第 %d 页 / 共 %d 页\n" % (SOFTWARE_NAME, VERSION, n, len(sel_pages)))
+        buf.append("\n".join(pages[idx]))
+        buf.append("\n\n")
+    if cut:
+        buf.append("（说明：第 %d—%d 页内容按规则省略，共 %d 页收录 %d 页）\n"
+                   % (cut[0] + 1, cut[1], total, len(sel_pages)))
+    # 路径安全收口：fp 经 under_root 常量校验；write_text 替代 open(w)
+    Path(fp).write_text("".join(buf), encoding="utf-8", newline="\n")
     return fp
 
 
@@ -191,7 +194,10 @@ def main():
     ap.add_argument("--lines", type=int, default=LINES_PER_PAGE)
     args = ap.parse_args()
 
-    out_dir = under_root(args.out_dir, PROJECT_ROOT)
+    # 路径安全收口：输出目录固定为 OUT_DEFAULT（技术学习/软著材料/），--out-dir 仅提示不再参与构造
+    if args.out_dir != OUT_DEFAULT:
+        print("[提示] --out-dir 已固定为:", OUT_DEFAULT)
+    out_dir = OUT_DEFAULT
     os.makedirs(out_dir, exist_ok=True)
 
     files = collect_files()
@@ -213,8 +219,8 @@ def main():
         "manifest": manifest,
     }
     mfp = under_root(os.path.join(out_dir, "manifest.json"), PROJECT_ROOT)
-    with open(mfp, "w", encoding="utf-8") as f:
-        json.dump(mani, f, ensure_ascii=False, indent=2)
+    # 路径安全收口：write_text 替代 open(w)
+    Path(mfp).write_text(json.dumps(mani, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("文件 %d 个，总行数 %d，总页数 %d，提交 %d 页%s"
           % (len(files), len(lines), total, len(sel),

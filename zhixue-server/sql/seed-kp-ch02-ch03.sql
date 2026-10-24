@@ -4,6 +4,8 @@
 -- 页码为教材印刷页；教材：《数据库系统概论（第6版）》王珊、杜小勇、陈红。
 
 USE zhixue;
+-- Windows 下 mysql 客户端默认字符集可能是 GBK，显式声明避免中文乱码/1366 错误
+SET NAMES utf8mb4;
 
 INSERT INTO course_chapter (course_id, chapter_no, title, sort_no) VALUES
 (1, 2, '关系模型', 1),
@@ -401,5 +403,27 @@ INSERT INTO kp_keyword (kp_id, keyword, weight) VALUES
 ('KP0310', '外模式', 0.50)
 ON DUPLICATE KEY UPDATE weight = VALUES(weight);
 
-UPDATE course SET dimension_json = '[{"key":"concept","name":"概念理解","kpIds":["KP0201","KP0202","KP0205","KP0209","KP0210","KP0301"]},{"key":"sql","name":"SQL 编写","kpIds":["KP0302","KP0303","KP0304","KP0305","KP0306","KP0307","KP0309","KP0310"]},{"key":"schema","name":"模式设计","kpIds":["KP0203","KP0204","KP0206","KP0207","KP0208"]},{"key":"transaction","name":"事务与并发","kpIds":[]},{"key":"boundary","name":"边界与异常","kpIds":["KP0308"]}]'
+UPDATE course SET dimension_json = '[{"key":"concept","name":"概念理解"},{"key":"sql","name":"SQL 编写"},{"key":"schema","name":"模式设计"},{"key":"transaction","name":"事务与并发"},{"key":"boundary","name":"边界与异常"}]'
 WHERE course_id = 1;
+
+-- 自检提示（讲解末段使用；契约 V2 §7.1 要求）
+UPDATE knowledge_point SET trial_hint='用一句话说出关系模型的三个组成部分' WHERE kp_id='KP0201';
+UPDATE knowledge_point SET trial_hint='笛卡儿积的基数怎么算？' WHERE kp_id='KP0202';
+UPDATE knowledge_point SET trial_hint='候选码为什么要求真子集不能唯一标识？' WHERE kp_id='KP0203';
+UPDATE knowledge_point SET trial_hint='关系模式与关系，哪个是型、哪个是值？' WHERE kp_id='KP0204';
+UPDATE knowledge_point SET trial_hint='五种基本关系运算分别是什么？' WHERE kp_id='KP0205';
+UPDATE knowledge_point SET trial_hint='主码能否取空值？为什么？' WHERE kp_id='KP0206';
+UPDATE knowledge_point SET trial_hint='外码的取值有哪两类合法情况？' WHERE kp_id='KP0207';
+UPDATE knowledge_point SET trial_hint='举一个用户定义完整性的例子' WHERE kp_id='KP0208';
+UPDATE knowledge_point SET trial_hint='并、差、交运算对两个关系有什么前提？' WHERE kp_id='KP0209';
+UPDATE knowledge_point SET trial_hint='投影后为什么可能需要取消重复元组？' WHERE kp_id='KP0210';
+UPDATE knowledge_point SET trial_hint='SQL 的外模式、模式、内模式分别对应什么？' WHERE kp_id='KP0301';
+UPDATE knowledge_point SET trial_hint='DROP TABLE 与 DELETE 的区别是什么？' WHERE kp_id='KP0302';
+UPDATE knowledge_point SET trial_hint='WHERE 与 HAVING 的分工是什么？' WHERE kp_id='KP0303';
+UPDATE knowledge_point SET trial_hint='自然连接与等值连接差在哪里？' WHERE kp_id='KP0304';
+UPDATE knowledge_point SET trial_hint='什么情况下必须用相关子查询？' WHERE kp_id='KP0305';
+UPDATE knowledge_point SET trial_hint='UNION 默认会去重吗？' WHERE kp_id='KP0306';
+UPDATE knowledge_point SET trial_hint='UPDATE 漏写 WHERE 会发生什么？' WHERE kp_id='KP0307';
+UPDATE knowledge_point SET trial_hint='NULL 与任何值比较的结果是什么？' WHERE kp_id='KP0308';
+UPDATE knowledge_point SET trial_hint='哪些视图一般是可更新的？' WHERE kp_id='KP0309';
+UPDATE knowledge_point SET trial_hint='视图的两个主要作用是什么？' WHERE kp_id='KP0310';

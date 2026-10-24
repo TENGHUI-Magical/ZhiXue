@@ -5,6 +5,8 @@
 -- 待教师复核：Q_0220、Q_0224、Q_0326
 
 USE zhixue;
+-- Windows 下 mysql 客户端默认字符集可能是 GBK，显式声明避免中文乱码/1366 错误
+SET NAMES utf8mb4;
 
 INSERT INTO question_bank (q_id, course_id, primary_kp_id, question_type, question_text, options_json, answer_text, analysis_text, difficulty, source, variant_hint)
 VALUES ('Q_0201', 1, 'KP0201', '单选',

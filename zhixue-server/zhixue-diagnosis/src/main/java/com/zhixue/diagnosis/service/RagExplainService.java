@@ -2,12 +2,15 @@ package com.zhixue.diagnosis.service;
 
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
+import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.dto.ExplainRequest;
+import com.zhixue.diagnosis.entity.AiGenerationLog;
+import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -70,6 +73,7 @@ public class RagExplainService {
     private final StudentErrorRecordService errorRecordService;
     private final AiClientProperties aiClientProperties;
     private final ObjectMapper objectMapper;
+    private final AiGenerationLogMapper aiGenerationLogMapper;
     private final WebClient webClient;
 
     private final ScheduledExecutorService heartbeatPool =
@@ -80,11 +84,13 @@ public class RagExplainService {
     public RagExplainService(KnowledgePointService knowledgePointService,
                              StudentErrorRecordService errorRecordService,
                              AiClientProperties aiClientProperties,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             AiGenerationLogMapper aiGenerationLogMapper) {
         this.knowledgePointService = knowledgePointService;
         this.errorRecordService = errorRecordService;
         this.aiClientProperties = aiClientProperties;
         this.objectMapper = objectMapper;
+        this.aiGenerationLogMapper = aiGenerationLogMapper;
         this.webClient = WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build();
     }
 
@@ -125,10 +131,19 @@ public class RagExplainService {
             return emitter;
         }
 
+        long userId = StpUtil.getLoginIdAsLong();
+        String traceId = "t-" + explainId;
+        StringBuilder content = new StringBuilder();
+        AtomicReference<String> modelUsed = new AtomicReference<>("unknown");
+        AtomicReference<String> degradeLevel = new AtomicReference<>();
+        AtomicBoolean degraded = new AtomicBoolean(false);
+        AtomicBoolean blocked = new AtomicBoolean(false);
+        AtomicInteger completionTokens = new AtomicInteger();
+        AtomicBoolean logged = new AtomicBoolean(false);
+
         AtomicBoolean closed = new AtomicBoolean(false);
         AtomicBoolean chunkReceived = new AtomicBoolean(false);
         AtomicInteger characters = new AtomicInteger();
-        AtomicInteger tokens = new AtomicInteger();
         AtomicReference<Disposable> upstream = new AtomicReference<>();
 
         ScheduledFuture<?> heartbeat = heartbeatPool.scheduleAtFixedRate(
@@ -143,6 +158,11 @@ public class RagExplainService {
             if (closed.compareAndSet(false, true)) {
                 heartbeat.cancel(false);
                 dispose(upstream.get());
+                // 客户端断开也要留痕：契约 5.3 要求已生成内容与耗时照常记录
+                fallbackPool.execute(() -> writeLog(explainId, traceId, userId, request.getLogId(),
+                        kp.getKpId(), modelUsed.get(), degraded.get(), degradeLevel.get(),
+                        System.currentTimeMillis() - start, completionTokens.get(),
+                        content.toString(), blocked.get(), logged));
             }
         };
         emitter.onCompletion(cleanup);
@@ -179,11 +199,32 @@ public class RagExplainService {
                             if (!text.isEmpty()) {
                                 chunkReceived.set(true);
                                 characters.addAndGet(text.length());
+                                content.append(text);
                                 send(emitter, "delta", Map.of("text", text));
                             }
                         }
-                        case "degraded" -> sendRaw(emitter, "degraded", event.data());
-                        case "done" -> tokens.set(readTokens(event.data()));
+                        case "degraded" -> {
+                            degraded.set(true);
+                            String level = readString(event.data(), "level");
+                            if (level != null && !level.isBlank()) {
+                                degradeLevel.set(level);
+                            }
+                            sendRaw(emitter, "degraded", event.data());
+                        }
+                        case "done" -> {
+                            Map<String, Object> done = readMap(event.data());
+                            completionTokens.set(intValue(done.get("tokens")));
+                            Object model = done.get("modelUsed");
+                            if (model != null && !String.valueOf(model).isBlank()) {
+                                modelUsed.set(String.valueOf(model));
+                            }
+                            if (Boolean.TRUE.equals(done.get("degraded"))) {
+                                degraded.set(true);
+                            }
+                            if (Boolean.TRUE.equals(done.get("blocked"))) {
+                                blocked.set(true);
+                            }
+                        }
                         default -> {
                             // 未知事件忽略，保持前向兼容
                         }
@@ -192,10 +233,10 @@ public class RagExplainService {
                 error -> {
                     log.warn("AI 讲解上游失败，切本地模板：{}", error.toString());
                     fallback(emitter, kp, request, explainId, start, chunkReceived,
-                            characters, cleanup);
+                            characters, cleanup, content, modelUsed, degraded, degradeLevel);
                 },
                 () -> {
-                    sendDone(emitter, explainId, start, tokens.get());
+                    sendDone(emitter, explainId, start, completionTokens.get());
                     emitter.complete();
                     cleanup.run();
                 });
@@ -206,13 +247,19 @@ public class RagExplainService {
     /** 上游不可用时，用概念切片本地拼讲解；已收到部分 delta 时只补降级标记与 done。 */
     private void fallback(SseEmitter emitter, KnowledgePoint kp, ExplainRequest request,
                           String explainId, long start, AtomicBoolean chunkReceived,
-                          AtomicInteger characters, Runnable cleanup) {
+                          AtomicInteger characters, Runnable cleanup, StringBuilder content,
+                          AtomicReference<String> modelUsed, AtomicBoolean degraded,
+                          AtomicReference<String> degradeLevel) {
         fallbackPool.execute(() -> {
             try {
+                degraded.set(true);
+                degradeLevel.set("L3");
+                modelUsed.set("local-template");
                 if (!chunkReceived.get()) {
                     send(emitter, "degraded", Map.of("level", "L3", "reason", "AI 服务不可用"));
                     for (String part : localTemplate(kp, request)) {
                         characters.addAndGet(part.length());
+                        content.append(part);
                         send(emitter, "delta", Map.of("text", part));
                         sleepQuietly(30);
                     }
@@ -312,20 +359,63 @@ public class RagExplainService {
         }
     }
 
-    /** 上游 done 的 data 是 {"tokens":N,...}；缺失时返回 0 */
-    private int readTokens(String data) {
+    /** 解析上游 JSON；失败返回空 Map，不阻断流 */
+    private Map<String, Object> readMap(String data) {
         if (data == null || data.isBlank()) {
-            return 0;
+            return Map.of();
         }
         try {
-            Map<String, Object> map = objectMapper.readValue(data,
-                    new TypeReference<Map<String, Object>>() {
-                    });
-            Object tokens = map.get("tokens");
-            return tokens instanceof Number number ? number.intValue() : 0;
+            return objectMapper.readValue(data, new TypeReference<Map<String, Object>>() {
+            });
         } catch (Exception e) {
-            log.debug("上游 done 解析失败：{}", e.toString());
+            log.debug("上游事件解析失败：{}", e.toString());
+            return Map.of();
+        }
+    }
+
+    private String readString(String data, String key) {
+        Object value = readMap(data).get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private int intValue(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (Exception e) {
             return 0;
+        }
+    }
+
+    /** 写 ai_generation_log：同一 explainId 只写一次，客户端断开时也保留已生成内容 */
+    private void writeLog(String explainId, String traceId, long userId, String logId, String kpId,
+                          String model, boolean degraded, String degradeLevel, long latencyMs,
+                          int completionTokens, String content, boolean blocked, AtomicBoolean logged) {
+        if (!logged.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            AiGenerationLog row = new AiGenerationLog();
+            row.setExplainId(explainId);
+            row.setTraceId(traceId);
+            row.setUserId(userId);
+            row.setLogId(logId);
+            row.setScene("RAG");
+            row.setModel(model);
+            row.setPromptVersion("v1");
+            row.setIsDegraded(degraded ? 1 : 0);
+            row.setDegradeLevel(degradeLevel);
+            row.setLatencyMs((int) Math.min(latencyMs, Integer.MAX_VALUE));
+            row.setPromptTokens(0);
+            row.setCompletionTokens(completionTokens);
+            row.setSourceIds(objectMapper.writeValueAsString(List.of(kpId)));
+            row.setContentText(content.length() > 20000 ? content.substring(0, 20000) : content);
+            row.setIsBlocked(blocked ? 1 : 0);
+            aiGenerationLogMapper.insert(row);
+        } catch (Exception e) {
+            log.warn("AI 讲解留痕写入失败 explainId={}", explainId, e);
         }
     }
 

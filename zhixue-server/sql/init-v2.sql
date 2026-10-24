@@ -5,6 +5,9 @@
 -- 约定：不用外键（关联关系在应用层维护）、表名小写下划线、单数、字段带注释
 -- ============================================================
 
+-- Windows 下 mysql 客户端默认字符集可能是 GBK，显式声明避免中文乱码/1366 错误
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS zhixue
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_0900_ai_ci;

@@ -51,19 +51,19 @@ public class DiagnosisController {
     }
 
     /**
-     * 提交 OCR 任务（契约 2.2 节第一步）：multipart 字段名 image，可选 clientToken 幂等。
+     * 提交 OCR 任务（契约 V2 §4）：multipart 字段名 file，可选 clientToken 幂等。
      */
-    @PostMapping(value = "/diagnosis/ocr/parse", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<OcrAccepted> ocrParse(@RequestPart("image") MultipartFile image,
+    @PostMapping(value = "/error/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<OcrAccepted> ocrParse(@RequestPart("file") MultipartFile file,
                                              @RequestParam(required = false) String clientToken) {
         return ApiResponse.ok(new OcrAccepted(
-                ocrService.submit(image, clientToken, StpUtil.getLoginIdAsLong())));
+                ocrService.submit(file, clientToken, StpUtil.getLoginIdAsLong())));
     }
 
     /**
-     * 轮询 OCR 任务（契约 2.2 节第二步），前端 1.5 秒间隔。
+     * 轮询 OCR 任务（契约 2.2 节第二步），前端 2 秒间隔。
      */
-    @GetMapping("/diagnosis/ocr/task/{taskId}")
+    @GetMapping("/error/ocr/task/{taskId}")
     public ApiResponse<OcrTaskView> ocrTask(@PathVariable String taskId) {
         return ApiResponse.ok(ocrService.getTask(taskId, StpUtil.getLoginIdAsLong()));
     }
