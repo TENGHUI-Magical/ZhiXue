@@ -25,7 +25,7 @@
         <!-- 仅为在 GlobalExceptionHandler 中收口 Sa-Token 异常；optional 不传递给下游模块 -->
         <dependency>
             <groupId>cn.dev33</groupId>
-            <artifactId>sa-token-spring-boot3-starter</artifactId>
+            <artifactId>sa-token-spring-boot4-starter</artifactId>
             <optional>true</optional>
         </dependency>
     </dependencies>

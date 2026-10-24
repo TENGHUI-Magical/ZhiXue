@@ -1,6 +1,6 @@
 # zhixue-server 工程骨架说明
 
-智学领航业务服务 · 当前 Spring Boot 3.2.5（迁移起点）；目标 4.0.x，验证不过退回 3.5.16。模块化单体（规划书 2.1 节 阶段 A，3 个部署单元中的 Java 侧）。
+智学领航业务服务 · Spring Boot 4.0.6 + Java 21（2026-10-24 验证通过，见 `docs/adr/ADR-004-SpringBoot版本选型.md`）。模块化单体（规划书 2.1 节 阶段 A，3 个部署单元中的 Java 侧）。
 
 ## 模块结构
 
@@ -30,7 +30,7 @@ entity      → @TableName 与 init-v2.sql 对齐
 ## 运行
 
 ```bash
-# 前置：docker compose up -d 起好 MySQL/Redis（见部署方案 2 节），表结构由 init-v2.sql 自动建（16 表）
+# 前置：JDK 21；docker compose up -d 起好 MySQL/Redis（见部署方案 2 节），表结构由 init-v2.sql 自动建（16 表）
 mvn -pl zhixue-bootstrap -am spring-boot:run
 # 验证分层示例：GET http://localhost:8080/api/course/kp/KP0101
 ```

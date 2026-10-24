@@ -20,7 +20,7 @@
         </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
         </dependency>
         <!-- 调用 zhixue-ai 的 HTTP 客户端：OCR / RAG / LLM 均经 FastAPI 网关，Java 侧不直连大模型 -->
         <dependency>
