@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- 智学领航 · zhixue-server：模块化单体（规划书 2.1 节 阶段 A） -->
+    <!-- 2026-10-24 口径：目标 Spring Boot 4.0.x + Java 21。先做 0.5h 兼容性验证
+         （mybatis-plus-spring-boot4-starter 3.5.17 / sa-token-spring-boot4-starter 1.46.0 / springdoc 3.1.1），
+         三项全过再升级本文件；任一项报错则退回 3.5.16。当前 3.2.5 仅作迁移起点。 -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.zhixue</groupId>
+    <artifactId>zhixue-server</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>zhixue-server</name>
+    <description>智学领航业务服务（模块化单体，多模块 Maven）</description>
+
+    <modules>
+        <module>zhixue-common</module>
+        <module>zhixue-user</module>
+        <module>zhixue-course</module>
+        <module>zhixue-diagnosis</module>
+        <module>zhixue-plan</module>
+        <module>zhixue-notification</module>
+        <module>zhixue-bootstrap</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <mybatis-plus.version>3.5.7</mybatis-plus.version>
+        <sa-token.version>1.39.0</sa-token.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- 内部模块统一版本 -->
+            <dependency>
+                <groupId>com.zhixue</groupId>
+                <artifactId>zhixue-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- MyBatis-Plus（Spring Boot 3 专用 starter） -->
+            <dependency>
+                <groupId>com.baomidou</groupId>
+                <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+                <version>${mybatis-plus.version}</version>
+            </dependency>
+            <!-- Sa-Token（规划书硬约束：不使用 Spring Security） -->
+            <dependency>
+                <groupId>cn.dev33</groupId>
+                <artifactId>sa-token-spring-boot3-starter</artifactId>
+                <version>${sa-token.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

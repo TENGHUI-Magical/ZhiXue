@@ -1,0 +1,27 @@
+# 智学领航 · 基础设施编排（部署方案 2 节）
+# 规划书决策：只容器化基础设施（MySQL/Redis），三个应用本地直跑，降低 4 人团队环境管理成本
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: zhixue-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: change-me          # 生产/联调前必须修改，与 application.yml 一致
+      MYSQL_DATABASE: zhixue                  # 首次启动自动建库；表结构由 init-v2.sql 建（16 表）
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"                           # 本机已占用 MySQL 时改 3307:3306
+    volumes:
+      - ./data/mysql:/var/lib/mysql           # 数据持久化（备份见部署方案 5 节）
+      - ./zhixue-server/sql/init-v2.sql:/docker-entrypoint-initdb.d/init-v2.sql:ro
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+  redis:
+    image: redis:7-alpine
+    container_name: zhixue-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+
+# 说明：zhixue-ai 的向量索引（numpy）与上传图片持久化在其自身 data/ 目录（非容器），
+#       三资产统一位于 data/ 下，备份直接打包该目录（部署方案 5 节）

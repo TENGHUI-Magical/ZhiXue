@@ -1,0 +1,27 @@
+{
+  "name": "zhixue-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "智学领航前端（学生端+教师端合一，规划书 2.1 节）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@antv/g6": "^5.0.0",
+    "axios": "^1.7.2",
+    "echarts": "^5.5.0",
+    "element-plus": "^2.7.5",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "~5.4.5",
+    "vite": "^5.2.11",
+    "vue-tsc": "^2.0.19"
+  }
+}

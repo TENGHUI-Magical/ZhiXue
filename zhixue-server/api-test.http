@@ -1,0 +1,11 @@
+### 查知识点
+GET http://localhost:8080/api/course/kp/KP0101
+
+### 登录
+POST http://localhost:8080/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "2023034743010",
+  "password": "123456"
+}

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.zhixue</groupId>
+        <artifactId>zhixue-server</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>zhixue-diagnosis</artifactId>
+    <name>zhixue-diagnosis</name>
+    <description>诊断核心模块：错题记录/OCR 任务调度/知识点映射/RAG 讲解（契约 2.2-2.4 节）/学情画像（2.5 节）；答辩核心，微服务化(阶段B)时优先拆分</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.zhixue</groupId>
+            <artifactId>zhixue-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+        </dependency>
+        <!-- 调用 zhixue-ai 的 HTTP 客户端：OCR / RAG / LLM 均经 FastAPI 网关，Java 侧不直连大模型 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+    </dependencies>
+</project>
