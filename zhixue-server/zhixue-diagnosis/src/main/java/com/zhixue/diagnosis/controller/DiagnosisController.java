@@ -2,6 +2,9 @@ package com.zhixue.diagnosis.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.common.api.ApiResponse;
+import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.exception.BizException;
+import com.zhixue.common.web.TraceIdFilter;
 import com.zhixue.diagnosis.dto.ExplainRequest;
 import com.zhixue.diagnosis.dto.MapRequest;
 import com.zhixue.diagnosis.dto.MapResult;
@@ -12,6 +15,7 @@ import com.zhixue.diagnosis.service.KpMappingService;
 import com.zhixue.diagnosis.service.OcrService;
 import com.zhixue.diagnosis.service.RagExplainService;
 import com.zhixue.diagnosis.service.RecommendationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -51,19 +55,23 @@ public class DiagnosisController {
     }
 
     /**
-     * 提交 OCR 任务（契约 V2 §4）：multipart 字段名 file，可选 clientToken 幂等。
+     * 提交 OCR 任务（契约 V2 §4）：multipart 字段固定 file + clientToken（必填，幂等键）。
      */
     @PostMapping(value = "/error/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<OcrAccepted> ocrParse(@RequestPart("file") MultipartFile file,
                                              @RequestParam(required = false) String clientToken) {
+        // 契约 §1：clientToken 必填；手动校验空值，保证 40000 口径统一（缺参/空串同语义）
+        if (clientToken == null || clientToken.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "clientToken 不能为空");
+        }
         return ApiResponse.ok(new OcrAccepted(
                 ocrService.submit(file, clientToken, StpUtil.getLoginIdAsLong())));
     }
 
     /**
-     * 轮询 OCR 任务（契约 2.2 节第二步），前端 2 秒间隔。
+     * 轮询 OCR 任务（契约 §3.1：GET /api/error/tasks/{taskId}），前端 2 秒间隔。
      */
-    @GetMapping("/error/ocr/task/{taskId}")
+    @GetMapping("/error/tasks/{taskId}")
     public ApiResponse<OcrTaskView> ocrTask(@PathVariable String taskId) {
         return ApiResponse.ok(ocrService.getTask(taskId, StpUtil.getLoginIdAsLong()));
     }
@@ -79,11 +87,13 @@ public class DiagnosisController {
 
     /**
      * RAG 流式讲解（SSE）：meta → source → delta* →（degraded）→ done / error。
-     * 请求：{"kpId":"KP0201","errorType":"CONCEPT_CONFUSION","questionText":"..."}
+     * 请求：{"logId":"...","kpId":"KP0201","errorType":"CONCEPT_CONFUSION","questionText":"..."}
+     * traceId 由 TraceIdFilter 生成（契约 §1.2），在请求线程内取出透传给服务层。
      */
     @PostMapping(value = "/diagnosis/explain", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter explain(@Valid @RequestBody ExplainRequest request) {
-        return ragExplainService.explain(request);
+    public SseEmitter explain(@Valid @RequestBody ExplainRequest request, HttpServletRequest httpRequest) {
+        return ragExplainService.explain(request,
+                (String) httpRequest.getAttribute(TraceIdFilter.ATTRIBUTE));
     }
 
     /**

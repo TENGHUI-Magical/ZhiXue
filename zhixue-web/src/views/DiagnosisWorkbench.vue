@@ -34,16 +34,8 @@
             :closable="false"
             show-icon
             class="ocr-alert"
-            title="识别置信度低于 0.75，请人工核对题干后再分析"
+            title="识别置信度低于 0.75：请核对并修正题干（或重新选择知识点）后再分析"
           />
-          <el-button
-            v-if="lowConfidence"
-            size="small"
-            class="ocr-confirm"
-            @click="lowConfidence = false"
-          >
-            我已核对，继续
-          </el-button>
           <el-alert
             v-if="ocrError"
             type="error"
@@ -154,51 +146,20 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
-import { api } from "../api/request";
-
-interface MapCandidate {
-  kpId: string;
-  name: string;
-  score: number;
-  channel: string;
-}
-
-interface MapResult {
-  decision: "AUTO" | "CONFIRM" | "FAILED";
-  top1?: MapCandidate | null;
-  candidates: MapCandidate[];
-  degraded: boolean;
-}
-
-interface SourceRef {
-  kpId: string;
-  textbookPage?: string | null;
-  title?: string | null;
-}
-
-interface Recommendation {
-  recommendationId?: number | null;
-  qId: string;
-  layer: "CONSOLIDATE" | "VARIANT" | "ADVANCE";
-  reason: string;
-  difficulty: number;
-  isAdopted: boolean;
-  questionText: string;
-}
-
-interface OcrTask {
-  taskId: string;
-  status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
-  confidence?: number | null;
-  fields?: { stem?: string; rawText?: string } | null;
-  errorCode?: string | null;
-  errorMsg?: string | null;
-}
-
-interface ErrorRecord {
-  logId: string;
-  status: string;
-}
+import {
+  LOW_CONFIDENCE_THRESHOLD,
+  createErrorRecord,
+  confirmErrorRecord,
+  getOcrTask,
+  getRecommendations,
+  mapKnowledgePoint,
+  streamExplain,
+  uploadOcrImage,
+  type ErrorRecord,
+  type MapResult,
+  type Recommendation,
+  type SourceRef
+} from "../api/diagnosis";
 
 const ERROR_TYPES = [
   { value: "CONCEPT_CONFUSION", label: "概念混淆" },
@@ -273,7 +234,7 @@ const pollTask = (taskId: string) => {
       return;
     }
     try {
-      const task = await api.get<OcrTask>(`/api/error/ocr/task/${taskId}`);
+      const task = await getOcrTask(taskId);
       if (task.status === "SUCCESS") {
         stopPolling();
         parsing.value = false;
@@ -281,7 +242,7 @@ const pollTask = (taskId: string) => {
         if (text) {
           questionText.value = text;
         }
-        lowConfidence.value = (task.confidence ?? 0) < 0.75;
+        lowConfidence.value = (task.confidence ?? 0) < LOW_CONFIDENCE_THRESHOLD;
       } else if (task.status === "FAILED") {
         stopPolling();
         parsing.value = false;
@@ -299,11 +260,8 @@ const handleUpload = async (options: UploadRequestOptions) => {
   parsing.value = true;
   lowConfidence.value = false;
   ocrError.value = "";
-  const form = new FormData();
-  form.append("file", options.file);
-  form.append("clientToken", crypto.randomUUID());
   try {
-    const data = await api.upload<{ taskId: string }>("/api/error/upload", form);
+    const data = await uploadOcrImage(options.file);
     pollTask(data.taskId);
   } catch {
     parsing.value = false;
@@ -344,10 +302,7 @@ const analyze = async () => {
   selectedKpId.value = "";
   matching.value = true;
   try {
-    const data = await api.post<MapResult>("/api/diagnosis/map", {
-      text: questionText.value,
-      courseId: 1
-    });
+    const data = await mapKnowledgePoint(questionText.value);
     mapResult.value = data;
     if (data.candidates.length) {
       selectedKpId.value = data.candidates[0].kpId;
@@ -362,28 +317,8 @@ const analyze = async () => {
   }
 };
 
-/** 解析单个 SSE 帧：Java 发出的是 `event:meta`（冒号后无空格），必须 trim */
-const handleFrame = (frame: string) => {
-  if (!frame.trim()) return;
-  let event = "message";
-  const dataLines: string[] = [];
-  for (const raw of frame.split("\n")) {
-    const line = raw.trimEnd();
-    if (line.startsWith("event:")) {
-      event = line.slice(6).trim();
-    } else if (line.startsWith("data:")) {
-      dataLines.push(line.slice(5).trimStart());
-    }
-  }
-  if (!dataLines.length) return;
-
-  let payload: Record<string, unknown>;
-  try {
-    payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
-  } catch {
-    // 坏帧只丢弃当前帧，不能中断整条流
-    return;
-  }
+/** SSE 事件分发：delta/source/degraded/done/error（error 含 60004 合规拦截） */
+const handleFrame = (event: string, payload: Record<string, unknown>) => {
   switch (event) {
     case "meta":
       explainId.value = String(payload.explainId ?? "");
@@ -408,6 +343,11 @@ const handleFrame = (frame: string) => {
       void loadRecommend();
       break;
     case "error":
+      // 契约 §2：60004 展示学术诚信提示，不展示讲解正文
+      if (Number(payload.code) === 60004) {
+        blocked.value = true;
+        explainText.value = "";
+      }
       errorMsg.value = String(payload.message ?? "讲解失败");
       break;
     default:
@@ -416,7 +356,8 @@ const handleFrame = (frame: string) => {
   }
 };
 
-const redirectIfUnauthorized = (body: { code?: number } | null) => {
+const redirectIfUnauthorized = (raw: unknown) => {
+  const body = raw as { code?: number } | null;
   if (body?.code === 40100) {
     localStorage.removeItem("satoken");
     window.location.assign("/login");
@@ -432,51 +373,21 @@ const startExplain = async () => {
   resetExplainState();
   explaining.value = true;
 
-  const token = localStorage.getItem("satoken");
   try {
     // 契约前置：先落一条 CONFIRMED 错题记录，再请求讲解
     const recordId = await ensureRecord();
-    const response = await fetch("/api/diagnosis/explain", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { satoken: token } : {})
-      },
-      body: JSON.stringify({
+    await streamExplain(
+      {
         logId: recordId,
         kpId: selectedKpId.value,
         errorType: errorType.value,
         questionText: questionText.value,
         forceRefresh: false
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok || !response.body) {
-      const body = await response.json().catch(() => null);
-      if (redirectIfUnauthorized(body)) return;
-      throw new Error(body?.message ?? `讲解请求失败（HTTP ${response.status}）`);
-    }
-    // 参数校验失败时后端会返回 200 + application/json，不能按 SSE 流解析
-    if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
-      const body = await response.json().catch(() => null);
-      if (redirectIfUnauthorized(body)) return;
-      throw new Error(body?.message ?? "讲解服务返回了非流式响应");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split("\n\n");
-      buffer = frames.pop() ?? "";
-      frames.forEach(handleFrame);
-    }
-    buffer += decoder.decode();
-    if (buffer.trim()) handleFrame(buffer);
+      },
+      handleFrame,
+      controller.signal,
+      redirectIfUnauthorized
+    );
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
     errorMsg.value = error instanceof Error ? error.message : "讲解失败，请稍后重试";
@@ -488,21 +399,18 @@ const startExplain = async () => {
 /** 创建并确认错题记录：讲解必须基于 CONFIRMED 记录（契约前置） */
 const ensureRecord = async (): Promise<string> => {
   if (logId.value) return logId.value;
-  const created = await api.post<ErrorRecord>("/api/error/records", {
+  const created = await createErrorRecord({
     courseId: 1,
     clientToken: crypto.randomUUID(),
     kpId: selectedKpId.value,
     errorType: errorType.value,
     correctedText: questionText.value
   });
-  const confirmed = await api.put<ErrorRecord>(
-    `/api/error/records/${created.logId}/confirm`,
-    {
-      kpId: selectedKpId.value,
-      errorType: errorType.value,
-      correctedText: questionText.value
-    }
-  );
+  const confirmed = await confirmErrorRecord(created.logId, {
+    kpId: selectedKpId.value,
+    errorType: errorType.value,
+    correctedText: questionText.value
+  });
   logId.value = confirmed.logId;
   return logId.value;
 };
@@ -513,18 +421,17 @@ const loadRecommend = async () => {
     const params = logId.value
       ? { logId: logId.value }
       : { kpId: selectedKpId.value };
-    questions.value = await api.get<Recommendation[]>("/api/recommendations", {
-      ...params,
-      courseId: 1
-    });
+    questions.value = await getRecommendations({ ...params, courseId: 1 });
   } catch {
     // request.ts 已统一提示；推荐失败不影响讲解展示
   }
 };
 
-// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录
+// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录；
+// 低置信门禁（契约 §4）：编辑题干或重新选择知识点即视为完成人工核对，解除禁止
 watch([questionText, selectedKpId, errorType], () => {
   logId.value = "";
+  lowConfidence.value = false;
 });
 
 onBeforeUnmount(() => {

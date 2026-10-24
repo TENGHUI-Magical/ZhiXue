@@ -16,44 +16,61 @@ public class AiGenerationLog {
     @TableId(value = "log_pk", type = IdType.AUTO)
     private Long logPk;
 
+    /** 讲解编号，如 EX_20261025120000_a1b2；同一讲解只落一行 */
     private String explainId;
 
+    /** 全链路追踪 ID（TraceIdFilter 生成，契约 §1.2） */
     private String traceId;
 
+    /** 学生 user_id */
     private Long userId;
 
+    /** 关联错题记录 log_id；可为空 */
     private String logId;
 
     /** OCR / RAG / LLM / RECOMMEND */
     private String scene;
 
+    /** 实际使用的模型名（deepseek-chat / glm-4-flash / local-template） */
     private String model;
 
+    /** Prompt 模板版本（Prompt 库入 Git，版本可回溯） */
     private String promptVersion;
 
+    /** 是否降级：1 是，0 否 */
     private Integer isDegraded;
 
+    /** 降级级别：L2 / L3；未降级为 NULL */
     private String degradeLevel;
 
+    /** 讲解耗时毫秒 */
     private Integer latencyMs;
 
+    /** 输入 token 数（上游 usage 透传；本地模板为 0） */
     private Integer promptTokens;
 
+    /** 输出 token 数 */
     private Integer completionTokens;
 
     /** 引用的知识切片 kp_id 数组 JSON */
     private String sourceIds;
 
+    /** 讲解正文快照（上限 20000 字符，超限截断并 log.warn） */
     private String contentText;
 
+    /** 是否触发合规拦截：1 是，0 否 */
     private Integer isBlocked;
 
+    /** 教师评阅分数 1—5；未评为 NULL（G5 双评数据源） */
     private Integer teacherScore;
 
+    /** 教师评语 */
     private String teacherComment;
 
+    /** 评阅时间 */
     private LocalDateTime reviewedAt;
 
+    /** 生成时间 */
     private LocalDateTime createdAt;
 
     public Long getLogPk() { return logPk; }

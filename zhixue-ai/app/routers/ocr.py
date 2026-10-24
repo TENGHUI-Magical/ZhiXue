@@ -14,11 +14,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, ImageOps
 
+from app.config import settings
 from app.schemas import OcrLine, OcrRecognizeOut
 
 router = APIRouter()
-
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 _engine: Any = None
 
@@ -34,9 +33,10 @@ def _get_engine() -> Any:
 
 def _recognize(data: bytes) -> OcrRecognizeOut:
     start = time.time()
-    # 契约 V2 §4：先按 EXIF 旋转，再压到长边 ≤1600 后识别
+    # 契约 V2 §4：先按 EXIF 旋转，再压到长边 ≤ 上限（配置化）后识别
     image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
-    image.thumbnail((1600, 1600), Image.LANCZOS)
+    side = settings.ocr_max_side
+    image.thumbnail((side, side), Image.LANCZOS)
     result, _ = _get_engine()(np.array(image))
     lines: list[OcrLine] = []
     for item in result or []:
@@ -60,8 +60,8 @@ async def recognize(image: UploadFile = File(..., description="错题图片，�
     data = await image.read()
     if not data:
         raise HTTPException(status_code=400, detail="图片为空")
-    if len(data) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="图片超过 5MB")
+    if len(data) > settings.ocr_max_image_bytes:
+        raise HTTPException(status_code=413, detail="图片超过大小上限")
     try:
         return await run_in_threadpool(_recognize, data)
     except Exception as exc:  # 图片损坏、引擎异常等

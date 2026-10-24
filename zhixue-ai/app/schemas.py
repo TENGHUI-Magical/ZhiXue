@@ -44,6 +44,7 @@ class RagExplainRequest(BaseModel):
     errorType: Optional[str] = Field(default=None, description="契约五类错因英文 Key")
     courseId: int = Field(default=1, description="课程 ID")
     logId: Optional[str] = Field(default=None, description="错题记录编号；竖切阶段可为空")
+    traceId: Optional[str] = Field(default=None, description="Java 生成的链路追踪 ID（契约 §1.2），优先回显")
 
 
 class RagRetrieveRequest(BaseModel):

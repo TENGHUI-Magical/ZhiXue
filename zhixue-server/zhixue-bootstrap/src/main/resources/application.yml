@@ -45,3 +45,6 @@ zhixue:
     timeout-seconds: 10 # 首字节超时；整体超时与连接超时见契约 5.2 节
   ocr:
     save-dir: ${OCR_SAVE_DIR:./data/upload}
+    max-image-bytes: ${OCR_MAX_IMAGE_BYTES:5242880}  # 5MB（契约 §4）
+    timeout-seconds: ${OCR_TIMEOUT_SECONDS:60}      # OCR 整体超时（契约 §3），区别于 SSE 首字节 10s
+    reclaim-interval-ms: ${OCR_RECLAIM_INTERVAL_MS:60000} # 超时任务回收器扫描间隔

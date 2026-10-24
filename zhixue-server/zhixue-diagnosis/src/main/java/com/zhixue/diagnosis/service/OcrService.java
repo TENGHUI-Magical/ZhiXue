@@ -12,8 +12,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.MultipartBodyBuilder;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.BodyInserters;
@@ -27,6 +29,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,12 +49,14 @@ public class OcrService {
 
     private static final Logger log = LoggerFactory.getLogger(OcrService.class);
 
-    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
-
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png");
 
-    /** OCR 首次加载模型较慢，单独给 60 秒，不复用对话的 10 秒超时 */
-    private static final Duration OCR_TIMEOUT = Duration.ofSeconds(60);
+    /** 允许的图片上限与整体超时，配置化（05 §0：禁止代码硬编码），默认值对齐契约 §3/§4 */
+    @Value("${zhixue.ocr.max-image-bytes:5242880}")
+    private long maxImageBytes;
+
+    @Value("${zhixue.ocr.timeout-seconds:60}")
+    private long ocrTimeoutSeconds;
 
     private final OcrTaskMapper ocrTaskMapper;
     private final AiClientProperties aiClientProperties;
@@ -76,24 +81,24 @@ public class OcrService {
     }
 
     /**
-     * 提交 OCR 任务：校验图片 → 落盘 → 写 PENDING → 异步识别。
+     * 提交 OCR 任务：校验图片 → 落盘 → 写 PENDING（幂等）→ 异步识别。
+     * 幂等按 uk_user_client 唯一键兜底：并发同 clientToken 时捕获重复键异常回查首次任务，
+     * 竞态方刚落盘的图片删除，避免孤儿文件（契约 §1：同用户同 token 返回首次结果）。
      *
-     * @param image       图片（字段名 image）
-     * @param clientToken 幂等键，可为空
+     * @param image       图片（契约 §4：multipart 字段名 file）
+     * @param clientToken 幂等键，Controller 已保证非空
      * @param userId      当前登录用户
-     * @return taskId
+     * @return taskId；同 clientToken 重复提交返回首次 taskId
      */
     public String submit(MultipartFile image, String clientToken, long userId) {
         validate(image);
 
-        if (clientToken != null && !clientToken.isBlank()) {
-            OcrTask existing = ocrTaskMapper.selectOne(new LambdaQueryWrapper<OcrTask>()
-                    .eq(OcrTask::getUserId, userId)
-                    .eq(OcrTask::getClientToken, clientToken)
-                    .last("LIMIT 1"));
-            if (existing != null) {
-                return existing.getTaskId();
-            }
+        OcrTask existing = ocrTaskMapper.selectOne(new LambdaQueryWrapper<OcrTask>()
+                .eq(OcrTask::getUserId, userId)
+                .eq(OcrTask::getClientToken, clientToken)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            return existing.getTaskId();
         }
 
         String taskId = UUID.randomUUID().toString().replace("-", "");
@@ -118,11 +123,52 @@ public class OcrService {
         task.setImagePath(target.toString());
         task.setStatus("PENDING");
         task.setRetryCount(0);
-        ocrTaskMapper.insert(task);
+        try {
+            ocrTaskMapper.insert(task);
+        } catch (DuplicateKeyException e) {
+            // 并发竞态：另一同 token 请求先插入；回查首次任务并清理本请求的孤儿图片
+            OcrTask winner = ocrTaskMapper.selectOne(new LambdaQueryWrapper<OcrTask>()
+                    .eq(OcrTask::getUserId, userId)
+                    .eq(OcrTask::getClientToken, clientToken)
+                    .last("LIMIT 1"));
+            try {
+                Files.deleteIfExists(target);
+            } catch (Exception ignore) {
+                // 删除失败留待周任务清理 30 天前孤儿文件（契约 §4）
+            }
+            if (winner != null) {
+                return winner.getTaskId();
+            }
+            throw e;
+        }
 
         String filename = target.getFileName().toString();
         executor.execute(() -> recognize(taskId, target, filename));
         return taskId;
+    }
+
+    /**
+     * 超时任务回收器（契约 §3：超时未完成标记 FAILED；JVM 崩溃/线程池打满场景兜底）。
+     * 单实例部署语义；若未来多实例需改分布式锁或分片扫描。
+     */
+    @Scheduled(fixedDelayString = "${zhixue.ocr.reclaim-interval-ms:60000}")
+    public void reclaimStaleTasks() {
+        LocalDateTime deadline = LocalDateTime.now().minusSeconds(ocrTimeoutSeconds);
+        List<OcrTask> stale = ocrTaskMapper.selectList(new LambdaQueryWrapper<OcrTask>()
+                .in(OcrTask::getStatus, "PENDING", "RUNNING")
+                .lt(OcrTask::getUpdatedAt, deadline)
+                .last("LIMIT 50"));
+        for (OcrTask task : stale) {
+            OcrTask update = new OcrTask();
+            update.setTaskId(task.getTaskId());
+            update.setStatus("FAILED");
+            update.setErrorCode("60002");
+            update.setErrorMsg("OCR 任务超时，已被回收器标记失败，请手动录入题干");
+            ocrTaskMapper.updateById(update);
+        }
+        if (!stale.isEmpty()) {
+            log.warn("OCR 回收器标记 {} 个超时任务为 FAILED", stale.size());
+        }
     }
 
     /** 查询任务状态；任务不存在或不属于当前用户均按 40400 处理，避免泄露任务存在性。 */
@@ -157,7 +203,7 @@ public class OcrService {
                     .body(BodyInserters.fromMultipartData(builder.build()))
                     .retrieve()
                     .bodyToMono(OcrRecognizeResponse.class)
-                    .block(OCR_TIMEOUT);
+                    .block(Duration.ofSeconds(ocrTimeoutSeconds));
 
             if (response == null || response.text() == null || response.text().isBlank()) {
                 throw new IllegalStateException("未识别到文字");
@@ -198,7 +244,7 @@ public class OcrService {
         if (image == null || image.isEmpty()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "图片不能为空");
         }
-        if (image.getSize() > MAX_IMAGE_BYTES) {
+        if (image.getSize() > maxImageBytes) {
             throw new BizException(ErrorCode.PARAM_ERROR, "图片不能超过 5MB");
         }
         String contentType = image.getContentType();

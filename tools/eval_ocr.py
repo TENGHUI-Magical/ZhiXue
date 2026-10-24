@@ -155,8 +155,7 @@ def main():
     ap.add_argument("--base-url", default="http://127.0.0.1:8080")
     ap.add_argument("--allow-host", action="append", default=[])
     ap.add_argument("--cases", default=os.path.join(DATA_DIR, "ocr_cases", "ground_truth.json"))
-    ap.add_argument("--username", default=os.environ.get("ZHIXUE_TEST_USERNAME"))
-    ap.add_argument("--password", default=os.environ.get("ZHIXUE_TEST_PASSWORD"))
+    # 口令只从环境变量读取，不提供命令行参数（避免进 shell 历史；07 号文安全约定）
     ap.add_argument("--timeout", type=float, default=15.0)
     ap.add_argument("--poll-interval", type=float, default=1.5)
     ap.add_argument("--poll-max", type=int, default=45)
@@ -164,7 +163,9 @@ def main():
                     help="报告文件名（固定写入 tools/testdata/，不支持子目录与绝对路径）")
     args = ap.parse_args()
 
-    if not args.username or not args.password:
+    username = os.environ.get("ZHIXUE_TEST_USERNAME")
+    password = os.environ.get("ZHIXUE_TEST_PASSWORD")
+    if not username or not password:
         raise SystemExit("凭证缺失：设置 ZHIXUE_TEST_USERNAME / ZHIXUE_TEST_PASSWORD 环境变量（不写入代码）")
     base = validate_base_url(args.base_url, DEFAULT_ALLOWED_HOSTS | set(args.allow_host))
     gt_path = safe_path(args.cases)
@@ -173,23 +174,26 @@ def main():
         print("[提示] --out 已固定为 tools/testdata/last_ocr_eval.json")
     out_path = "tools/testdata/last_ocr_eval.json"
 
-    token, err = login(base, args.username, args.password, args.timeout)
+    token, err = login(base, username, password, args.timeout)
     if err:
         print("[登录]", err)
         return 1
 
-    gt = json.load(open(gt_path, encoding="utf-8"))
+    with open(gt_path, encoding="utf-8") as f:
+        gt = json.load(f)
     results = []
     for case in gt["cases"]:
         img_path = safe_path(os.path.join(DATA_DIR, "ocr_cases", case["file"]))
-        blob = open(img_path, "rb").read()
+        with open(img_path, "rb") as f:
+            blob = f.read()
 
         st, body = None, None
         used = None
         for _, ep in CANDIDATE_ENDPOINTS:
+            # clientToken 每次尝试都随机：固定值会命中幂等返回旧任务，评测数据失真
             st, body = post_multipart(
                 base + ep,
-                {"clientToken": "eval-" + case["id"]},
+                {"clientToken": uuid.uuid4().hex},
                 [("file", case["file"], "image/png", blob),
                  ("image", case["file"], "image/png", blob)],
                 token, args.timeout)

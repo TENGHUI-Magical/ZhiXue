@@ -24,6 +24,9 @@ router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
+# Prompt 模板版本：随 _prompt() 结构变更递增，落 ai_generation_log.prompt_version（Git 可回溯）
+PROMPT_VERSION = "v1"
+
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -110,9 +113,10 @@ def _template_chunks(req: RagExplainRequest) -> list[str]:
 
 @router.post("/explain")
 async def explain(req: RagExplainRequest) -> StreamingResponse:
-    """流式讲解（SSE）：meta → chunk* → done。"""
+    """流式讲解（SSE）：meta → chunk* → done；合规拦截时发 error 60004（契约 §2）。"""
     start = time.time()
-    trace_id = f"t-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
+    # 契约 §1.2：traceId 由 Java 生成并透传，这里只回显，保证全链路一致
+    trace_id = req.traceId or f"t-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
     sources = [{
         "kpId": req.kpId,
         "name": req.kpName or req.kpId,
@@ -123,9 +127,9 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
     async def gen() -> AsyncIterator[str]:
         yield _sse("meta", {"traceId": trace_id, "sources": sources})
         if blocked:
-            yield _sse("chunk", {"content": block_tip})
-            yield _sse("done", {"degraded": False, "blocked": True, "modelUsed": "-",
-                                "elapsedMs": int((time.time() - start) * 1000)})
+            # 契约 §2 60004：展示学术诚信提示，不展示讲解正文——不发 chunk/done，
+            # 由 Java 转发 error 事件并落库 is_blocked=1
+            yield _sse("error", {"code": 60004, "message": block_tip, "retryable": False})
             return
 
         messages = _prompt(req)
@@ -139,7 +143,9 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
                     yield _sse("chunk", {"content": delta})
                 yield _sse("done", {"degraded": False, "blocked": False,
                                     "modelUsed": settings.llm_model_main,
+                                    "promptVersion": PROMPT_VERSION,
                                     "tokens": int(usage.get("completion_tokens", 0)),
+                                    "promptTokens": int(usage.get("prompt_tokens", 0)),
                                     "elapsedMs": int((time.time() - start) * 1000)})
                 return
             except Exception as exc:
@@ -154,7 +160,9 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
                     yield _sse("chunk", {"content": delta})
                 yield _sse("done", {"degraded": True, "blocked": False,
                                     "modelUsed": settings.llm_model_fallback,
+                                    "promptVersion": PROMPT_VERSION,
                                     "tokens": int(usage.get("completion_tokens", 0)),
+                                    "promptTokens": int(usage.get("prompt_tokens", 0)),
                                     "elapsedMs": int((time.time() - start) * 1000)})
                 return
             except Exception as exc:
@@ -165,6 +173,7 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
             yield _sse("chunk", {"content": chunk})
             await asyncio.sleep(0.02)
         yield _sse("done", {"degraded": True, "blocked": False, "modelUsed": "local-template",
+                            "promptVersion": PROMPT_VERSION,
                             "elapsedMs": int((time.time() - start) * 1000)})
 
     return StreamingResponse(

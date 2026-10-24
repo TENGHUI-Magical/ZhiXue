@@ -65,6 +65,37 @@ public class QuestionBankService {
         return questionBankMapper.selectList(query).stream().map(this::toView).toList();
     }
 
+    /**
+     * 按 question_kp 关联取题（含次要关联，05 §3.1 变式/拓展池语义）：
+     * 主知识点匹配 + 多对多关联匹配的并集，难度、题号升序。
+     *
+     * @param courseId 课程 ID
+     * @param kpId     知识点编号
+     * @return 题目视图列表；无题时为空
+     */
+    public List<QuestionView> listByKpIncludeSecondary(Long courseId, String kpId) {
+        return questionBankMapper.selectByKpIncludeSecondary(courseId, kpId)
+                .stream().map(this::toView).toList();
+    }
+
+    /**
+     * 批量取题目难度（推荐难度基准用：practice_record 不冗余难度列）。
+     *
+     * @param qIds 题目编号列表
+     * @return qId → difficulty；无难度信息的题不出现
+     */
+    public Map<String, Integer> difficultyByQids(List<String> qIds) {
+        if (qIds == null || qIds.isEmpty()) {
+            return Map.of();
+        }
+        return questionBankMapper.selectList(new LambdaQueryWrapper<QuestionBank>()
+                        .in(QuestionBank::getQId, qIds))
+                .stream()
+                .filter(q -> q.getDifficulty() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        QuestionBank::getQId, QuestionBank::getDifficulty));
+    }
+
     @SuppressWarnings("unchecked")
     private QuestionView toView(QuestionBank question) {
         List<QuestionView.Option> options = new ArrayList<>();

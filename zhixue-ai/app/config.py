@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # OCR 落盘与质量阈值（契约 2.2 节：置信度 < 0.75 前端强制人工确认）
     ocr_save_dir: str = "./data/upload"
     ocr_confidence_alert: float = 0.75
+    # 契约 §4：图片上限 5MB、压缩长边 1600（05 §0：参数集中配置，禁止散落硬编码）
+    ocr_max_image_bytes: int = 5 * 1024 * 1024
+    ocr_max_side: int = 1600
 
 
 settings = Settings()

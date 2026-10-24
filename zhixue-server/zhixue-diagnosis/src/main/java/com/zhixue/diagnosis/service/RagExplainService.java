@@ -97,13 +97,16 @@ public class RagExplainService {
     /**
      * 建立 SSE 连接并开始转发讲解。
      *
-     * @param request 契约 ExplainRequest；竖切阶段 logId 允许为空
+     * @param request 契约 ExplainRequest；logId 必填且记录须为 CONFIRMED
+     * @param traceIdFilterTraceId 由 TraceIdFilter 生成的链路 ID（契约 §1.2）；null 时回退本地生成
      * @return SSE 发射器；知识点不存在或 errorType 非法时先发 error 事件再关闭
      */
-    public SseEmitter explain(ExplainRequest request) {
+    public SseEmitter explain(ExplainRequest request, String traceIdFilterTraceId) {
         SseEmitter emitter = new SseEmitter(TOTAL_TIMEOUT_MS);
         long start = System.currentTimeMillis();
         String explainId = nextExplainId();
+        // 契约 §1.2：traceId 全链路唯一（Filter 响应头 → meta → FastAPI → ai_generation_log）
+        String traceId = traceIdFilterTraceId != null ? traceIdFilterTraceId : "t-" + explainId;
 
         KnowledgePoint kp;
         String errorType;
@@ -111,7 +114,7 @@ public class RagExplainService {
             // 契约前置：必须是 CONFIRMED 错题记录，且记录里的 kpId 与请求一致
             var record = errorRecordService.getConfirmed(request.getLogId());
             if (!record.getKpId().equals(request.getKpId())) {
-                sendError(emitter, ErrorCode.DUPLICATE_SUBMIT.getCode(),
+                sendError(emitter, ErrorCode.PARAM_ERROR.getCode(),
                         "kpId 与错题记录不一致", false);
                 emitter.complete();
                 return emitter;
@@ -132,13 +135,15 @@ public class RagExplainService {
         }
 
         long userId = StpUtil.getLoginIdAsLong();
-        String traceId = "t-" + explainId;
-        StringBuilder content = new StringBuilder();
+        // StringBuffer：Reactor 线程、降级线程、cleanup 线程三方并发读写正文快照（线程安全）
+        StringBuffer content = new StringBuffer();
         AtomicReference<String> modelUsed = new AtomicReference<>("unknown");
         AtomicReference<String> degradeLevel = new AtomicReference<>();
+        AtomicReference<String> promptVersion = new AtomicReference<>("unknown");
         AtomicBoolean degraded = new AtomicBoolean(false);
         AtomicBoolean blocked = new AtomicBoolean(false);
         AtomicInteger completionTokens = new AtomicInteger();
+        AtomicInteger promptTokens = new AtomicInteger();
         AtomicBoolean logged = new AtomicBoolean(false);
 
         AtomicBoolean closed = new AtomicBoolean(false);
@@ -161,7 +166,8 @@ public class RagExplainService {
                 // 客户端断开也要留痕：契约 5.3 要求已生成内容与耗时照常记录
                 fallbackPool.execute(() -> writeLog(explainId, traceId, userId, request.getLogId(),
                         kp.getKpId(), modelUsed.get(), degraded.get(), degradeLevel.get(),
-                        System.currentTimeMillis() - start, completionTokens.get(),
+                        System.currentTimeMillis() - start, promptVersion.get(),
+                        promptTokens.get(), completionTokens.get(),
                         content.toString(), blocked.get(), logged));
             }
         };
@@ -173,10 +179,10 @@ public class RagExplainService {
             emitter.complete();
         });
 
-        sendMeta(emitter, explainId);
+        sendMeta(emitter, explainId, traceId);
         sendSource(emitter, kp);
 
-        Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType);
+        Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType, traceId);
         Flux<ServerSentEvent<String>> stream = webClient.post()
                 .uri("/api/rag/explain")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -214,9 +220,14 @@ public class RagExplainService {
                         case "done" -> {
                             Map<String, Object> done = readMap(event.data());
                             completionTokens.set(intValue(done.get("tokens")));
+                            promptTokens.set(intValue(done.get("promptTokens")));
                             Object model = done.get("modelUsed");
                             if (model != null && !String.valueOf(model).isBlank()) {
                                 modelUsed.set(String.valueOf(model));
+                            }
+                            Object version = done.get("promptVersion");
+                            if (version != null && !String.valueOf(version).isBlank()) {
+                                promptVersion.set(String.valueOf(version));
                             }
                             if (Boolean.TRUE.equals(done.get("degraded"))) {
                                 degraded.set(true);
@@ -224,6 +235,16 @@ public class RagExplainService {
                             if (Boolean.TRUE.equals(done.get("blocked"))) {
                                 blocked.set(true);
                             }
+                        }
+                        case "error" -> {
+                            // 上游错误事件转发给前端（60004 合规拦截等）；并驱动留痕与关闭
+                            int code = intValue(readMap(event.data()).get("code"));
+                            if (code == ErrorCode.CONTENT_BLOCKED.getCode()) {
+                                blocked.set(true);
+                            }
+                            sendRaw(emitter, "error", event.data());
+                            emitter.complete();
+                            cleanup.run();
                         }
                         default -> {
                             // 未知事件忽略，保持前向兼容
@@ -247,7 +268,7 @@ public class RagExplainService {
     /** 上游不可用时，用概念切片本地拼讲解；已收到部分 delta 时只补降级标记与 done。 */
     private void fallback(SseEmitter emitter, KnowledgePoint kp, ExplainRequest request,
                           String explainId, long start, AtomicBoolean chunkReceived,
-                          AtomicInteger characters, Runnable cleanup, StringBuilder content,
+                          AtomicInteger characters, Runnable cleanup, StringBuffer content,
                           AtomicReference<String> modelUsed, AtomicBoolean degraded,
                           AtomicReference<String> degradeLevel) {
         fallbackPool.execute(() -> {
@@ -277,10 +298,10 @@ public class RagExplainService {
         });
     }
 
-    private void sendMeta(SseEmitter emitter, String explainId) {
+    private void sendMeta(SseEmitter emitter, String explainId, String traceId) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("explainId", explainId);
-        meta.put("traceId", "t-" + explainId);
+        meta.put("traceId", traceId);
         meta.put("model", META_MODEL);
         meta.put("degraded", false);
         send(emitter, "meta", meta);
@@ -311,8 +332,9 @@ public class RagExplainService {
     }
 
     private Map<String, Object> buildUpstreamPayload(ExplainRequest request, KnowledgePoint kp,
-                                                     String errorType) {
+                                                     String errorType, String traceId) {
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("traceId", traceId);
         payload.put("kpId", kp.getKpId());
         payload.put("kpName", kp.getName());
         payload.put("conceptText", kp.getConceptText());
@@ -392,7 +414,8 @@ public class RagExplainService {
     /** 写 ai_generation_log：同一 explainId 只写一次，客户端断开时也保留已生成内容 */
     private void writeLog(String explainId, String traceId, long userId, String logId, String kpId,
                           String model, boolean degraded, String degradeLevel, long latencyMs,
-                          int completionTokens, String content, boolean blocked, AtomicBoolean logged) {
+                          String promptVersion, int promptTokens, int completionTokens,
+                          String content, boolean blocked, AtomicBoolean logged) {
         if (!logged.compareAndSet(false, true)) {
             return;
         }
@@ -404,14 +427,19 @@ public class RagExplainService {
             row.setLogId(logId);
             row.setScene("RAG");
             row.setModel(model);
-            row.setPromptVersion("v1");
+            row.setPromptVersion(promptVersion);
             row.setIsDegraded(degraded ? 1 : 0);
             row.setDegradeLevel(degradeLevel);
             row.setLatencyMs((int) Math.min(latencyMs, Integer.MAX_VALUE));
-            row.setPromptTokens(0);
+            row.setPromptTokens(promptTokens);
             row.setCompletionTokens(completionTokens);
             row.setSourceIds(objectMapper.writeValueAsString(List.of(kpId)));
-            row.setContentText(content.length() > 20000 ? content.substring(0, 20000) : content);
+            if (content.length() > 20000) {
+                log.warn("讲解正文超 20000 字符，落库截断 explainId={} length={}",
+                        explainId, content.length());
+                content = content.substring(0, 20000);
+            }
+            row.setContentText(content);
             row.setIsBlocked(blocked ? 1 : 0);
             aiGenerationLogMapper.insert(row);
         } catch (Exception e) {

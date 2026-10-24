@@ -1,0 +1,8 @@
+# Ruff 配置（07 号文：Python 工具链）。CI 现行口径只查 E9/F（ci.yml），
+# 想加严 select 需先过项目内讨论，避免风格变更淹没功能提交。
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E9", "F"]
