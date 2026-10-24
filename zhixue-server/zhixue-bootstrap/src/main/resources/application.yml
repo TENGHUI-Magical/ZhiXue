@@ -4,21 +4,18 @@ server:
 spring:
   application:
     name: zhixue-server
-  datasource:
-    # 与 docker-compose.yml / 部署方案 2 节一致；密码为占位，请本地改为真实值
-    url: jdbc:mysql://localhost:3306/zhixue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: change-me
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  data:
-    redis:
-      host: localhost
-      port: 6379
+  # 默认 dev；生产用 SPRING_PROFILES_ACTIVE=prod 启动
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  servlet:
+    multipart:
+      # 手机拍摄错题图片常超过 Spring 默认 1MB
+      max-file-size: 10MB
+      max-request-size: 12MB
 
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl # 开发期打印 SQL，上线前移除
   global-config:
     db-config:
       # 自增表（sys_user/course 等）统一 auto；业务编号表（knowledge_point/question_bank/
@@ -32,9 +29,19 @@ sa-token:
   is-concurrent: true # 允许同账号多端登录（学生手机+电脑）
   token-style: uuid
 
+# ============ 知识点映射参数（契约 05-算法 第 0 节；禁止代码硬编码） ============
+mapping:
+  # 词法余弦（TF-IDF）与神经向量的量纲差异，用该系数归一到 0—1；接入 bge 后改为 1.0
+  score-scale: 0.3
+  auto-threshold: 0.60
+  margin: 0.10
+  confirm-floor: 0.40
+
 # ============ 内部 AI 服务地址 ============
 # zhixue-ai 不对外暴露，仅本服务调用（部署方案 1 节拓扑）
 zhixue:
   ai:
-    base-url: http://localhost:8000
-    timeout-seconds: 10 # 超时触发 60001 降级（接口契约 2.4 节）
+    base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
+    timeout-seconds: 10 # 首字节超时；整体超时与连接超时见契约 5.2 节
+  ocr:
+    save-dir: ${OCR_SAVE_DIR:./data/upload}

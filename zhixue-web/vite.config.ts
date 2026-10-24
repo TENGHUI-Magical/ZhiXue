@@ -8,7 +8,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        // Windows 下 localhost 可能解析为 IPv6（::1），统一用 127.0.0.1
+        target: 'http://127.0.0.1:8080',
         changeOrigin: true
       }
     }

@@ -1,0 +1,21 @@
+# 本地开发配置（默认激活）。生产环境禁止使用本文件中的任何默认口令。
+spring:
+  datasource:
+    # 本地 Docker MySQL 未配置 TLS，因此关闭 SSL；仅限 127.0.0.1 回环使用
+    url: jdbc:mysql://127.0.0.1:3306/zhixue?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:change-me}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+
+# 开发期打印 SQL，便于联调；生产走 application-prod.yml 关闭
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.zhixue: debug

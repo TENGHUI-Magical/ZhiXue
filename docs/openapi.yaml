@@ -1,0 +1,1130 @@
+openapi: 3.1.0
+info:
+  title: 智学领航 API
+  version: 2.0.0
+  description: |
+    高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
+    人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
+    约定：
+    - 所有路径以 /api 开头，JSON 字段 camelCase。
+    - 时间统一 Asia/Shanghai，格式 yyyy-MM-dd HH:mm:ss；日期 yyyy-MM-dd。
+    - 除登录与健康检查外，全部需要 header `satoken`。
+    - 幂等：上传、作答提交、打卡必须携带 clientToken。
+servers:
+  - url: http://127.0.0.1:8080
+    description: 本地开发（Windows 下用 127.0.0.1，不要用 localhost）
+tags:
+  - name: auth
+  - name: course
+  - name: error
+  - name: diagnosis
+  - name: recommend
+  - name: practice
+  - name: portrait
+  - name: plan
+  - name: teacher
+  - name: system
+security:
+  - SaToken: []
+paths:
+  /api/auth/login:
+    post:
+      tags: [auth]
+      summary: 登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, maxLength: 50 }
+                password: { type: string, minLength: 6, maxLength: 64 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/auth/logout:
+    post:
+      tags: [auth]
+      summary: 退出登录
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyResponse' }
+  /api/auth/me:
+    get:
+      tags: [auth]
+      summary: 当前用户信息
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/courses:
+    get:
+      tags: [course]
+      summary: 课程列表
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourseListResponse' }
+  /api/courses/{courseId}/chapters:
+    get:
+      tags: [course]
+      summary: 章节列表（按 chapterNo 升序）
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChapterListResponse' }
+  /api/courses/{courseId}/knowledge-graph:
+    get:
+      tags: [course]
+      summary: 知识图谱（节点 + 先修边）
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GraphResponse' }
+  /api/course/kp/{kpId}:
+    get:
+      tags: [course]
+      summary: 知识点详情
+      parameters:
+        - name: kpId
+          in: path
+          required: true
+          schema: { type: string, example: KP0201 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KpResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/error/upload:
+    post:
+      tags: [error]
+      summary: 上传错题图片，创建 OCR 任务
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, clientToken]
+              properties:
+                file: { type: string, format: binary }
+                courseId: { type: integer, format: int64 }
+                clientToken: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 任务已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OcrTaskResponse' }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/error/tasks/{taskId}:
+    get:
+      tags: [error]
+      summary: 查询 OCR 任务状态
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string, example: '9f2c1d7e8a4b4c1e9d3f0a6b5c7e8f90' }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OcrTaskResponse' }
+  /api/error/records:
+    post:
+      tags: [error]
+      summary: 创建错题记录（DRAFT）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorRecordCreate'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorRecordResponse' }
+    get:
+      tags: [error]
+      summary: 错题列表（分页）
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1, minimum: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 50 }
+        - name: kpId
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [DRAFT, CONFIRMED] }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorRecordPageResponse' }
+  /api/error/records/{logId}:
+    get:
+      tags: [error]
+      summary: 错题详情
+      parameters:
+        - $ref: '#/components/parameters/LogId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorRecordResponse' }
+  /api/error/records/{logId}/confirm:
+    put:
+      tags: [error]
+      summary: 确认错题（DRAFT → CONFIRMED，触发映射与推荐）
+      parameters:
+        - $ref: '#/components/parameters/LogId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kpId, errorType]
+              properties:
+                kpId: { type: string, example: KP0201 }
+                errorType:
+                  type: string
+                  enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+                correctedText: { type: string, maxLength: 2000 }
+                studentNote: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorRecordResponse' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/diagnosis/map:
+    post:
+      tags: [diagnosis]
+      summary: 知识点映射（三通道）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, courseId]
+              properties:
+                text: { type: string, maxLength: 3000 }
+                courseId: { type: integer, format: int64 }
+                chapterId: { type: integer, format: int64, nullable: true }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MapResponse' }
+  /api/diagnosis/explain:
+    post:
+      tags: [diagnosis]
+      summary: 生成启发式讲解（SSE）
+      description: |
+        返回 text/event-stream。事件类型：meta / delta / source / degraded / done / error，详见契约文档第 5 节。
+        超时：连接 3s、首字节 10s、整体 60s；服务端每 15s 发送 `: heartbeat`。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExplainRequest'
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE 帧序列，按 `\n\n` 切帧
+  /api/diagnosis/explain/{explainId}:
+    get:
+      tags: [diagnosis]
+      summary: 查询讲解记录（用于刷新恢复）
+      parameters:
+        - name: explainId
+          in: path
+          required: true
+          schema: { type: string, example: EX_20261024_0001 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ExplainLogResponse' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/recommendations:
+    get:
+      tags: [recommend]
+      summary: 某条错题的三层推荐
+      parameters:
+        - name: logId
+          in: query
+          required: true
+          schema: { type: string, example: EL_101 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecommendationListResponse' }
+  /api/practices:
+    post:
+      tags: [practice]
+      summary: 提交作答（推荐题/自主练习；计划内作答走 /api/plans/{planId}/checkin）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PracticeCreate'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PracticeResponse' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/portraits/me:
+    get:
+      tags: [portrait]
+      summary: 当前学生画像（最新快照）
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortraitResponse' }
+  /api/portraits/class/{courseId}:
+    get:
+      tags: [portrait]
+      summary: 班级画像总览（教师）
+      parameters:
+        - $ref: '#/components/parameters/CourseId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClassPortraitResponse' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/plans:
+    get:
+      tags: [plan]
+      summary: 学习计划列表（按日期区间，周视图 = 7 条日计划）
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanListResponse' }
+  /api/plans/generate:
+    post:
+      tags: [plan]
+      summary: 生成一周计划（7 条日计划 + 明细题）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [courseId, weekStart]
+              properties:
+                courseId: { type: integer, format: int64 }
+                weekStart: { type: string, format: date, example: '2026-11-02' }
+                dailyQuestionCount: { type: integer, minimum: 3, maximum: 5, default: 3 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlanListResponse' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/plans/{planId}/checkin:
+    post:
+      tags: [plan]
+      summary: 打卡（完成一道计划题）
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qId, clientToken]
+              properties:
+                qId: { type: string }
+                clientToken: { type: string, maxLength: 64 }
+                note: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyResponse' }
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/teacher/reviews:
+    get:
+      tags: [teacher]
+      summary: 待评阅队列（教师）
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10, maximum: 50 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReviewQueueResponse' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/teacher/reviews/{logPk}:
+    post:
+      tags: [teacher]
+      summary: 提交评阅（教师）
+      parameters:
+        - name: logPk
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [score, comment]
+              properties:
+                score: { type: integer, minimum: 1, maximum: 5 }
+                comment: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyResponse' }
+  /api/teacher/knowledge-points:
+    post:
+      tags: [teacher]
+      summary: 新建知识点
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KpUpsert' }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KpResponse' }
+  /api/teacher/knowledge-points/{kpId}:
+    put:
+      tags: [teacher]
+      summary: 更新知识点
+      parameters:
+        - name: kpId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/KpUpsert' }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/KpResponse' }
+  /api/teacher/questions:
+    get:
+      tags: [teacher]
+      summary: 题库列表
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: kpId
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuestionPageResponse' }
+    post:
+      tags: [teacher]
+      summary: 新建题目
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuestionUpsert' }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuestionResponse' }
+  /api/teacher/questions/import:
+    post:
+      tags: [teacher]
+      summary: 批量导入题目（Excel）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                courseId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImportResultResponse' }
+  /api/system/health:
+    get:
+      tags: [system]
+      summary: 健康检查
+      security: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+components:
+  securitySchemes:
+    SaToken:
+      type: apiKey
+      in: header
+      name: satoken
+  parameters:
+    CourseId:
+      name: courseId
+      in: path
+      required: true
+      schema: { type: integer, format: int64, example: 1 }
+    LogId:
+      name: logId
+      in: path
+      required: true
+      schema: { type: string, example: EL_101 }
+  responses:
+    BadRequest:
+      description: 参数校验失败（40000）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthorized:
+      description: 未登录或 token 过期（40100）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: 无权限（40300）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: 资源不存在（40400）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: 重复提交或状态冲突（40900）
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  schemas:
+    ApiEnvelope:
+      type: object
+      required: [code, message, timestamp]
+      properties:
+        code: { type: integer, example: 0 }
+        message: { type: string, example: success }
+        timestamp: { type: integer, format: int64, example: 1792838400000 }
+    ErrorEnvelope:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            code: { type: integer, example: 40000 }
+            message: { type: string, example: 参数校验失败 }
+            data: { type: 'null' }
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/LoginResult' }
+    LoginResult:
+      type: object
+      required: [token, userId, role]
+      properties:
+        token: { type: string }
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        role: { type: string, enum: [STUDENT, TEACHER] }
+    MeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/UserInfo' }
+    UserInfo:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        username: { type: string }
+        realName: { type: string }
+        role: { type: string, enum: [STUDENT, TEACHER] }
+    EmptyResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { type: 'null' }
+    HealthResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/Health' }
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: UP }
+        db: { type: string, example: UP }
+        redis: { type: string, example: DEGRADED }
+        ai: { type: string, example: UP }
+    CourseListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Course' }
+    Course:
+      type: object
+      properties:
+        courseId: { type: integer, format: int64 }
+        courseName: { type: string, example: 数据库原理 }
+        textbook: { type: string, example: 王珊《数据库系统概论》第6版 }
+        description: { type: string }
+        dimensionConfig:
+          type: array
+          items: { $ref: '#/components/schemas/DimensionDef' }
+    DimensionDef:
+      type: object
+      required: [key, name]
+      properties:
+        key: { type: string, example: concept }
+        name: { type: string, example: 概念理解 }
+    ChapterListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Chapter' }
+    Chapter:
+      type: object
+      properties:
+        chapterId: { type: integer, format: int64 }
+        chapterNo: { type: integer, example: 2 }
+        title: { type: string, example: 关系模型 }
+    KpResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/KnowledgePoint' }
+    KnowledgePoint:
+      type: object
+      properties:
+        kpId: { type: string, example: KP0201 }
+        courseId: { type: integer, format: int64 }
+        chapterId: { type: integer, format: int64 }
+        chapterName: { type: string, example: 关系模型 }
+        name: { type: string, example: 关系模型的基本概念 }
+        conceptText: { type: string }
+        misconception: { type: string }
+        textbookPage: { type: string, example: P34 }
+        trialHint: { type: string }
+        sortNo: { type: integer }
+        dimensionKey: { type: string, example: concept }
+    KpUpsert:
+      type: object
+      required: [kpId, courseId, chapterId, name, dimensionKey]
+      properties:
+        kpId: { type: string, example: KP0202 }
+        courseId: { type: integer, format: int64 }
+        chapterId: { type: integer, format: int64 }
+        name: { type: string }
+        conceptText: { type: string }
+        misconception: { type: string }
+        textbookPage: { type: string }
+        trialHint: { type: string }
+        sortNo: { type: integer, default: 0 }
+        createdBy: { type: integer, format: int64 }
+        dimensionKey: { type: string, example: concept }
+    GraphResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/KnowledgeGraph' }
+    KnowledgeGraph:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              chapterId: { type: integer, format: int64 }
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string }
+              target: { type: string }
+              relation: { type: string, example: PREREQ }
+    OcrTaskResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/OcrTask' }
+    OcrTask:
+      type: object
+      properties:
+        taskId: { type: string, example: '9f2c1d7e8a4b4c1e9d3f0a6b5c7e8f90' }
+        status: { type: string, enum: [PENDING, RUNNING, SUCCESS, FAILED] }
+        ocrText: { type: string, nullable: true }
+        confidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        fields: { type: object, additionalProperties: true, nullable: true }
+        errorCode: { type: integer, nullable: true }
+        errorMessage: { type: string, nullable: true }
+    ErrorRecordCreate:
+      type: object
+      required: [courseId, clientToken]
+      properties:
+        courseId: { type: integer, format: int64 }
+        clientToken: { type: string, maxLength: 64 }
+        qId: { type: string, nullable: true }
+        kpId: { type: string, nullable: true }
+        imageUrl: { type: string, nullable: true }
+        ocrText: { type: string, nullable: true }
+        correctedText: { type: string, nullable: true }
+        ocrConfidence: { type: number, nullable: true }
+        errorType: { type: string, nullable: true }
+        studentNote: { type: string, nullable: true }
+    ErrorRecordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ErrorRecord' }
+    ErrorRecordPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ErrorRecordPage' }
+    ErrorRecordPage:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+        records:
+          type: array
+          items: { $ref: '#/components/schemas/ErrorRecord' }
+    ErrorRecord:
+      type: object
+      properties:
+        logId: { type: string, example: EL_101 }
+        userId: { type: integer, format: int64 }
+        qId: { type: string, nullable: true }
+        kpId: { type: string, nullable: true }
+        kpName: { type: string, nullable: true }
+        imageUrl: { type: string, nullable: true }
+        ocrText: { type: string, nullable: true }
+        correctedText: { type: string, nullable: true }
+        ocrConfidence: { type: number, nullable: true }
+        errorType: { type: string, nullable: true }
+        studentNote: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, CONFIRMED] }
+        confirmedAt: { type: string, nullable: true }
+        createdAt: { type: string }
+    MapResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/MapResult' }
+    MapResult:
+      type: object
+      required: [decision, candidates]
+      properties:
+        decision: { type: string, enum: [AUTO, CONFIRM, FAILED] }
+        top1: { $ref: '#/components/schemas/MapCandidate' }
+        candidates:
+          type: array
+          items: { $ref: '#/components/schemas/MapCandidate' }
+        degraded: { type: boolean, default: false }
+    MapCandidate:
+      type: object
+      properties:
+        kpId: { type: string }
+        name: { type: string }
+        score: { type: number, minimum: 0, maximum: 1 }
+        channel: { type: string, enum: [KEYWORD, VECTOR, LLM, FUSED] }
+    ExplainRequest:
+      type: object
+      required: [logId, kpId, errorType]
+      properties:
+        logId: { type: string, example: EL_101 }
+        kpId: { type: string, example: KP0201 }
+        errorType:
+          type: string
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+        questionText: { type: string, nullable: true }
+        forceRefresh: { type: boolean, default: false }
+    ExplainLogResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ExplainLog' }
+    ExplainLog:
+      type: object
+      properties:
+        explainId: { type: string }
+        traceId: { type: string }
+        model: { type: string }
+        degraded: { type: boolean }
+        degradeLevel: { type: string, nullable: true, enum: [L1, L2, L3, L4, null] }
+        content: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceRef' }
+        blocked: { type: boolean }
+        createdAt: { type: string }
+    SourceRef:
+      type: object
+      properties:
+        kpId: { type: string }
+        textbookPage: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+    PracticeCreate:
+      type: object
+      required: [qId, kpId, isCorrect, clientToken]
+      properties:
+        qId: { type: string, example: Q_012 }
+        kpId: { type: string, example: KP0301 }
+        isCorrect: { type: boolean }
+        myAnswer: { type: string, nullable: true }
+        errorType:
+          type: string
+          nullable: true
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+        costSeconds: { type: integer, nullable: true }
+        source: { type: string, enum: [RECOMMEND, SELF], default: SELF }
+        recommendationId: { type: integer, format: int64, nullable: true, description: 来自推荐时传入，服务端置 is_adopted=1 }
+        clientToken: { type: string, maxLength: 64 }
+    PracticeResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                practiceId: { type: integer, format: int64 }
+                duplicate: { type: boolean, description: 幂等命中时为 true，返回首次结果 }
+    RecommendationListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Recommendation' }
+    Recommendation:
+      type: object
+      properties:
+        recommendationId: { type: integer, format: int64 }
+        qId: { type: string }
+        layer: { type: string, enum: [CONSOLIDATE, VARIANT, ADVANCE] }
+        reason: { type: string, maxLength: 15 }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
+        isAdopted: { type: boolean }
+        questionText: { type: string }
+    PortraitResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/Portrait' }
+    Portrait:
+      type: object
+      properties:
+        statDate: { type: string, format: date }
+        dimensionScores:
+          type: object
+          additionalProperties: { type: number }
+          example: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }
+        weakestKps:
+          type: array
+          items:
+            type: object
+            properties:
+              kpId: { type: string }
+              name: { type: string }
+              mastery: { type: number }
+              sampleCount: { type: integer }
+        errorDist:
+          type: object
+          additionalProperties: { type: integer }
+        totalPractice: { type: integer }
+        totalError: { type: integer }
+    ClassPortraitResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ClassPortrait' }
+    ClassPortrait:
+      type: object
+      properties:
+        courseId: { type: integer, format: int64 }
+        studentCount: { type: integer }
+        weakestKpTop:
+          type: array
+          items:
+            type: object
+            properties:
+              kpId: { type: string }
+              name: { type: string }
+              avgMastery: { type: number }
+              errorCount: { type: integer }
+        errorDist:
+          type: object
+          additionalProperties: { type: integer }
+        activeRate: { type: number }
+    PlanListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/Plan' }
+    Plan:
+      type: object
+      properties:
+        planId: { type: integer, format: int64 }
+        planDate: { type: string, format: date }
+        planCount: { type: integer }
+        doneCount: { type: integer }
+        status: { type: string, enum: [PENDING, DONE, OVERDUE] }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              itemId: { type: integer, format: int64 }
+              qId: { type: string }
+              kpId: { type: string }
+              sortNo: { type: integer }
+              isDone: { type: boolean }
+    ReviewQueueResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ReviewPage' }
+    ReviewPage:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+        records:
+          type: array
+          items: { $ref: '#/components/schemas/ReviewItem' }
+    ReviewItem:
+      type: object
+      properties:
+        logPk: { type: integer, format: int64 }
+        explainId: { type: string }
+        userName: { type: string }
+        kpId: { type: string }
+        errorType: { type: string }
+        model: { type: string }
+        degraded: { type: boolean }
+        content: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/SourceRef' }
+        createdAt: { type: string }
+    QuestionPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/QuestionPage' }
+    QuestionPage:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+        records:
+          type: array
+          items: { $ref: '#/components/schemas/Question' }
+    QuestionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/Question' }
+    Question:
+      type: object
+      properties:
+        qId: { type: string, example: Q_001 }
+        courseId: { type: integer, format: int64 }
+        primaryKpId: { type: string }
+        questionType: { type: string, enum: [单选, 多选, 填空, 简答, 编程] }
+        questionText: { type: string }
+        options:
+          type: array
+          items: { type: string }
+          nullable: true
+        answerText: { type: string, nullable: true }
+        analysisText: { type: string, nullable: true }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
+        source: { type: string, nullable: true }
+        variantHint: { type: string, nullable: true }
+    QuestionUpsert:
+      type: object
+      required: [qId, courseId, primaryKpId, questionType, questionText, difficulty]
+      properties:
+        qId: { type: string }
+        courseId: { type: integer, format: int64 }
+        primaryKpId: { type: string }
+        questionType: { type: string, enum: [单选, 多选, 填空, 简答, 编程] }
+        questionText: { type: string }
+        options:
+          type: array
+          items: { type: string }
+          nullable: true
+        answerText: { type: string, nullable: true }
+        analysisText: { type: string, nullable: true }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
+        source: { type: string, nullable: true }
+        variantHint: { type: string, nullable: true }
+    ImportResultResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/ImportResult' }
+    ImportResult:
+      type: object
+      properties:
+        total: { type: integer }
+        inserted: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              row: { type: integer }
+              message: { type: string }

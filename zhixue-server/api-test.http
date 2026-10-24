@@ -1,11 +1,80 @@
-### 查知识点
-GET http://localhost:8080/api/course/kp/KP0101
+### 智学领航本地接口冒烟（IDEA HTTP Client）
+### 口令不要写进仓库：在 IDEA HTTP Client 环境变量中设置 TEST_USERNAME / TEST_PASSWORD
+### 统一使用 127.0.0.1：Windows 下 localhost 可能解析为 IPv6，导致连接被拒。
 
-### 登录
-POST http://localhost:8080/api/auth/login
+@host = http://127.0.0.1:8080
+
+### 登录（先执行；自动把 token 存进 client.global）
+POST {{host}}/api/auth/login
 Content-Type: application/json
 
 {
-  "username": "2023034743010",
-  "password": "123456"
+  "username": "{{$dotenv TEST_USERNAME}}",
+  "password": "{{$dotenv TEST_PASSWORD}}"
 }
+
+> {% client.global.set("token", response.body.data.token) %}
+
+### 当前用户
+GET {{host}}/api/auth/me
+satoken: {{token}}
+
+### 查知识点
+GET {{host}}/api/course/kp/KP0201
+satoken: {{token}}
+
+### 知识点映射（契约 V2：decision ∈ AUTO/CONFIRM/FAILED）
+POST {{host}}/api/diagnosis/map
+satoken: {{token}}
+Content-Type: application/json
+
+{
+  "text": "把主键和外键搞混了，参照完整性也不清楚",
+  "courseId": 1
+}
+
+### 创建错题记录（DRAFT；clientToken 每次换新值以演示幂等）
+POST {{host}}/api/error/records
+satoken: {{token}}
+Content-Type: application/json
+
+{
+  "courseId": 1,
+  "clientToken": "manual-test-001",
+  "kpId": "KP0201",
+  "errorType": "CONCEPT_CONFUSION",
+  "correctedText": "关于关系模型，下列叙述不正确的是（ ）。"
+}
+
+### 确认错题（把 {logId} 换成上一步返回的 logId）
+PUT {{host}}/api/error/records/{logId}/confirm
+satoken: {{token}}
+Content-Type: application/json
+
+{
+  "kpId": "KP0201",
+  "errorType": "CONCEPT_CONFUSION",
+  "correctedText": "关于关系模型，下列叙述不正确的是（ ）。"
+}
+
+### RAG 流式讲解（SSE：meta → source → delta* → (degraded) → done/error）
+### 前置：logId 必须是当前用户的 CONFIRMED 记录，且 kpId 与记录一致
+POST {{host}}/api/diagnosis/explain
+satoken: {{token}}
+Content-Type: application/json
+
+{
+  "logId": "替换为上一步的 logId",
+  "kpId": "KP0201",
+  "errorType": "CONCEPT_CONFUSION",
+  "questionText": "下列关于关系模型的叙述中，不正确的是（ ）。",
+  "forceRefresh": false
+}
+
+### 三层推荐（契约参数 logId；竖切阶段可用 kpId 兜底）
+GET {{host}}/api/recommendations?logId=替换为上一步的 logId
+satoken: {{token}}
+
+### 登出
+POST {{host}}/api/auth/logout
+satoken: {{token}}

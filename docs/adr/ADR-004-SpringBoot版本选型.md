@@ -91,7 +91,7 @@ Root WebApplicationContext: initialization completed in 1643 ms
 | --- | --- | --- |
 | Boot 4 生态仍在演进 | 个别第三方库可能未适配 | 只保留已验证的 MP/Sa-Token/springdoc；新增依赖前先做兼容性验证 |
 | 首次冷启动偏慢 | 临时工程首次启动超过 40 秒轮询窗口，第二次启动正常；推断为首次类加载/依赖扫描 | 团队机器复测冷启动时间；若稳定 >60 秒再排查依赖，不影响兼容性结论 |
-| 未验证真实 MySQL | 本次用 H2 验证 ORM，MySQL 驱动/连接池未跑 | 首次 `docker compose up` 后执行 `GET /api/course/kp/KP0101` 验证 |
+| 未验证真实 MySQL | 本次用 H2 验证 ORM，MySQL 驱动/连接池未跑 | 首次 `docker compose up` 后执行 `GET /api/course/kp/KP0201` 验证 |
 | Spring Cloud Alibaba 不兼容 | 微服务已取消，不引入 Nacos/Gateway | 不涉及 |
 | 回退条件 | 任一核心模块在 Boot 4 下编译/启动失败 | 当天退回 Spring Boot 3.5.16 + Java 21，并在本 ADR 追加回退记录 |
 
@@ -112,10 +112,11 @@ mvn -q -DskipTests clean compile
 
 # 3. 首次启动（需 MySQL/Redis）
 docker compose up -d
-mvn -pl zhixue-bootstrap -am spring-boot:run
+mvn -q -DskipTests package
+java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar
 
 # 4. 验证
-curl http://127.0.0.1:8080/api/course/kp/KP0101
+curl http://127.0.0.1:8080/api/course/kp/KP0201
 curl http://127.0.0.1:8080/v3/api-docs
 ```
 

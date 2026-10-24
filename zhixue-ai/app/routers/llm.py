@@ -1,7 +1,7 @@
 """LLM 路由：多模型网关 + 合规拦截器（规划书任务 58A，申报书合规承诺的技术落地）。"""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse
@@ -30,7 +30,8 @@ async def chat(req: ChatRequest):
     if block_flag:
         return ChatResponse(modelUsed="-", content=block_tip or "", blockFlag=True)
 
-    # TODO(P0 任务 55)：openai SDK（base_url 切换 DeepSeek/GLM）→ 超时(settings.llm_timeout_seconds)
-    #        重试 1 次 → settings.llm_model_fallback 兜底 → 双失败时 Java 侧映射 60001，前端缓存解析 + 重试按钮
-    model = req.model or settings.llm_model_main
-    return ChatResponse(modelUsed=model, content="（骨架响应）模型调用通道待接入", blockFlag=False)
+    # TODO(P0 任务 4.7)：openai SDK（base_url 切换 DeepSeek/GLM）→ 首字节 10s 超时
+    #        重试 1 次 → settings.llm_model_fallback 兜底 → 双失败时 Java 侧映射 60001
+    # 未接入前显式 501，禁止返回伪造正文（评审 C10）
+    _ = (req, settings)
+    raise HTTPException(status_code=501, detail="模型调用通道尚未接入（P0 任务 4.7）")

@@ -1,13 +1,13 @@
 # 智学领航：高校课程学情诊断系统
 
-工作仓库。三个工程 + 基础设施编排，文档在上级目录 `技术学习/`。当前执行口径见 `../技术学习/10-计划收口与申报书差异说明.md`。
+工作仓库。三个工程 + 基础设施编排。执行口径见 `../技术学习/10-计划收口与申报书差异说明.md`；接口、算法与测试以 `docs/` 下的 V2 文档为准。
 
 ## 工程
 
 | 目录 | 技术栈 | 端口 | 职责 |
 | --- | --- | --- | --- |
-| `zhixue-server` | Spring Boot 3 模块化单体（Maven 多模块） | 8080 | 业务服务，唯一对外入口 |
-| `zhixue-ai` | Python + FastAPI | 8000 | OCR / RAG / LLM 三路由，仅内网调用 |
+| `zhixue-server` | Spring Boot 4.0.6 模块化单体（Maven 多模块，Java 21） | 8080 | 业务服务，唯一对外入口 |
+| `zhixue-ai` | Python 3.12 + FastAPI | 8000 | OCR / RAG / LLM 三路由，仅内网调用 |
 | `zhixue-web` | Vue3 + TypeScript + Element Plus | 5173 | 学生端与教师端 |
 
 规则：Java 不直连大模型，所有 AI 能力经 `zhixue-ai` 暴露；`zhixue-ai` 不对浏览器开放。
@@ -15,20 +15,31 @@
 ## 启动
 
 ```bash
-# 1. 基础设施（MySQL 8 + Redis 7）
+# 0. 本地口令（可选；不建 .env 时使用开发默认值 change-me）
+cp .env.example .env
+#    编辑 .env，把 MYSQL_ROOT_PASSWORD / DB_PASSWORD 改成同一个强口令
+#    注意：Spring 不自动读 .env，启动后端时需显式传入 DB_PASSWORD
+
+# 1. 基础设施（MySQL 8 + Redis 7，只绑定 127.0.0.1）
 docker compose up -d
 docker compose ps
 
-# 2. 后端（JDK 17+，Maven）
+# 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
-mvn -pl zhixue-bootstrap -am spring-boot:run
+#    Windows PowerShell: $env:DB_PASSWORD="你的口令"
+#    bash: export DB_PASSWORD='你的口令'
+#    注意：spring-boot:run 会作用到父 POM 并报"找不到主类"，统一用打包运行：
+mvn -B -ntp package
+java -jar zhixue-bootstrap/target/zhixue-bootstrap-*.jar
 
-# 3. AI 服务（Python 3.11+，建议先建 venv）
+# 3. AI 服务（Python 3.12，建议先建 venv）
 cd zhixue-ai
 pip install -r requirements.txt
+#    需要 OCR 时再装（与上表配套，勿单独升级）：
+#    pip install -r requirements-ocr.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
-# 4. 前端（Node 18+）
+# 4. 前端（Node 20+）
 cd zhixue-web
 npm install
 npm run dev
@@ -36,58 +47,57 @@ npm run dev
 
 启动顺序不能乱：后端要连库，前端要连后端。等日志出现 `Started ServerApplication` 再发请求。
 
-访问 `http://localhost:5173`，接口文档 `http://localhost:8080/swagger-ui/index.html`。
+访问 `http://127.0.0.1:5173`，接口文档 `http://127.0.0.1:8080/swagger-ui/index.html`。
+
+### 配置分层
+
+| 文件 | 用途 |
+| --- | --- |
+| `application.yml` | 公共配置，默认激活 `dev` |
+| `application-dev.yml` | 本地 MySQL/Redis、SQL 日志；允许 `useSSL=false` |
+| `application-prod.yml` | 生产：`DB_URL/DB_USERNAME/DB_PASSWORD` 必须环境变量注入，强制 `useSSL=true`，关闭 SQL 打印 |
+
+生产启动示例：`SPRING_PROFILES_ACTIVE=prod DB_URL=... DB_USERNAME=... DB_PASSWORD=... java -jar ...`。
 
 ## 验证
 
 ```
-GET http://127.0.0.1:8080/api/course/kp/KP0101
+GET http://127.0.0.1:8080/api/course/kp/KP0201
 ```
 
-返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。
+返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。种子账号：`teacher01` / `student01`，初始口令 `ChangeMe@2026`（仅本地，首次登录后修改）。
 
 用 `127.0.0.1` 不用 `localhost`：Windows 上 `localhost` 优先解析成 IPv6，后端可能只监听 IPv4，会报连接被拒绝。
 
 ## 目录
 
 ```
-05-代码/
+zhixue/
 ├── zhixue-server/          Spring Boot 多模块
 │   └── sql/
 │       ├── init.sql        V1 历史快照（9 表，仅期中材料）
-│       └── init-v2.sql     唯一执行 DDL（16 表，compose 已挂载）
+│       ├── init-v2.sql     唯一执行 DDL（16 表，已含 V2.1：动态维度/幂等键）
+│       └── init-v2.1-migration.sql  仅旧库升级用；新库不要执行
 ├── zhixue-ai/              FastAPI 三路由
 ├── zhixue-web/             Vue3 前端
-├── docs/                   项目文档（接口契约、算法设计等，待补）
+├── docs/                   openapi.yaml + 01 契约 / 05 算法 / 06 测试 + adr/
 ├── tools/                  脚本（数据导入、源码抽取、冒烟测试）
 └── docker-compose.yml      MySQL + Redis
 ```
 
 ## 文档
 
-在上级目录 `技术学习/`：
-
 | 文件 | 用途 |
 | --- | --- |
-| `01-开发规范-对齐阿里手册.md` | 命名、分层、异常、日志、数据库、前端、Git |
-| `03-数据库设计-V2.md` / `.sql` | 表结构与改动说明 |
-| `05-开发路线图.md` | 9 阶段 55 步 |
-| `06-关键决策记录.md` | 课程、SSE、技术栈的定案与理由 |
-| `08-技术避坑清单.md` | 27 条真踩过的坑 |
-| `10-计划收口与申报书差异说明.md` | 当前唯一执行口径与申报书差异 |
+| `docs/openapi.yaml` | 接口唯一机器可读源（28 端点） |
+| `docs/01-接口契约V2.md` | 状态机、错误码、SSE、降级、幂等 |
+| `docs/05-算法与规则设计.md` | 映射 / 掌握度 / 推荐 / 检索四套公式与参数 |
+| `docs/06-测试验收计划.md` | 测试分层与申报书指标对照 |
+| `docs/adr/ADR-004-SpringBoot版本选型.md` | Boot 4 + Java 21 验证记录 |
+| `../技术学习/01-10` | 规范、路线图、决策记录、避坑清单、收口口径 |
 
 ## 提交前
 
 - [ ] `.env` 和密钥没有进仓库
 - [ ] 没有 `target/`、`node_modules/`、`.idea/`
-- [ ] 接口有变动时同步更新契约文档
-
-## 首次建仓
-
-```bash
-git init
-git add .
-git commit -m "chore: 初始化工作仓库，导入三工程骨架与基础设施配置"
-git remote add origin <Gitee 仓库地址>
-git push -u origin main
-```
+- [ ] 接口有变动时同步更新 `docs/openapi.yaml` 与契约文档

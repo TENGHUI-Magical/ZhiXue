@@ -66,21 +66,23 @@ CREATE TABLE IF NOT EXISTS course_chapter (
 -- 4. knowledge_point 知识点
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS knowledge_point (
-  kp_id          VARCHAR(20)  NOT NULL            COMMENT '知识点编号，如 KP0101（业务主键）',
+  kp_id          VARCHAR(20)  NOT NULL            COMMENT '知识点编号，如 KP0201（教材章号+序号，业务主键）',
   course_id      BIGINT       NOT NULL            COMMENT '所属课程',
   chapter_id     BIGINT       NOT NULL            COMMENT '所属章节',
   name           VARCHAR(100) NOT NULL            COMMENT '知识点名称，专有名词，如 关系模型的基本概念',
   concept_text   TEXT         DEFAULT NULL        COMMENT '核心概念切片 300-500 字，RAG 检索与模板降级共用',
   misconception  TEXT         DEFAULT NULL        COMMENT '常见误区 1-3 条，换行分隔，讲解的误区段直接引用',
-  textbook_page  VARCHAR(50)  DEFAULT NULL        COMMENT '教材页码，如 P18，来源追溯展示',
+  textbook_page  VARCHAR(50)  DEFAULT NULL        COMMENT '教材页码，如 P34，来源追溯展示',
   trial_hint     VARCHAR(200) DEFAULT NULL        COMMENT '自检题提示，讲解末段用',
+  dimension_key  VARCHAR(30)  DEFAULT NULL        COMMENT '五维归属键，须存在于 course.dimension_json',
   sort_no        INT          NOT NULL DEFAULT 0  COMMENT '章节内排序',
   created_by     BIGINT       NOT NULL            COMMENT '录入人 user_id',
   is_active      TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '是否启用，停用代替删除',
   created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (kp_id),
-  KEY idx_course_chapter (course_id, chapter_id, sort_no)
+  KEY idx_course_chapter (course_id, chapter_id, sort_no),
+  KEY idx_course_dimension (course_id, dimension_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='知识点表';
 
 -- ------------------------------------------------------------
@@ -153,6 +155,7 @@ CREATE TABLE IF NOT EXISTS question_kp (
 CREATE TABLE IF NOT EXISTS student_error_record (
   log_id           VARCHAR(20)  NOT NULL            COMMENT '错题记录编号，如 EL_101（业务主键）',
   user_id          BIGINT       NOT NULL            COMMENT '学生 user_id',
+  client_token     VARCHAR(64)  DEFAULT NULL        COMMENT '客户端幂等键，防止重复提交',
   q_id             VARCHAR(20)  DEFAULT NULL        COMMENT '匹配到的题库题目，无则为 NULL',
   kp_id            VARCHAR(20)  DEFAULT NULL        COMMENT '学生确认的知识点，DRAFT 阶段可为空',
   image_url        VARCHAR(300) DEFAULT NULL        COMMENT '原始错题图片路径',
@@ -166,6 +169,7 @@ CREATE TABLE IF NOT EXISTS student_error_record (
   created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (log_id),
+  UNIQUE KEY uk_user_client (user_id, client_token),
   KEY idx_user_status (user_id, status),
   KEY idx_user_time (user_id, created_at),
   KEY idx_kp_time (kp_id, confirmed_at)
@@ -177,6 +181,7 @@ CREATE TABLE IF NOT EXISTS student_error_record (
 CREATE TABLE IF NOT EXISTS ocr_task (
   task_id      CHAR(32)     NOT NULL            COMMENT '任务ID，uuid hex',
   user_id      BIGINT       NOT NULL            COMMENT '提交人',
+  client_token VARCHAR(64)  DEFAULT NULL        COMMENT '客户端幂等键，防止重复上传',
   image_path   VARCHAR(300) NOT NULL            COMMENT '图片落盘路径',
   status       VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING / RUNNING / SUCCESS / FAILED',
   confidence   DECIMAL(4,3) DEFAULT NULL        COMMENT '整体识别置信度',
@@ -187,6 +192,7 @@ CREATE TABLE IF NOT EXISTS ocr_task (
   created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (task_id),
+  UNIQUE KEY uk_user_client (user_id, client_token),
   KEY idx_user_status (user_id, status),
   KEY idx_status_time (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OCR任务表';
@@ -197,6 +203,7 @@ CREATE TABLE IF NOT EXISTS ocr_task (
 CREATE TABLE IF NOT EXISTS practice_record (
   practice_id       BIGINT   NOT NULL AUTO_INCREMENT COMMENT '作答ID',
   user_id           BIGINT   NOT NULL                COMMENT '学生 user_id',
+  client_token      VARCHAR(64) DEFAULT NULL         COMMENT '客户端幂等键，防止重复提交',
   q_id              VARCHAR(20) NOT NULL             COMMENT '题目编号',
   kp_id             VARCHAR(20) NOT NULL             COMMENT '冗余主知识点，避免画像聚合时关联查询',
   source            VARCHAR(20) NOT NULL             COMMENT '来源：RECOMMEND / PLAN / SELF',
@@ -207,6 +214,7 @@ CREATE TABLE IF NOT EXISTS practice_record (
   recommendation_id BIGINT   DEFAULT NULL            COMMENT '若来自推荐，关联 recommendation',
   created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (practice_id),
+  UNIQUE KEY uk_user_client (user_id, client_token),
   KEY idx_user_kp (user_id, kp_id),
   KEY idx_user_time (user_id, created_at),
   KEY idx_q (q_id)
@@ -226,6 +234,7 @@ CREATE TABLE IF NOT EXISTS recommendation (
   is_adopted        TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '学生是否做了这道题',
   created_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (recommendation_id),
+  UNIQUE KEY uk_user_log_q (user_id, log_id, q_id),
   KEY idx_user_log (user_id, log_id),
   KEY idx_user_time (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='练习推荐记录表';
@@ -270,11 +279,7 @@ CREATE TABLE IF NOT EXISTS learning_portrait_snapshot (
   snapshot_id      BIGINT       NOT NULL AUTO_INCREMENT COMMENT '快照ID',
   user_id          BIGINT       NOT NULL                COMMENT '学生 user_id',
   stat_date        DATE         NOT NULL                COMMENT '统计日期',
-  concept_score    DECIMAL(4,3) DEFAULT NULL            COMMENT '概念理解得分 0-1',
-  structure_score  DECIMAL(4,3) DEFAULT NULL            COMMENT '结构设计得分',
-  algorithm_score  DECIMAL(4,3) DEFAULT NULL            COMMENT '算法推导得分',
-  complexity_score DECIMAL(4,3) DEFAULT NULL            COMMENT '复杂度分析得分',
-  boundary_score   DECIMAL(4,3) DEFAULT NULL            COMMENT '边界处理得分',
+  dimension_scores JSON         DEFAULT NULL            COMMENT '维度得分对象，键与 course.dimension_json.key 一致',
   weakest_kps      JSON         DEFAULT NULL            COMMENT '薄弱知识点 TOP-N 数组',
   error_dist       JSON         DEFAULT NULL            COMMENT '五类错因计数对象',
   total_practice   INT          NOT NULL DEFAULT 0      COMMENT '累计作答次数',
@@ -317,48 +322,48 @@ CREATE TABLE IF NOT EXISTS ai_generation_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI调用日志与教师评阅表';
 
 -- ============================================================
--- 种子数据：一门课 + 第一章 + 两个知识点
--- 说明：种子教师/学生仅用于冒烟；真实课程主讲教师待 2026-11-07 确认后替换。
--- 种子密码为 BCrypt 占位串（不可登录）；冒烟登录前先用 BCrypt 生成真实 hash（如 123456）替换。
+-- 种子数据：一门课 + 一章 + 两个知识点
+-- 说明：种子账号为占位身份，不含真实姓名/学号；真实账号由 tools/seed 脚本按需导入。
+-- 种子口令：ChangeMe@2026（BCrypt，仅本地开发；首次登录后必须修改）
 -- ============================================================
 INSERT INTO sys_user (user_id, username, password, real_name, role, class_name)
-VALUES (1, 'T0001', '$2a$10$placeholder', '梁鹏', 'TEACHER', NULL)
+VALUES (1, 'teacher01', '$2a$10$7gTMsmEghWWChdEa83pnFu2CcL7s08WGi12XK4xwvN2N8fSFssvIe', '教师A', 'TEACHER', NULL)
 ON DUPLICATE KEY UPDATE real_name = VALUES(real_name);
 
 INSERT INTO sys_user (user_id, username, password, real_name, role, class_name)
-VALUES (2, '2023034743010', '$2a$10$placeholder', '朱腾辉', 'STUDENT', '23软件工程1班')
+VALUES (2, 'student01', '$2a$10$7gTMsmEghWWChdEa83pnFu2CcL7s08WGi12XK4xwvN2N8fSFssvIe', '学生A', 'STUDENT', '23软件工程1班')
 ON DUPLICATE KEY UPDATE real_name = VALUES(real_name);
 
 INSERT INTO course (course_id, course_name, teacher_id, textbook, description, dimension_json)
 VALUES (1, '数据库原理', 1, '《数据库系统概论（第6版）》王珊', '试点课程，覆盖 8 个核心章节',
-        '{"dimensions": ["概念理解", "SQL 编写", "模式设计", "事务与并发", "边界与异常"]}')
+        '[{"key":"concept","name":"概念理解"},{"key":"sql","name":"SQL 编写"},{"key":"schema","name":"模式设计"},{"key":"transaction","name":"事务与并发"},{"key":"boundary","name":"边界与异常"}]')
 ON DUPLICATE KEY UPDATE course_name = VALUES(course_name), textbook = VALUES(textbook), dimension_json = VALUES(dimension_json);
 
 INSERT INTO course_chapter (course_id, chapter_no, title, sort_no) VALUES
-(1, 1, '关系数据库基础', 1)
+(1, 2, '关系模型', 1)
 ON DUPLICATE KEY UPDATE title = VALUES(title);
 
-INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, sort_no, created_by)
-SELECT 'KP0101', 1, chapter_id, '关系模型的基本概念',
+INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, dimension_key, sort_no, created_by)
+SELECT 'KP0201', 1, chapter_id, '关系模型的基本概念',
        '关系模型用二维表表示实体及其联系：行称为元组，列称为属性，属性的取值范围称为域；关系模式是对关系的结构描述。关系模型的三要素是关系数据结构、关系操作集合和关系完整性约束。',
        '把关系等同于普通文件\n混淆元组与属性',
-       'P18', 1, 1
-FROM course_chapter WHERE course_id = 1 AND chapter_no = 1
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+       'P34', 'concept', 1, 1
+FROM course_chapter WHERE course_id = 1 AND chapter_no = 2
+ON DUPLICATE KEY UPDATE name = VALUES(name), dimension_key = VALUES(dimension_key);
 
-INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, sort_no, created_by)
-SELECT 'KP0102', 1, chapter_id, '主键与外键',
+INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, dimension_key, sort_no, created_by)
+SELECT 'KP0202', 1, chapter_id, '主键与外键',
        '主键是能唯一标识关系中元组的属性或属性组，取值不能重复且不能为空；外键是关系中的一个属性或属性组，其取值必须参照另一关系的主键，用于保证参照完整性。',
        '认为主键可以为空\n忽略外键的参照完整性',
-       'P24', 2, 1
-FROM course_chapter WHERE course_id = 1 AND chapter_no = 1
-ON DUPLICATE KEY UPDATE name = VALUES(name);
+       'P34,P38', 'schema', 2, 1
+FROM course_chapter WHERE course_id = 1 AND chapter_no = 2
+ON DUPLICATE KEY UPDATE name = VALUES(name), dimension_key = VALUES(dimension_key);
 
 INSERT INTO knowledge_prereq (kp_id, prereq_kp_id)
-VALUES ('KP0102', 'KP0101')
+VALUES ('KP0202', 'KP0201')
 ON DUPLICATE KEY UPDATE kp_id = VALUES(kp_id);
 
 INSERT INTO kp_keyword (kp_id, keyword, weight) VALUES
-('KP0101', '关系', 1.00), ('KP0101', '元组', 0.90), ('KP0101', '属性', 0.90), ('KP0101', '域', 0.70), ('KP0101', '关系模式', 0.80),
-('KP0102', '主键', 1.00), ('KP0102', '外键', 0.90), ('KP0102', '参照完整性', 1.00), ('KP0102', '唯一标识', 0.70), ('KP0102', '约束', 0.60)
+('KP0201', '关系', 1.00), ('KP0201', '元组', 0.90), ('KP0201', '属性', 0.90), ('KP0201', '域', 0.70), ('KP0201', '关系模式', 0.80),
+('KP0202', '主键', 1.00), ('KP0202', '外键', 0.90), ('KP0202', '参照完整性', 1.00), ('KP0202', '唯一标识', 0.70), ('KP0202', '约束', 0.60)
 ON DUPLICATE KEY UPDATE weight = VALUES(weight);

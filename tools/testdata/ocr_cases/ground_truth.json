@@ -1,0 +1,86 @@
+{
+  "generator": "tools/gen 2026-10-25",
+  "numpy_noise": true,
+  "cases": [
+    {
+      "id": "ocr_01",
+      "file": "ocr_01.png",
+      "question_type": "单选",
+      "distortion": null,
+      "expect": {
+        "answer": "C",
+        "point": "KP0203"
+      },
+      "expected_lines": [
+        "1．下列关于候选码的叙述中，正确的是（　）。",
+        "A．候选码必须由单个属性构成",
+        "B．主属性可以取空值",
+        "C．候选码能唯一标识关系中的一个元组",
+        "D．一个关系只能有一个候选码"
+      ],
+      "note": "自造题，与题库/映射标注集原题不同；评测口径见 06 号文 IT-UPLOAD 系列"
+    },
+    {
+      "id": "ocr_02",
+      "file": "ocr_02.png",
+      "question_type": "填空",
+      "distortion": null,
+      "expect": {
+        "answer": "DISTINCT",
+        "point": "KP0303"
+      },
+      "expected_lines": [
+        "2．SQL 中消除查询结果重复行的关键字是____。",
+        "（要求写出完整单词）"
+      ],
+      "note": "自造题，与题库/映射标注集原题不同；评测口径见 06 号文 IT-UPLOAD 系列"
+    },
+    {
+      "id": "ocr_03",
+      "file": "ocr_03.png",
+      "question_type": "编程",
+      "distortion": null,
+      "expect": {
+        "answer": "sname, sdept / sname",
+        "point": "KP0303"
+      },
+      "expected_lines": [
+        "3．已知 Student(sno, sname, sage, sdept)，写 SQL 查询",
+        "年龄大于 20 的学生姓名与系别，结果按姓名升序。",
+        "SELECT ____ FROM Student",
+        "WHERE sage > 20",
+        "ORDER BY ____;"
+      ],
+      "note": "自造题，与题库/映射标注集原题不同；评测口径见 06 号文 IT-UPLOAD 系列"
+    },
+    {
+      "id": "ocr_04",
+      "file": "ocr_04.png",
+      "question_type": "判断",
+      "distortion": "rotate-2deg",
+      "expect": {
+        "answer": "错（应 IS NULL）",
+        "point": "KP0308"
+      },
+      "expected_lines": [
+        "4．判断对错：SQL 中判断某属性为空值，",
+        "应写作 WHERE x = NULL。（　）"
+      ],
+      "note": "自造题，与题库/映射标注集原题不同；评测口径见 06 号文 IT-UPLOAD 系列"
+    },
+    {
+      "id": "ocr_05",
+      "file": "ocr_05.png",
+      "question_type": "简答",
+      "distortion": "blur+noise",
+      "expect": {
+        "answer": "取空值或被参照关系已存在的主码值",
+        "point": "KP0207"
+      },
+      "expected_lines": [
+        "5．简述参照完整性对外码取值的三点约束。"
+      ],
+      "note": "自造题，与题库/映射标注集原题不同；评测口径见 06 号文 IT-UPLOAD 系列"
+    }
+  ]
+}

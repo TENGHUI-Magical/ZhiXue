@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-10-25 02:11:52",
+  "endpoint": "/api/diagnosis/map",
+  "cases_file": "D:\\Desktop\\智学领航：高校课程学情诊断系统\\zhixue\\tools\\testdata\\mapping_cases.csv",
+  "n_cases": 32,
+  "n_ok": 32,
+  "n_failed": 0,
+  "top1_hits": 0,
+  "top3_hits": 0,
+  "top1_accuracy": 0.0,
+  "top3_accuracy": 0.0,
+  "auto_rate": 0.0,
+  "by_kp": {
+    "KP0201": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0202": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0203": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0204": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0205": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0206": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0207": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0208": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0209": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0210": {
+      "hit": 0,
+      "total": 3
+    },
+    "KP0301": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0302": {
+      "hit": 0,
+      "total": 3
+    },
+    "KP0303": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0304": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0305": {
+      "hit": 0,
+      "total": 3
+    },
+    "KP0306": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0307": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0308": {
+      "hit": 0,
+      "total": 1
+    },
+    "KP0309": {
+      "hit": 0,
+      "total": 2
+    },
+    "KP0310": {
+      "hit": 0,
+      "total": 1
+    }
+  },
+  "failed_cases": []
+}

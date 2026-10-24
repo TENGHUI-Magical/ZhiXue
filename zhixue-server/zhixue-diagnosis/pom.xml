@@ -18,9 +18,21 @@
             <groupId>com.zhixue</groupId>
             <artifactId>zhixue-common</artifactId>
         </dependency>
+        <!-- 跨模块取知识点画像：只经 course 的 Service，不直接查 course 的表 -->
+        <dependency>
+            <groupId>com.zhixue</groupId>
+            <artifactId>zhixue-course</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
+        <!-- OCR 任务归属校验：从登录态取 user_id -->
+        <!-- 取当前登录用户：错题记录归属与越权校验 -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot4-starter</artifactId>
         </dependency>
         <!-- 调用 zhixue-ai 的 HTTP 客户端：OCR / RAG / LLM 均经 FastAPI 网关，Java 侧不直连大模型 -->
         <dependency>

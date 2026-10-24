@@ -1,0 +1,9 @@
+# OCR 依赖：默认 RapidOCR（PaddleOCR 模型的 ONNX 版，离线、免 paddle 原生依赖）
+# 版本策略：与 Python 3.12 配套；如需换回 PaddleOCR，必须 paddlepaddle + paddleocr 成套锁版本（避坑清单 O1）。
+rapidocr-onnxruntime==1.4.4
+pillow>=10.0,<12.0
+numpy>=1.26,<3.0
+
+# 可选（默认不装，装前按官方安装表复核；装完执行 tools/smoke_ocr.py）：
+# paddlepaddle==3.3.1
+# paddleocr==3.7.0

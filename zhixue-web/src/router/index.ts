@@ -9,6 +9,12 @@ const router = createRouter({
       redirect: '/diagnosis'
     },
     {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/LoginView.vue'),
+      meta: { title: '登录' }
+    },
+    {
       path: '/diagnosis',
       name: 'diagnosis',
       component: () => import('../views/DiagnosisWorkbench.vue'),
@@ -39,6 +45,17 @@ const router = createRouter({
       meta: { title: '课程知识图谱' }
     }
   ]
+})
+
+router.beforeEach((to) => {
+  const token = localStorage.getItem('satoken')
+  if (to.path !== '/login' && !token) {
+    return '/login'
+  }
+  if (to.path === '/login' && token) {
+    return '/diagnosis'
+  }
+  return true
 })
 
 router.afterEach((to) => {

@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: 后端编译与测试（Boot 4 / Java 21）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zhixue-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      # 当前 0 测试，verify 至少保证多模块全量编译；测试就位后自动纳入
+      - name: Build (mvn verify)
+        run: mvn -B -ntp verify
+
+  frontend:
+    name: 前端类型检查与构建（Vue3 / TS）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zhixue-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: zhixue-web/package-lock.json
+      - run: npm ci
+      # package.json 的 build 含 vue-tsc 类型检查
+      - run: npm run build
+
+  ai:
+    name: AI 服务语法与未定义名检查（FastAPI）
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: zhixue-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+        # 只查语法错误(E9)与未定义名(F)，不没收风格；规范加严需先过项目内讨论
+      - run: ruff check app --select E9,F --exit-zero=false
+      - name: Byte-compile
+        run: python -m compileall -q app

@@ -8,12 +8,12 @@ import java.time.LocalDateTime;
 
 /**
  * 知识点实体（对齐 init-v2.sql 的 knowledge_point 表，16 表 V2 结构）。
- * 业务编号 KP0101 等由人工录入，不走数据库自增，故显式声明 IdType.INPUT。
+ * 业务编号 KP0201 等由人工录入，不走数据库自增，故显式声明 IdType.INPUT。
  */
 @TableName("knowledge_point")
 public class KnowledgePoint {
 
-    /** 知识点编号，如 KP0101（业务主键，人工赋值） */
+    /** 知识点编号，如 KP0201（教材章号+序号，业务主键，人工赋值） */
     @TableId(type = IdType.INPUT)
     private String kpId;
 
@@ -37,6 +37,9 @@ public class KnowledgePoint {
 
     /** 自检题提示，讲解末段用 */
     private String trialHint;
+
+    /** 五维归属键，须存在于 course.dimension_json 的 key 集合 */
+    private String dimensionKey;
 
     /** 章节内排序 */
     private Integer sortNo;
@@ -67,6 +70,8 @@ public class KnowledgePoint {
     public void setTextbookPage(String textbookPage) { this.textbookPage = textbookPage; }
     public String getTrialHint() { return trialHint; }
     public void setTrialHint(String trialHint) { this.trialHint = trialHint; }
+    public String getDimensionKey() { return dimensionKey; }
+    public void setDimensionKey(String dimensionKey) { this.dimensionKey = dimensionKey; }
     public Integer getSortNo() { return sortNo; }
     public void setSortNo(Integer sortNo) { this.sortNo = sortNo; }
     public Integer getIsActive() { return isActive; }

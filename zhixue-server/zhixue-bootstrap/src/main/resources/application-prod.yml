@@ -1,0 +1,24 @@
+# 生产/联调配置：所有敏感项必须由环境变量注入，缺失即启动失败（fail-fast）。
+# 启动示例：SPRING_PROFILES_ACTIVE=prod DB_URL=... DB_USERNAME=... DB_PASSWORD=... java -jar ...
+spring:
+  datasource:
+    # 必须包含 useSSL=true&requireSSL=true；禁止 allowPublicKeyRetrieval=true
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+# 生产关闭 SQL 打印，避免用户错题文本进入日志
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  level:
+    root: info
+    com.zhixue: info

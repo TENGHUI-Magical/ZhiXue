@@ -30,10 +30,18 @@ entity      → @TableName 与 init-v2.sql 对齐
 ## 运行
 
 ```bash
-# 前置：JDK 21；docker compose up -d 起好 MySQL/Redis（见部署方案 2 节），表结构由 init-v2.sql 自动建（16 表）
-mvn -pl zhixue-bootstrap -am spring-boot:run
-# 验证分层示例：GET http://localhost:8080/api/course/kp/KP0101
+# 前置：JDK 21；MySQL/Redis 已启动（docker compose up -d 或本机服务）
+# 首次启动按 01/02/03 顺序执行：建表(16 表) → 第2-3章 20 知识点 → 60 道题
+mvn -q -DskipTests package
+DB_PASSWORD=123456 java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar
+# 验证分层示例：GET http://localhost:8080/api/course/kp/KP0201
 ```
+
+种子文件：
+- `sql/seed-kp-ch02-ch03.sql`：20 个知识点（KP0201—KP0310）、先修边、关键词，均可重复执行
+- `sql/seed-question-ch02-ch03.sql`：60 道题 + 81 条题目-知识点关联；Q_0220、Q_0224、Q_0326 待教师复核
+
+已有 `data/mysql` 时 init 脚本不会重跑；要重新灌种子，先 `docker compose down` 并删除 `data/mysql`（或手动 `mysql < sql/seed-*.sql`）。
 
 ## 对接 zhixue-ai
 

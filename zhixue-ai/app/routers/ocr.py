@@ -1,31 +1,66 @@
-"""OCR 路由：错题图像结构化抽取（契约 2.2 节，任务表轮询模式）。"""
+"""OCR 路由：错题图像 → 文本（契约 2.2 节的识别执行端）。
+
+任务表与轮询由 Java 侧管理；本路由保持无状态，只负责一次识别。
+引擎：RapidOCR（PaddleOCR 模型的 ONNX 版，离线、轻量）；PaddleOCR 可替换接入。
+"""
 from __future__ import annotations
 
-import uuid
+import io
+import time
+from typing import Any
 
-from fastapi import APIRouter, File, UploadFile
+import numpy as np
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
+from PIL import Image
 
-from app.schemas import OcrTaskOut
+from app.schemas import OcrLine, OcrRecognizeOut
 
 router = APIRouter()
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
-@router.post("/parse", response_model=OcrTaskOut)
-async def parse(image: UploadFile = File(..., description="错题图片，字段名 image（契约 2.2 节），支持常见手机拍摄格式")):
-    """提交 OCR 任务：先返回 taskId，前端按 1.5s 间隔轮询 /task/{taskId}，骨架屏过渡。"""
-    task_id = uuid.uuid4().hex
-
-    # TODO(P0)：保存图片至 settings.ocr_save_dir →
-    #           写入业务库 ocr_task 表(PENDING) →
-    #           BackgroundTasks 调 PaddleOCR 做题干/选项/答案分块识别 →
-    #           置信度写入 running/result 两条记录
-    # 失败路径：无文字/图片模糊 → status=FAILED，Java 侧映射 60002，前端弹手动录入降级表单
-
-    return OcrTaskOut(taskId=task_id, status="PENDING")
+_engine: Any = None
 
 
-@router.get("/task/{task_id}", response_model=OcrTaskOut)
-async def task_status(task_id: str):
-    """轮询任务状态。TODO(P0)：按 ocr_task 表查询真实状态。"""
-    # 骨架期占位：契约字段先返回，下一阶段接任务表
-    return OcrTaskOut(taskId=task_id, status="PENDING")
+def _get_engine() -> Any:
+    global _engine
+    if _engine is None:
+        from rapidocr_onnxruntime import RapidOCR
+
+        _engine = RapidOCR()
+    return _engine
+
+
+def _recognize(data: bytes) -> OcrRecognizeOut:
+    start = time.time()
+    image = Image.open(io.BytesIO(data)).convert("RGB")
+    result, _ = _get_engine()(np.array(image))
+    lines: list[OcrLine] = []
+    for item in result or []:
+        # RapidOCR 返回 [box, text, score]
+        text = str(item[1]).strip()
+        if text:
+            lines.append(OcrLine(text=text, score=round(float(item[2]), 4)))
+    text = "\n".join(line.text for line in lines)
+    confidence = round(sum(line.score for line in lines) / len(lines), 3) if lines else 0.0
+    return OcrRecognizeOut(
+        text=text,
+        confidence=confidence,
+        lines=lines,
+        elapsedMs=int((time.time() - start) * 1000),
+    )
+
+
+@router.post("/recognize", response_model=OcrRecognizeOut)
+async def recognize(image: UploadFile = File(..., description="错题图片，字段名 image")):
+    """识别单张图片并返回原文 + 平均置信度。失败由 Java 侧映射 60002。"""
+    data = await image.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="图片为空")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="图片超过 10MB")
+    try:
+        return await run_in_threadpool(_recognize, data)
+    except Exception as exc:  # 图片损坏、引擎异常等
+        raise HTTPException(status_code=422, detail=f"OCR 识别失败: {exc}") from exc
