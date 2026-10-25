@@ -34,7 +34,7 @@
             :closable="false"
             show-icon
             class="ocr-alert"
-            title="识别置信度低于 0.75：请核对并修正题干（或重新选择知识点）后再分析"
+            :title="`识别置信度低于 ${LOW_CONFIDENCE_THRESHOLD}：请核对并修正题干（或重新选择知识点）后再分析`"
           />
           <el-alert
             v-if="ocrError"
@@ -147,6 +147,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
 import {
+  DEFAULT_COURSE_ID,
   LOW_CONFIDENCE_THRESHOLD,
   createErrorRecord,
   confirmErrorRecord,
@@ -400,7 +401,7 @@ const startExplain = async () => {
 const ensureRecord = async (): Promise<string> => {
   if (logId.value) return logId.value;
   const created = await createErrorRecord({
-    courseId: 1,
+    courseId: DEFAULT_COURSE_ID,
     clientToken: crypto.randomUUID(),
     kpId: selectedKpId.value,
     errorType: errorType.value,
@@ -421,7 +422,7 @@ const loadRecommend = async () => {
     const params = logId.value
       ? { logId: logId.value }
       : { kpId: selectedKpId.value };
-    questions.value = await getRecommendations({ ...params, courseId: 1 });
+    questions.value = await getRecommendations({ ...params, courseId: DEFAULT_COURSE_ID });
   } catch {
     // request.ts 已统一提示；推荐失败不影响讲解展示
   }

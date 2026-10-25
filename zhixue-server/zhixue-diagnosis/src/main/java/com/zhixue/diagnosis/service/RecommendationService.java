@@ -27,7 +27,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.IntPredicate;
-import java.util.stream.Collectors;
 
 /**
  * 三层推荐（契约 V2：GET /api/recommendations；算法见 05 号文 §3）。
@@ -94,8 +93,8 @@ public class RecommendationService {
 
         int avgDiff = recentAvgDifficulty(userId, resolvedKp);
         String currentQid = record == null ? null : record.getQId();
-        Set<String> cooldown7 = practicedQids(userId, 7);
-        Set<String> cooldown3 = practicedQids(userId, 3);
+        Set<String> cooldown7 = practicedQids(userId, courseId, 7);
+        Set<String> cooldown3 = practicedQids(userId, courseId, 3);
 
         List<QuestionView> same = questionBankService.listByKp(courseId, resolvedKp);
         // 05 §3.1/§3.6：先修/后继池走 question_kp 关联（含次要关联），题量不足时同池兜底
@@ -105,16 +104,18 @@ public class RecommendationService {
         Set<String> picked = new HashSet<>();
         List<Recommendation> result = new ArrayList<>(3);
 
-        addIfPresent(result, pick(same, picked, currentQid, cooldown7, cooldown3, avgDiff,
+        addIfPresent(result, pick(same, picked, currentQid, cooldown7, cooldown3, avgDiff, avgDiff,
                 d -> d <= avgDiff), "CONSOLIDATE", REASON_CONSOLIDATE, picked);
 
         List<QuestionView> variantPool = prereq.isEmpty() ? same : prereq;
         addIfPresent(result, pick(variantPool, picked, currentQid, cooldown7, cooldown3, avgDiff,
-                d -> Math.abs(d - avgDiff) <= 1), "VARIANT", REASON_VARIANT, picked);
+                avgDiff, d -> Math.abs(d - avgDiff) <= 1), "VARIANT", REASON_VARIANT, picked);
 
         List<QuestionView> advancePool = successor.isEmpty() ? same : successor;
+        // 05 §3.2：拓展层优先 min(3, 均值+1)，候选不足才放宽为 ≥ 均值
+        int advanceTarget = Math.min(MAX_DIFFICULTY, avgDiff + 1);
         addIfPresent(result, pick(advancePool, picked, currentQid, cooldown7, cooldown3, avgDiff,
-                d -> d >= avgDiff), "ADVANCE", REASON_ADVANCE, picked);
+                advanceTarget, d -> d >= avgDiff), "ADVANCE", REASON_ADVANCE, picked);
 
         if (result.size() < 3) {
             // 05 §3.3.3：数量不足时整批改用统一模板，提示题库待补充
@@ -135,11 +136,12 @@ public class RecommendationService {
 
     /**
      * 选题：冷却 7 天 → 3 天 → 允许重复 → 难度区间放宽为任意，依次放宽；
-     * 每轮取难度最接近基准的题。四轮是 05 §3.2/§3.3 放宽语义的落地。
+     * 每轮取难度最接近目标值的题（拓展层目标为 min(3, 均值+1)）。
+     * 四轮是 05 §3.2/§3.3 放宽语义的落地。
      */
     private QuestionView pick(List<QuestionView> pool, Set<String> picked, String currentQid,
                               Set<String> cooldown7, Set<String> cooldown3, int avgDiff,
-                              IntPredicate difficultyRange) {
+                              int targetDifficulty, IntPredicate difficultyRange) {
         List<java.util.function.Predicate<QuestionView>> rounds = List.of(
                 q -> !cooldown7.contains(q.qId()),
                 q -> !cooldown3.contains(q.qId()),
@@ -154,7 +156,7 @@ public class RecommendationService {
                     .filter(q -> !q.qId().equals(currentQid))
                     .filter(cooldown)
                     .filter(q -> !useRange || difficultyRange.test(difficulty(q)))
-                    .min(Comparator.comparingInt(q -> Math.abs(difficulty(q) - avgDiff)))
+                    .min(Comparator.comparingInt(q -> Math.abs(difficulty(q) - targetDifficulty)))
                     .orElse(null);
             if (chosen != null) {
                 return chosen;
@@ -210,14 +212,10 @@ public class RecommendationService {
                 .average().orElse(DEFAULT_AVG_DIFFICULTY));
     }
 
-    private Set<String> practicedQids(long userId, int days) {
-        return practiceRecordMapper.selectList(new LambdaQueryWrapper<PracticeRecord>()
-                        .eq(PracticeRecord::getUserId, userId)
-                        .ge(PracticeRecord::getCreatedAt, LocalDateTime.now().minusDays(days)))
-                .stream()
-                .map(PracticeRecord::getQId)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+    /** 05 §3.3：按课程过滤的近期已练题目（7 天 / 3 天冷却） */
+    private Set<String> practicedQids(long userId, long courseId, int days) {
+        return new HashSet<>(practiceRecordMapper.selectPracticedQids(
+                userId, courseId, LocalDateTime.now().minusDays(days)));
     }
 
     /**

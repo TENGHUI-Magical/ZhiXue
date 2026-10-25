@@ -4,6 +4,9 @@ import { api } from "./request";
 /** 契约 §4：OCR 置信度低于该阈值必须人工核对，禁止直接确认 */
 export const LOW_CONFIDENCE_THRESHOLD = 0.75;
 
+/** 单课程 MVP 的默认课程 ID；多课程时由页面/路由显式传入 */
+export const DEFAULT_COURSE_ID = 1;
+
 export interface MapCandidate {
   kpId: string;
   name: string;
@@ -69,7 +72,7 @@ export const getOcrTask = (taskId: string) =>
   api.get<OcrTask>(`/api/error/tasks/${taskId}`);
 
 /** 知识点三通道映射 */
-export const mapKnowledgePoint = (text: string, courseId = 1) =>
+export const mapKnowledgePoint = (text: string, courseId = DEFAULT_COURSE_ID) =>
   api.post<MapResult>("/api/diagnosis/map", { text, courseId });
 
 /** 创建 DRAFT 错题记录 */

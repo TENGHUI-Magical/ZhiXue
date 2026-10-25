@@ -27,14 +27,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-CANDIDATE_ENDPOINTS = [
-    ("POST", "/api/error/upload"),            # V2 契约名
-    ("POST", "/api/diagnosis/ocr/parse"),     # 当前实现名
-]
-CANDIDATE_TASK_GET = [
-    "/api/error/tasks/%s",
-    "/api/diagnosis/ocr/task/%s",
-]
+# 契约名唯一事实源：旧路径已删除，保留 fallback 会掩盖契约回归
+UPLOAD_ENDPOINT = "/api/error/upload"
+TASK_GET_TEMPLATE = "/api/error/tasks/%s"
 DEFAULT_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata")
 OCR_DIR = os.path.join(DATA_DIR, "ocr_cases")
@@ -187,20 +182,14 @@ def main():
         with open(img_path, "rb") as f:
             blob = f.read()
 
-        st, body = None, None
-        used = None
-        for _, ep in CANDIDATE_ENDPOINTS:
-            # clientToken 每次尝试都随机：固定值会命中幂等返回旧任务，评测数据失真
-            st, body = post_multipart(
-                base + ep,
-                {"clientToken": uuid.uuid4().hex},
-                [("file", case["file"], "image/png", blob),
-                 ("image", case["file"], "image/png", blob)],
-                token, args.timeout)
-            if st == 200 and isinstance(body, dict) and body.get("code") == 0:
-                used = ep
-                break
-        if used is None:
+        used = UPLOAD_ENDPOINT
+        # clientToken 每次尝试都随机：固定值会命中幂等返回旧任务，评测数据失真
+        st, body = post_multipart(
+            base + used,
+            {"clientToken": uuid.uuid4().hex},
+            [("file", case["file"], "image/png", blob)],
+            token, args.timeout)
+        if not (st == 200 and isinstance(body, dict) and body.get("code") == 0):
             results.append({"id": case["id"], "status": "UPLOAD_FAIL",
                             "http": st, "body": str(body)[:200]})
             continue
@@ -214,14 +203,12 @@ def main():
 
         status, confidence, fields = "PENDING", None, None
         for _ in range(args.poll_max):
-            for tpl in CANDIDATE_TASK_GET:
-                st2, b2 = get_json(base + (tpl % task_id), token, args.timeout)
-                if st2 == 200 and isinstance(b2, dict) and b2.get("code") == 0:
-                    d = b2.get("data") or {}
-                    status = d.get("status", status)
-                    confidence = d.get("confidence", confidence)
-                    fields = d.get("fields") or d.get("result") or fields
-                    break
+            st2, b2 = get_json(base + (TASK_GET_TEMPLATE % task_id), token, args.timeout)
+            if st2 == 200 and isinstance(b2, dict) and b2.get("code") == 0:
+                d = b2.get("data") or {}
+                status = d.get("status", status)
+                confidence = d.get("confidence", confidence)
+                fields = d.get("fields") or d.get("result") or fields
             if status in ("SUCCESS", "FAILED"):
                 break
             time.sleep(args.poll_interval)
