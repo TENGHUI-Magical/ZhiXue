@@ -18,6 +18,9 @@ import java.util.Map;
 /**
  * 系统健康检查（契约 V2 §7 system 组，openapi /api/system/health）。
  * 分别探测 db / redis / ai，任一不可用返回 DEGRADED，但接口本身不返回 5xx。
+ * <p>
+ * 安全说明：本端点无鉴权，仅暴露组件级状态；生产部署需在网关限制为内网探针，
+ * 或按部署方案收敛为只返回 status 字段，避免暴露内部依赖拓扑。
  */
 @RestController
 @RequestMapping("/api/system")

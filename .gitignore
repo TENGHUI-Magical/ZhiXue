@@ -51,6 +51,7 @@ application-local.yml
 application-local.properties
 *.pem
 *.key
+zhixue-server/sql/seed-dev-users.local.sql
 
 # ============ 运行时数据 ============
 data/

@@ -40,7 +40,7 @@ Content-Type: application/json
 
 {
   "courseId": 1,
-  "clientToken": "manual-test-001",
+  "clientToken": "{{$uuid}}",
   "kpId": "KP0201",
   "errorType": "CONCEPT_CONFUSION",
   "correctedText": "关于关系模型，下列叙述不正确的是（ ）。"

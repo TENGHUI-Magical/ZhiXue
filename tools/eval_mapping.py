@@ -14,8 +14,8 @@
   脚本所在 tools/testdata 目录内。
 
 特性：
-- 端点自适应：默认依次探测 /api/diagnosis/map、/api/diagnosis/kp/match、
-  /api/diagnosis/analyze，以第一个返回 200 的为准（实现方命名漂移时不阻塞评测）。
+- 端点固定为 /api/diagnosis/map（契约唯一事实源）；实现若临时改名，用
+  --endpoint 显式指定，不做旧路径回退，避免掩盖契约回归。
 - 响应宽容解析：兼容 candidates/results/list 等字段名与 kpId/kp_id 等键名，
   识别 decision（AUTO/CONFIRM/FAILED），便于契约对齐前先出数据。
 - 请求兼容：同时携带 text / questionText / courseId / topK，Jackson 默认忽略未知字段。
@@ -35,8 +35,6 @@ from pathlib import Path
 
 CANDIDATE_ENDPOINTS = [
     "/api/diagnosis/map",
-    "/api/diagnosis/kp/match",
-    "/api/diagnosis/analyze",
 ]
 DEFAULT_ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "testdata")
@@ -182,7 +180,7 @@ def main():
             elif probe_status in (401, 403):
                 print("  - 接口存在但需要登录：用 --token 传入 satoken 值")
             else:
-                print("  - 候选端点均未返回 200；若实现刚改名，用 --endpoint 显式指定")
+                print("  - 默认端点未返回 200；确认后端版本，或用 --endpoint 显式指定")
             return 1
     print("[endpoint] 使用 " + endpoint)
 

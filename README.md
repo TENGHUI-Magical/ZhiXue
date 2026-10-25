@@ -24,8 +24,10 @@ cp .env.example .env
 docker compose up -d
 docker compose ps
 
-# 1.5 本地开发账号（仅本地环境；生产环境严禁执行）
-mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.sql
+# 1.5 本地开发账号（仅本地；口令不进入仓库）
+#     生成随机口令并写入已 gitignore 的本地 SQL，终端会打印一次口令
+python tools/gen_dev_users.py
+mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.local.sql
 
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
@@ -68,7 +70,9 @@ npm run dev
 GET http://127.0.0.1:8080/api/course/kp/KP0201
 ```
 
-返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。种子账号：`teacher01` / `student01`，初始口令 `ChangeMe@2026`（仅本地，来自 `zhixue-server/sql/seed-dev-users.sql`；生产环境不得使用固定口令）。
+返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。种子账号：`teacher01` / `student01`，口令由 `tools/gen_dev_users.py` 生成并打印一次（本地 SQL 已 gitignore；生产环境不得使用固定口令）。
+
+`GET /api/system/health` 无鉴权，仅返回 db/redis/ai 组件状态；生产部署需在网关限制为内网探针，或收敛为只返回 `status` 字段。
 
 用 `127.0.0.1` 不用 `localhost`：Windows 上 `localhost` 优先解析成 IPv6，后端可能只监听 IPv4，会报连接被拒绝。
 

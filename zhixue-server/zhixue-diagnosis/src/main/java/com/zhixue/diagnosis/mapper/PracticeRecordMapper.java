@@ -16,6 +16,8 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
     /**
      * 按课程过滤的近期已练题目（05 §3.3 冷却：7 天 / 3 天）。
      * practice_record 不冗余 course_id，用 question_bank 关联过滤，SQL 全参数绑定。
+     * LEFT JOIN + qb.q_id IS NULL：P4 自录题可能尚未入库，未知课程归属时保守纳入冷却，
+     * 避免因 join 丢弃而漏掉已练题。
      *
      * @param userId   学生 user_id
      * @param courseId 课程 ID
@@ -25,10 +27,10 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
     @Select("""
             SELECT DISTINCT pr.q_id
             FROM practice_record pr
-            JOIN question_bank qb ON qb.q_id = pr.q_id
+            LEFT JOIN question_bank qb ON qb.q_id = pr.q_id
             WHERE pr.user_id = #{userId}
-              AND qb.course_id = #{courseId}
               AND pr.created_at >= #{since}
+              AND (qb.course_id = #{courseId} OR qb.q_id IS NULL)
             """)
     List<String> selectPracticedQids(@Param("userId") long userId,
                                      @Param("courseId") long courseId,
