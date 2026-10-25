@@ -62,4 +62,4 @@ jobs:
       - name: Byte-compile
         run: python -m compileall -q app
       - name: Unit tests
-        run: pytest -q
+        run: python -m pytest -q
