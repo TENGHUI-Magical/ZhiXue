@@ -17,8 +17,8 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.config import settings
-from app.routers.llm import compliance_check
 from app.schemas import RagExplainRequest, RagRetrieveRequest, RagRetrieveResponse
+from app.services.compliance import compliance_check
 
 router = APIRouter()
 

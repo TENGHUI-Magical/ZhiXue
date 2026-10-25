@@ -7,6 +7,8 @@ import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.user.entity.SysUser;
 import com.zhixue.user.mapper.SysUserMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -15,6 +17,14 @@ import org.springframework.stereotype.Service;
 @Service
 public class AuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+
+    /**
+     * 用户不存在时也执行一次 BCrypt 校验，避免通过响应耗时枚举账号。
+     * 该哈希对应一个已废弃的本地占位口令，仅用于恒定时间比较。
+     */
+    private static final String DUMMY_HASH = "$2a$10$7gTMsmEghWWChdEa83pnFu2CcL7s08WGi12XK4xwvN2N8fSFssvIe";
+
     private final SysUserMapper sysUserMapper;
 
     public AuthService(SysUserMapper sysUserMapper) {
@@ -22,7 +32,7 @@ public class AuthService {
     }
 
     /**
-     * 登录：用户不存在 40400，密码错误 40100。
+     * 登录：用户不存在与口令错误统一返回 40100「用户名或密码错误」，避免账号枚举。
      *
      * @param username 登录名
      * @param password 明文口令（仅用于本次校验，不落库）
@@ -34,12 +44,15 @@ public class AuthService {
                 .eq(SysUser::getIsActive, 1)
                 .last("LIMIT 1"));
         if (user == null) {
-            throw new BizException(ErrorCode.NOT_FOUND, "用户不存在");
+            BCrypt.verifyer().verify(password.toCharArray(), DUMMY_HASH.toCharArray());
+            log.info("登录失败：用户不存在 username={}", username);
+            throw new BizException(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
         }
         boolean verified = BCrypt.verifyer()
                 .verify(password.toCharArray(), user.getPassword().toCharArray())
                 .verified;
         if (!verified) {
+            log.info("登录失败：口令错误 username={}", username);
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
         }
         StpUtil.login(user.getUserId());

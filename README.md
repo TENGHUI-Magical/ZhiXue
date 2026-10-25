@@ -24,6 +24,9 @@ cp .env.example .env
 docker compose up -d
 docker compose ps
 
+# 1.5 本地开发账号（仅本地环境；生产环境严禁执行）
+mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.sql
+
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
 #    Windows PowerShell: $env:DB_PASSWORD="你的口令"
@@ -65,7 +68,7 @@ npm run dev
 GET http://127.0.0.1:8080/api/course/kp/KP0201
 ```
 
-返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。种子账号：`teacher01` / `student01`，初始口令 `ChangeMe@2026`（仅本地，首次登录后修改）。
+返回 `code: 0` 和知识点数据，说明库、后端、种子数据三者都通了。种子账号：`teacher01` / `student01`，初始口令 `ChangeMe@2026`（仅本地，来自 `zhixue-server/sql/seed-dev-users.sql`；生产环境不得使用固定口令）。
 
 用 `127.0.0.1` 不用 `localhost`：Windows 上 `localhost` 优先解析成 IPv6，后端可能只监听 IPv4，会报连接被拒绝。
 

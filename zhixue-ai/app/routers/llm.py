@@ -5,21 +5,12 @@ from fastapi import APIRouter, HTTPException
 
 from app.config import settings
 from app.schemas import ChatRequest, ChatResponse
+from app.services.compliance import compliance_check
 
 router = APIRouter()
 
 # 模型名配置驱动（改模型只改 .env，不改代码；全局规划冲突 #3/#5）
 # 规划书 7.2 节模型分层：主力 DeepSeek-V3 / 兜底 GLM-4-Flash
-# 合规拦截词表（骨架版）：正式版扩展至 Prompt 注入特征与代写意图识别，计入 ai_generation_log
-BLOCK_KEYWORDS = ["直接给答案", "帮我写作业", "代写", "求出完整答案不要过程"]
-
-
-def compliance_check(text: str) -> tuple[bool, str | None]:
-    """命中代写意图 → 返回学术诚信提示，讲解定位为"思路点拨"而非"答案交付"。"""
-    for kw in BLOCK_KEYWORDS:
-        if kw in text:
-            return True, "检测到代写请求倾向。本系统仅提供启发式讲解与思路引导，请独立完成作答。"
-    return False, None
 
 
 @router.post("/chat", response_model=ChatResponse)

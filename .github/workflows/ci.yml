@@ -20,8 +20,8 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      # 当前 0 测试，verify 至少保证多模块全量编译；测试就位后自动纳入
-      - name: Build (mvn verify)
+      # verify 覆盖多模块编译与单测；集成测试就位后自动纳入
+      - name: Build and test (mvn verify)
         run: mvn -B -ntp verify
 
   frontend:
@@ -42,7 +42,7 @@ jobs:
       - run: npm run build
 
   ai:
-    name: AI 服务语法与未定义名检查（FastAPI）
+    name: AI 服务 lint 与单测（FastAPI）
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,8 +52,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install ruff
-        # 只查语法错误(E9)与未定义名(F)，不没收风格；规范加严需先过项目内讨论
-      - run: ruff check app --select E9,F --exit-zero=false
+          cache: pip
+          cache-dependency-path: zhixue-ai/requirements-dev.txt
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+      # 只查语法错误(E9)与未定义名(F)，不没收风格；规范加严需先过项目内讨论
+      - name: Lint (E9/F)
+        run: ruff check app tests
       - name: Byte-compile
         run: python -m compileall -q app
+      - name: Unit tests
+        run: pytest -q

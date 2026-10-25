@@ -325,18 +325,9 @@ CREATE TABLE IF NOT EXISTS ai_generation_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI调用日志与教师评阅表';
 
 -- ============================================================
--- 种子数据：一门课 + 一章 + 两个知识点
--- 说明：种子账号为占位身份，不含真实姓名/学号；真实账号由 tools/seed 脚本按需导入。
--- 种子口令：ChangeMe@2026（BCrypt，仅本地开发；首次登录后必须修改）
+-- 种子数据：一门课 + 一章 + 知识点（不含账号）
+-- 本地开发账号单独放在 seed-dev-users.sql（仅本地；生产环境严禁执行）
 -- ============================================================
-INSERT INTO sys_user (user_id, username, password, real_name, role, class_name)
-VALUES (1, 'teacher01', '$2a$10$7gTMsmEghWWChdEa83pnFu2CcL7s08WGi12XK4xwvN2N8fSFssvIe', '教师A', 'TEACHER', NULL)
-ON DUPLICATE KEY UPDATE real_name = VALUES(real_name);
-
-INSERT INTO sys_user (user_id, username, password, real_name, role, class_name)
-VALUES (2, 'student01', '$2a$10$7gTMsmEghWWChdEa83pnFu2CcL7s08WGi12XK4xwvN2N8fSFssvIe', '学生A', 'STUDENT', '23软件工程1班')
-ON DUPLICATE KEY UPDATE real_name = VALUES(real_name);
-
 INSERT INTO course (course_id, course_name, teacher_id, textbook, description, dimension_json)
 VALUES (1, '数据库原理', 1, '《数据库系统概论（第6版）》王珊', '试点课程，覆盖 8 个核心章节',
         '[{"key":"concept","name":"概念理解"},{"key":"sql","name":"SQL 编写"},{"key":"schema","name":"模式设计"},{"key":"transaction","name":"事务与并发"},{"key":"boundary","name":"边界与异常"}]')
