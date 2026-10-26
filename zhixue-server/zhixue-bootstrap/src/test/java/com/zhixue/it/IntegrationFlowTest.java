@@ -39,8 +39,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -329,6 +335,88 @@ class IntegrationFlowTest {
         assertThat(code(second)).isZero();
         List<Integer> secondIds = JsonPath.read(body(second), "$.data[*].recommendationId");
         assertThat(secondIds).isEqualTo(firstIds);
+    }
+
+    @Test
+    void authAndRoleBoundaries() throws Exception {
+        assertThat(code(getJson("/api/auth/me", null))).isEqualTo(40100);
+        assertThat(code(getJson("/api/auth/me", "invalid-token"))).isEqualTo(40100);
+        assertThat(code(getJson("/api/course/kp/KP0201", null))).isEqualTo(40100);
+
+        String token = login();
+        HttpResponse<String> me = getJson("/api/auth/me", token);
+        assertThat(code(me)).isZero();
+        assertThat((String) JsonPath.read(body(me), "$.data.role")).isEqualTo("STUDENT");
+
+        HttpResponse<String> kp = getJson("/api/course/kp/KP0201", token);
+        assertThat(code(kp)).isZero();
+        assertThat((String) JsonPath.read(body(kp), "$.data.kpId")).isEqualTo("KP0201");
+    }
+
+    @Test
+    void explainLogReadableByOwnerForReview() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-review");
+        String explainId = explainIdFromSse(body(explain(token, logId)));
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT user_id FROM sys_user WHERE username = 'it_user'", Long.class);
+
+        awaitExplainLog(explainId, userId);
+
+        HttpResponse<String> review = getJson("/api/diagnosis/explain/" + explainId, token);
+        assertThat(code(review)).isZero();
+        assertThat((String) JsonPath.read(body(review), "$.data.content")).contains("第一段讲解。");
+        assertThat((String) JsonPath.read(body(review), "$.data.model")).isEqualTo("stub-model");
+        assertThat((String) JsonPath.read(body(review), "$.data.traceId")).isNotBlank();
+        assertThat((Boolean) JsonPath.read(body(review), "$.data.degraded")).isFalse();
+        assertThat((Boolean) JsonPath.read(body(review), "$.data.blocked")).isFalse();
+        assertThat((String) JsonPath.read(body(review), "$.data.sources[0].kpId")).isEqualTo("KP0201");
+    }
+
+    @Test
+    void concurrentConfirmOnlyOneSucceeds() throws Exception {
+        String token = login();
+        String logId = createRecord(token, "ct-concurrent", "KP0201");
+
+        int workers = 4;
+        ExecutorService pool = Executors.newFixedThreadPool(workers);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Integer>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < workers; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return code(confirm(token, logId));
+                }));
+            }
+            start.countDown();
+
+            List<Integer> codes = new ArrayList<>();
+            for (Future<Integer> future : futures) {
+                codes.add(future.get(20, TimeUnit.SECONDS));
+            }
+            assertThat(codes.stream().filter(c -> c == 0).count()).isEqualTo(1);
+            assertThat(codes.stream().filter(c -> c == 40900).count()).isEqualTo(workers - 1);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT status FROM student_error_record WHERE log_id = ?", String.class, logId))
+                .isEqualTo("CONFIRMED");
+    }
+
+    private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
+        for (int i = 0; i < 50; i++) {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM ai_generation_log WHERE explain_id = ? AND user_id = ?",
+                    Integer.class, explainId, userId);
+            if (count != null && count == 1) {
+                return;
+            }
+            Thread.sleep(100);
+        }
+        throw new AssertionError("讲解留痕未在 5 秒内写入: " + explainId);
     }
 
     private void insertOcrTask(long userId, String taskId, String clientToken, String status) {
