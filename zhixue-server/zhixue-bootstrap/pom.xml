@@ -13,6 +13,23 @@
     <name>zhixue-bootstrap</name>
     <description>启动模块：唯一的 Spring Boot 入口，聚合 5 个业务模块（模块化单体标准做法）</description>
 
+    <properties>
+        <!-- 默认跳过 @Tag("it") 集成测试；CI 用 -Pit 且 RUN_IT=true 执行 -->
+        <test.excluded.groups>it</test.excluded.groups>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>1.21.4</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>com.zhixue</groupId>
@@ -55,6 +72,17 @@
             <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- 集成测试：Spring 上下文 + Testcontainers MySQL/Redis + JDK HttpServer 桩 AI -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -63,6 +91,23 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${test.excluded.groups}</excludedGroups>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>it</id>
+            <properties>
+                <!-- none 不是任何测试标签，等效于不排除；CI 用 -Pit 执行集成测试 -->
+                <test.excluded.groups>none</test.excluded.groups>
+            </properties>
+        </profile>
+    </profiles>
 </project>
