@@ -22,6 +22,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -35,9 +36,14 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -104,18 +110,55 @@ class IntegrationFlowTest {
                 jdbcUrl(), MYSQL.getUsername(), MYSQL.getPassword())) {
             executeScript(connection, "../sql/init-v2.sql", true);
             executeScript(connection, "../sql/seed-kp-ch02-ch03.sql", false);
-            try (PreparedStatement ps = connection.prepareStatement(
-                    "INSERT INTO sys_user (username, password, real_name, role, class_name, is_active) "
-                            + "VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE "
-                            + "password = VALUES(password), real_name = VALUES(real_name), "
-                            + "role = VALUES(role), class_name = VALUES(class_name), is_active = 1")) {
-                ps.setString(1, "it_user");
-                ps.setString(2, TEST_HASH);
-                ps.setString(3, "集成测试");
-                ps.setString(4, "STUDENT");
-                ps.setString(5, "IT");
-                ps.executeUpdate();
-            }
+            executeScript(connection, "../sql/seed-question-ch02-ch03.sql", false);
+            upsertUser(connection, "it_user");
+            upsertUser(connection, "it_user2");
+            long chapterId = queryChapterId(connection);
+            insertTestKp(connection, chapterId, "KPITL3", "集成测试L3",
+                    "用于触发上游 500 并验证 L3 本地模板降级的概念切片", "集成测试误区");
+            insertTestKp(connection, chapterId, "KPITL4", "集成测试L4", null, null);
+        }
+    }
+
+    private static void upsertUser(Connection connection, String username) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO sys_user (username, password, real_name, role, class_name, is_active) "
+                        + "VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE "
+                        + "password = VALUES(password), real_name = VALUES(real_name), "
+                        + "role = VALUES(role), class_name = VALUES(class_name), is_active = 1")) {
+            ps.setString(1, username);
+            ps.setString(2, TEST_HASH);
+            ps.setString(3, "集成测试");
+            ps.setString(4, "STUDENT");
+            ps.setString(5, "IT");
+            ps.executeUpdate();
+        }
+    }
+
+    private static long queryChapterId(Connection connection) throws Exception {
+        try (Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT chapter_id FROM course_chapter WHERE course_id = 1 AND chapter_no = 2 LIMIT 1")) {
+            resultSet.next();
+            return resultSet.getLong(1);
+        }
+    }
+
+    private static void insertTestKp(Connection connection, long chapterId, String kpId,
+                                     String name, String conceptText, String misconception) throws Exception {
+        try (PreparedStatement ps = connection.prepareStatement(
+                "INSERT INTO knowledge_point "
+                        + "(kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, "
+                        + "dimension_key, sort_no, created_by, is_active) "
+                        + "VALUES (?, 1, ?, ?, ?, ?, 'P1', 'concept', 99, 1, 1) "
+                        + "ON DUPLICATE KEY UPDATE name = VALUES(name), concept_text = VALUES(concept_text), "
+                        + "misconception = VALUES(misconception), is_active = 1")) {
+            ps.setString(1, kpId);
+            ps.setLong(2, chapterId);
+            ps.setString(3, name);
+            ps.setString(4, conceptText);
+            ps.setString(5, misconception);
+            ps.executeUpdate();
         }
     }
 
@@ -220,6 +263,74 @@ class IntegrationFlowTest {
                 "SELECT status FROM ocr_task WHERE task_id = 'T-DONE'", String.class)).isEqualTo("SUCCESS");
     }
 
+    @Test
+    void unauthenticatedAndCrossUserRecordAccessRejected() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-auth");
+
+        assertThat(code(getJson("/api/error/records/" + logId, null))).isEqualTo(40100);
+        String otherToken = login("it_user2");
+        assertThat(code(getJson("/api/error/records/" + logId, otherToken))).isEqualTo(40300);
+    }
+
+    @Test
+    void explainQueryRejectsOtherUser() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-owner");
+        String explainId = explainIdFromSse(body(explain(token, logId)));
+
+        String otherToken = login("it_user2");
+        HttpResponse<String> query = getJson("/api/diagnosis/explain/" + explainId, otherToken);
+        assertThat(code(query)).isEqualTo(40400);
+    }
+
+    @Test
+    void uploadRejectsMissingAndOversizedFiles() throws Exception {
+        String token = login();
+
+        assertThat(code(upload(token, "ct-missing", null))).isEqualTo(40000);
+        assertThat(code(upload(token, "ct-6mb", new byte[6 * 1024 * 1024]))).isEqualTo(40000);
+        assertThat(code(upload(token, "ct-11mb", new byte[11 * 1024 * 1024]))).isEqualTo(40000);
+    }
+
+    @Test
+    void blankConceptReturns60001() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-l4", "KPITL4");
+
+        String body = body(explain(token, logId, "KPITL4"));
+        assertThat(body).contains("\"code\":60001");
+        assertThat(body).doesNotContain("event:delta");
+        assertThat(AI_CALLS.get()).isZero();
+    }
+
+    @Test
+    void upstreamFailureFallsBackToL3() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-l3", "KPITL3");
+
+        String body = body(explain(token, logId, "KPITL3"));
+        assertThat(body).contains("\"level\":\"L3\"", "event:delta", "event:done");
+        assertThat(body).doesNotContain("\"code\":60001");
+        assertThat(AI_CALLS.get()).isEqualTo(1);
+    }
+
+    @Test
+    void recommendationsPersistIdempotently() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-rec");
+
+        HttpResponse<String> first = getJson("/api/recommendations?logId=" + logId + "&courseId=1", token);
+        assertThat(code(first)).isZero();
+        List<Integer> firstIds = JsonPath.read(body(first), "$.data[*].recommendationId");
+        assertThat(firstIds).isNotEmpty();
+
+        HttpResponse<String> second = getJson("/api/recommendations?logId=" + logId + "&courseId=1", token);
+        assertThat(code(second)).isZero();
+        List<Integer> secondIds = JsonPath.read(body(second), "$.data[*].recommendationId");
+        assertThat(secondIds).isEqualTo(firstIds);
+    }
+
     private void insertOcrTask(long userId, String taskId, String clientToken, String status) {
         jdbcTemplate.update("INSERT INTO ocr_task "
                         + "(task_id, user_id, client_token, image_path, status, retry_count, created_at, updated_at) "
@@ -228,16 +339,24 @@ class IntegrationFlowTest {
     }
 
     private String login() throws Exception {
+        return login("it_user");
+    }
+
+    private String login(String username) throws Exception {
         HttpResponse<String> response = postJson("/api/auth/login",
-                "{\"username\":\"it_user\",\"password\":\"It!Pass123\"}", null);
+                "{\"username\":\"%s\",\"password\":\"It!Pass123\"}".formatted(username), null);
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(code(response)).isZero();
         return JsonPath.read(body(response), "$.data.token");
     }
 
     private String createAndConfirm(String token, String clientToken) throws Exception {
-        String logId = createRecord(token, clientToken, "KP0201");
-        assertThat(code(confirm(token, logId))).isZero();
+        return createAndConfirm(token, clientToken, "KP0201");
+    }
+
+    private String createAndConfirm(String token, String clientToken, String kpId) throws Exception {
+        String logId = createRecord(token, clientToken, kpId);
+        assertThat(code(confirm(token, logId, kpId))).isZero();
         return logId;
     }
 
@@ -255,7 +374,12 @@ class IntegrationFlowTest {
     }
 
     private HttpResponse<String> confirm(String token, String logId) throws Exception {
-        String payload = "{\"kpId\":\"KP0201\",\"errorType\":\"CONCEPT_CONFUSION\",\"correctedText\":\"求闭包\"}";
+        return confirm(token, logId, "KP0201");
+    }
+
+    private HttpResponse<String> confirm(String token, String logId, String kpId) throws Exception {
+        String payload = "{\"kpId\":\"%s\",\"errorType\":\"CONCEPT_CONFUSION\",\"correctedText\":\"求闭包\"}"
+                .formatted(kpId);
         HttpRequest request = HttpRequest.newBuilder(uri("/api/error/records/" + logId + "/confirm"))
                 .header("Content-Type", "application/json")
                 .header("satoken", token)
@@ -265,9 +389,13 @@ class IntegrationFlowTest {
     }
 
     private HttpResponse<String> explain(String token, String logId) throws Exception {
+        return explain(token, logId, "KP0201");
+    }
+
+    private HttpResponse<String> explain(String token, String logId, String kpId) throws Exception {
         String payload = """
-                {"logId":"%s","kpId":"KP0201","errorType":"CONCEPT_CONFUSION","questionText":"求闭包","forceRefresh":false}
-                """.formatted(logId);
+                {"logId":"%s","kpId":"%s","errorType":"CONCEPT_CONFUSION","questionText":"求闭包","forceRefresh":false}
+                """.formatted(logId, kpId);
         return postJson("/api/diagnosis/explain", payload, token);
     }
 
@@ -279,6 +407,52 @@ class IntegrationFlowTest {
             builder.header("satoken", token);
         }
         return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private HttpResponse<String> getJson(String path, String token) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path)).GET();
+        if (token != null) {
+            builder.header("satoken", token);
+        }
+        return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private HttpResponse<String> upload(String token, String clientToken, byte[] fileBytes) throws Exception {
+        String boundary = "----ZhiXueIT" + System.nanoTime();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        writeFormField(out, boundary, "clientToken", null,
+                clientToken.getBytes(StandardCharsets.UTF_8));
+        if (fileBytes != null) {
+            writeFormField(out, boundary, "file", "a.jpg", fileBytes);
+        }
+        out.write(("--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder(uri("/api/error/upload"))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .header("satoken", token)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(out.toByteArray()))
+                .build();
+        return HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+    }
+
+    private static void writeFormField(OutputStream out, String boundary, String name,
+                                       String filename, byte[] value) throws IOException {
+        out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+        String disposition = "Content-Disposition: form-data; name=\"" + name + "\""
+                + (filename == null ? "" : "; filename=\"" + filename + "\"") + "\r\n";
+        out.write(disposition.getBytes(StandardCharsets.UTF_8));
+        if (filename != null) {
+            out.write("Content-Type: image/jpeg\r\n".getBytes(StandardCharsets.UTF_8));
+        }
+        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+        out.write(value);
+        out.write("\r\n".getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String explainIdFromSse(String body) {
+        Matcher matcher = Pattern.compile("\"explainId\":\"([^\"]+)\"").matcher(body);
+        assertThat(matcher.find()).isTrue();
+        return matcher.group(1);
     }
 
     private URI uri(String path) {
@@ -314,6 +488,12 @@ class IntegrationFlowTest {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/api/rag/explain", exchange -> {
                 AI_CALLS.incrementAndGet();
+                String requestBody = new String(exchange.getRequestBody().readAllBytes(),
+                        StandardCharsets.UTF_8);
+                if (requestBody.contains("\"kpId\":\"KPITL3\"")) {
+                    exchange.sendResponseHeaders(500, -1);
+                    return;
+                }
                 exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
                 exchange.sendResponseHeaders(200, 0);
                 try (OutputStream output = exchange.getResponseBody()) {
