@@ -1,14 +1,18 @@
-"""讲解降级链单测（契约 §6）：L1 失败重试 1 次，仍失败才降 L2。"""
+"""讲解降级链单测（契约 §6）：L1 失败重试 1 次，仍失败才降 L2。
+
+直接调用 rag_service.stream_explain，不引入 FastAPI/TestClient，
+CI 只需轻量 dev 依赖即可运行（路由层只是 HTTP 外壳）。
+"""
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.main import app
+from app.schemas import RagExplainRequest
 from app.services import rag_service
 
 PAYLOAD = {
@@ -25,14 +29,15 @@ PAYLOAD = {
 }
 
 
-@pytest.fixture
-def client() -> TestClient:
-    return TestClient(app)
+def _collect() -> list[tuple[str, dict]]:
+    async def run() -> list[str]:
+        frames = []
+        async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
+            frames.append(frame)
+        return frames
 
-
-def _events(body: str) -> list[tuple[str, dict]]:
     events: list[tuple[str, dict]] = []
-    for frame in body.split("\n\n"):
+    for frame in asyncio.run(run()):
         event = ""
         data = ""
         for line in frame.splitlines():
@@ -45,7 +50,7 @@ def _events(body: str) -> list[tuple[str, dict]]:
     return events
 
 
-def test_l1_retries_once_then_succeeds(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_l1_retries_once_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
     calls = {"count": 0}
 
@@ -57,10 +62,8 @@ def test_l1_retries_once_then_succeeds(client: TestClient, monkeypatch: pytest.M
 
     monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
 
-    resp = client.post("/api/rag/explain", json=PAYLOAD)
+    events = _collect()
 
-    assert resp.status_code == 200
-    events = _events(resp.text)
     names = [name for name, _ in events]
     assert calls["count"] == 2, "L1 失败后必须重试 1 次"
     assert "degraded" not in names, "重试成功不得标记降级"
@@ -69,8 +72,7 @@ def test_l1_retries_once_then_succeeds(client: TestClient, monkeypatch: pytest.M
     assert done["modelUsed"] == settings.llm_model_main
 
 
-def test_l1_fails_twice_then_degrades_to_l2(client: TestClient,
-                                           monkeypatch: pytest.MonkeyPatch) -> None:
+def test_l1_fails_twice_then_degrades_to_l2(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
     monkeypatch.setattr(settings, "glm_api_key", "test-glm-key")
     urls: list[str] = []
@@ -83,11 +85,9 @@ def test_l1_fails_twice_then_degrades_to_l2(client: TestClient,
 
     monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
 
-    resp = client.post("/api/rag/explain", json=PAYLOAD)
+    events = _collect()
 
-    assert resp.status_code == 200
     assert sum("deepseek" in url for url in urls) == 2, "L1 必须尝试两次"
-    events = _events(resp.text)
     degraded = [data for name, data in events if name == "degraded"]
     assert degraded and degraded[0]["level"] == "L2"
     done = [data for name, data in events if name == "done"][-1]
