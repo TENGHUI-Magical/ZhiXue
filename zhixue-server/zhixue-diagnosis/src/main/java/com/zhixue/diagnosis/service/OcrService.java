@@ -1,6 +1,7 @@
 package com.zhixue.diagnosis.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.diagnosis.config.AiClientProperties;
@@ -8,6 +9,7 @@ import com.zhixue.diagnosis.dto.OcrRecognizeResponse;
 import com.zhixue.diagnosis.dto.OcrTaskView;
 import com.zhixue.diagnosis.entity.OcrTask;
 import com.zhixue.diagnosis.mapper.OcrTaskMapper;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,8 +38,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * OCR 任务服务（契约 2.2 节）：提交任务 → 落盘 → 异步调 zhixue-ai → 轮询查询。
@@ -50,6 +57,12 @@ public class OcrService {
     private static final Logger log = LoggerFactory.getLogger(OcrService.class);
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png");
+    private static final String PENDING = "PENDING";
+    private static final String RUNNING = "RUNNING";
+    private static final String SUCCESS = "SUCCESS";
+    private static final String FAILED = "FAILED";
+    /** OCR 队列上限：超出后立即把任务标 FAILED，由前端提示重试，避免无界队列堆积 */
+    private static final int OCR_QUEUE_CAPACITY = 50;
 
     /** 允许的图片上限与整体超时，配置化（05 §0：禁止代码硬编码），默认值对齐契约 §3/§4 */
     @Value("${zhixue.ocr.max-image-bytes:5242880}")
@@ -63,11 +76,11 @@ public class OcrService {
     private final ObjectMapper objectMapper;
     private final WebClient webClient;
 
-    private final ExecutorService executor = Executors.newFixedThreadPool(2, runnable -> {
-        Thread thread = new Thread(runnable, "ocr-worker");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final ExecutorService executor = new ThreadPoolExecutor(
+            2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(OCR_QUEUE_CAPACITY),
+            daemonFactory("ocr-worker"),
+            new ThreadPoolExecutor.AbortPolicy());
 
     @Value("${zhixue.ocr.save-dir:./data/upload}")
     private String saveDir;
@@ -121,7 +134,7 @@ public class OcrService {
         task.setUserId(userId);
         task.setClientToken(clientToken);
         task.setImagePath(target.toString());
-        task.setStatus("PENDING");
+        task.setStatus(PENDING);
         task.setRetryCount(0);
         try {
             ocrTaskMapper.insert(task);
@@ -143,7 +156,12 @@ public class OcrService {
         }
 
         String filename = target.getFileName().toString();
-        executor.execute(() -> recognize(taskId, target, filename));
+        try {
+            executor.execute(() -> recognize(taskId, target, filename));
+        } catch (RejectedExecutionException e) {
+            log.warn("OCR 队列已满，任务直接标记失败 taskId={}", taskId);
+            transition(taskId, PENDING, FAILED, null, null, "OCR 队列已满，请稍后重试");
+        }
         return taskId;
     }
 
@@ -155,19 +173,19 @@ public class OcrService {
     public void reclaimStaleTasks() {
         LocalDateTime deadline = LocalDateTime.now().minusSeconds(ocrTimeoutSeconds);
         List<OcrTask> stale = ocrTaskMapper.selectList(new LambdaQueryWrapper<OcrTask>()
-                .in(OcrTask::getStatus, "PENDING", "RUNNING")
+                .in(OcrTask::getStatus, PENDING, RUNNING)
                 .lt(OcrTask::getUpdatedAt, deadline)
                 .last("LIMIT 50"));
+        int reclaimed = 0;
         for (OcrTask task : stale) {
-            OcrTask update = new OcrTask();
-            update.setTaskId(task.getTaskId());
-            update.setStatus("FAILED");
-            update.setErrorCode("60002");
-            update.setErrorMsg("OCR 任务超时，已被回收器标记失败，请手动录入题干");
-            ocrTaskMapper.updateById(update);
+            // CAS：只允许从 PENDING/RUNNING 转 FAILED，避免覆盖并发完成的 SUCCESS
+            if (transition(task.getTaskId(), task.getStatus(), FAILED, null, null,
+                    "OCR 任务超时，已被回收器标记失败，请手动录入题干")) {
+                reclaimed++;
+            }
         }
-        if (!stale.isEmpty()) {
-            log.warn("OCR 回收器标记 {} 个超时任务为 FAILED", stale.size());
+        if (reclaimed > 0) {
+            log.warn("OCR 回收器标记 {} 个超时任务为 FAILED", reclaimed);
         }
     }
 
@@ -192,7 +210,15 @@ public class OcrService {
     }
 
     private void recognize(String taskId, Path file, String filename) {
-        updateStatus(taskId, "RUNNING", null, null, null);
+        // 任务可能已被回收器标 FAILED 或已完成，CAS 失败即不再执行，避免终态回跳
+        if (!transition(taskId, PENDING, RUNNING, null, null, null)) {
+            try {
+                Files.deleteIfExists(file);
+            } catch (Exception ignore) {
+                // 删除失败留待孤儿文件清理任务
+            }
+            return;
+        }
 
         try {
             MultipartBodyBuilder builder = new MultipartBodyBuilder();
@@ -218,26 +244,43 @@ public class OcrService {
 
             BigDecimal confidence = BigDecimal.valueOf(response.confidence())
                     .setScale(3, RoundingMode.HALF_UP);
-            updateStatus(taskId, "SUCCESS", confidence, objectMapper.writeValueAsString(fields), null);
+            transition(taskId, RUNNING, SUCCESS, confidence, objectMapper.writeValueAsString(fields), null);
         } catch (Exception e) {
             log.warn("OCR 识别失败: {}", taskId, e);
-            updateStatus(taskId, "FAILED", null, null,
-                    "OCR 识别失败，请手动录入题干");
+            transition(taskId, RUNNING, FAILED, null, null, "OCR 识别失败，请手动录入题干");
         }
     }
 
-    private void updateStatus(String taskId, String status, BigDecimal confidence,
-                              String resultJson, String errorMsg) {
-        OcrTask update = new OcrTask();
-        update.setTaskId(taskId);
-        update.setStatus(status);
-        update.setConfidence(confidence);
-        update.setResultJson(resultJson);
-        if (errorMsg != null) {
-            update.setErrorCode("60002");
-            update.setErrorMsg(errorMsg.length() > 200 ? errorMsg.substring(0, 200) : errorMsg);
-        }
-        ocrTaskMapper.updateById(update);
+    /**
+     * 状态条件迁移：只有当前状态等于 from 才更新，返回是否真正迁移成功。
+     * 回收器与识别线程并发时，只有一方能成功，避免 FAILED/SUCCESS 互相覆盖。
+     */
+    private boolean transition(String taskId, String from, String to, BigDecimal confidence,
+                               String resultJson, String errorMsg) {
+        LambdaUpdateWrapper<OcrTask> update = new LambdaUpdateWrapper<OcrTask>()
+                .eq(OcrTask::getTaskId, taskId)
+                .eq(OcrTask::getStatus, from)
+                .set(OcrTask::getStatus, to)
+                .set(OcrTask::getConfidence, confidence)
+                .set(OcrTask::getResultJson, resultJson)
+                .set(OcrTask::getErrorCode, errorMsg == null ? null : String.valueOf(ErrorCode.OCR_FAILED.getCode()))
+                .set(OcrTask::getErrorMsg,
+                        errorMsg == null ? null : (errorMsg.length() > 200 ? errorMsg.substring(0, 200) : errorMsg));
+        return ocrTaskMapper.update(null, update) > 0;
+    }
+
+    private static ThreadFactory daemonFactory(String prefix) {
+        AtomicInteger sequence = new AtomicInteger();
+        return runnable -> {
+            Thread thread = new Thread(runnable, prefix + "-" + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+    }
+
+    @PreDestroy
+    void shutdownExecutor() {
+        executor.shutdownNow();
     }
 
     private void validate(MultipartFile image) {

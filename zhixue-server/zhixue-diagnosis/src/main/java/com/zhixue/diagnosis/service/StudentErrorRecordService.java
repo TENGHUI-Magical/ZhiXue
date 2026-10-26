@@ -32,8 +32,10 @@ public class StudentErrorRecordService {
 
     private static final String DRAFT = "DRAFT";
     private static final String CONFIRMED = "CONFIRMED";
-    /** log_id 列 VARCHAR(20)：EL_ + 12 位时间 + 3 位十六进制 = 18 字符 */
+    /** log_id 列 VARCHAR(20)：EL_ + 12 位时间 + 4 位十六进制 = 19 字符 */
     private static final DateTimeFormatter ID_FORMAT = DateTimeFormatter.ofPattern("yyMMddHHmmss");
+    /** 主键碰撞时最多换号重试 3 次，避免把主键冲突误判成 clientToken 幂等冲突 */
+    private static final int MAX_INSERT_ATTEMPTS = 3;
     /** 契约 §1：日期时间统一 `yyyy-MM-dd HH:mm:ss` */
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Set<String> ERROR_TYPES = Set.of(
@@ -64,6 +66,10 @@ public class StudentErrorRecordService {
         if (existing != null) {
             return toView(existing);
         }
+        // DRAFT 允许 kpId 为空；一旦非空就必须存在，否则插入后再查知识点会留下无法重试的脏记录
+        if (request.getKpId() != null && !request.getKpId().isBlank()) {
+            knowledgePointService.getById(request.getKpId());
+        }
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId(nextLogId());
         record.setUserId(userId);
@@ -77,15 +83,22 @@ public class StudentErrorRecordService {
         record.setErrorType(request.getErrorType());
         record.setStudentNote(request.getStudentNote());
         record.setStatus(DRAFT);
-        try {
-            mapper.insert(record);
-        } catch (DuplicateKeyException e) {
-            // 并发竞态：另一同 token 请求先插入；回查首次结果
-            StudentErrorRecord winner = findByClientToken(userId, request.getClientToken());
-            if (winner != null) {
-                return toView(winner);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                mapper.insert(record);
+                break;
+            } catch (DuplicateKeyException e) {
+                // 并发竞态：另一同 token 请求先插入；回查首次结果
+                StudentErrorRecord winner = findByClientToken(userId, request.getClientToken());
+                if (winner != null) {
+                    return toView(winner);
+                }
+                // 不是 clientToken 冲突，说明 log_id 主键碰撞；换号重试，超过上限才抛出
+                if (attempt >= MAX_INSERT_ATTEMPTS) {
+                    throw e;
+                }
+                record.setLogId(nextLogId());
             }
-            throw e;
         }
         StudentErrorRecord saved = mapper.selectById(record.getLogId());
         return toView(saved == null ? record : saved);
@@ -192,7 +205,7 @@ public class StudentErrorRecordService {
     private ErrorRecordView toView(StudentErrorRecord record) {
         String kpName = null;
         if (record.getKpId() != null && !record.getKpId().isBlank()) {
-            KnowledgePoint kp = knowledgePointService.getById(record.getKpId());
+            KnowledgePoint kp = knowledgePointService.findById(record.getKpId());
             if (kp != null) {
                 kpName = kp.getName();
             }
@@ -220,6 +233,6 @@ public class StudentErrorRecordService {
 
     private String nextLogId() {
         return "EL_" + LocalDateTime.now().format(ID_FORMAT) + "_"
-                + Integer.toHexString((int) (System.nanoTime() & 0xfff));
+                + String.format("%04x", (int) (System.nanoTime() & 0xffff));
     }
 }

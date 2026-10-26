@@ -59,11 +59,30 @@ export interface ExplainPayload {
   forceRefresh: boolean;
 }
 
+/**
+ * 生成 clientToken。
+ * crypto.randomUUID 只在安全上下文（HTTPS/localhost）可用；局域网 HTTP 演示时
+ * 回退到 crypto.getRandomValues（非安全上下文也可用）或时间戳+随机数。
+ */
+export const newClientToken = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `ct-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 /** 上传错题图片（契约 §4：multipart 固定 file + clientToken，clientToken 每次新生成） */
 export const uploadOcrImage = (file: File) => {
   const form = new FormData();
   form.append("file", file);
-  form.append("clientToken", crypto.randomUUID());
+  form.append("clientToken", newClientToken());
   return api.upload<{ taskId: string }>("/api/error/upload", form);
 };
 

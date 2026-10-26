@@ -162,11 +162,13 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                 usage.clear()
 
     if settings.glm_api_key:
+        delivered = False
         try:
             yield _sse("degraded", {"level": "L2", "reason": "L1 调用失败"})
             async for delta in _buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
                     settings.glm_api_key, settings.llm_model_fallback, messages, usage)):
+                delivered = True
                 yield _sse("chunk", {"content": delta})
             yield _sse("done", {"degraded": True, "blocked": False,
                                 "modelUsed": settings.llm_model_fallback,
@@ -176,6 +178,11 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                                 "elapsedMs": int((time.time() - start) * 1000)})
             return
         except Exception as exc:
+            if delivered:
+                # 已输出部分 GLM 正文时直接中断，由 Java 标记 L3，不再追加模板造成混合正文
+                logger.warning("L2 %s 流式中断且已输出正文，不再追加模板：%s",
+                               settings.llm_model_fallback, exc)
+                raise
             logger.warning("L2 %s 调用失败，降级本地模板：%s", settings.llm_model_fallback, exc)
 
     yield _sse("degraded", {"level": "L3", "reason": "L1/L2 均不可用，使用本地模板"})

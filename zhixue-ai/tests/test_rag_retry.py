@@ -29,15 +29,9 @@ PAYLOAD = {
 }
 
 
-def _collect() -> list[tuple[str, dict]]:
-    async def run() -> list[str]:
-        frames = []
-        async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
-            frames.append(frame)
-        return frames
-
+def _parse(frames: list[str]) -> list[tuple[str, dict]]:
     events: list[tuple[str, dict]] = []
-    for frame in asyncio.run(run()):
+    for frame in frames:
         event = ""
         data = ""
         for line in frame.splitlines():
@@ -48,6 +42,16 @@ def _collect() -> list[tuple[str, dict]]:
         if event:
             events.append((event, json.loads(data)))
     return events
+
+
+def _collect() -> list[tuple[str, dict]]:
+    async def run() -> list[str]:
+        frames = []
+        async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
+            frames.append(frame)
+        return frames
+
+    return _parse(asyncio.run(run()))
 
 
 def test_l1_retries_once_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,3 +97,32 @@ def test_l1_fails_twice_then_degrades_to_l2(monkeypatch: pytest.MonkeyPatch) -> 
     done = [data for name, data in events if name == "done"][-1]
     assert done["degraded"] is True
     assert done["modelUsed"] == settings.llm_model_fallback
+
+
+def test_l2_partial_failure_does_not_append_template(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "test-glm-key")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        if "deepseek" in url:
+            raise httpx.ConnectError("L1 持续失败")
+        yield "GLM 第一段正文。"
+        raise httpx.ReadTimeout("GLM 中途断流")
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+
+    async def run() -> list[str]:
+        frames = []
+        try:
+            async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
+                frames.append(frame)
+        except httpx.ReadTimeout:
+            return frames
+        raise AssertionError("L2 中途断流应向上抛出，由 Java 标记 L3")
+
+    events = _parse(asyncio.run(run()))
+    names = [name for name, _ in events]
+    assert "chunk" in names, "断流前应已输出部分 GLM 正文"
+    levels = [data.get("level") for name, data in events if name == "degraded"]
+    assert levels == ["L2"], "不得再追加 L3 降级事件"
+    assert "done" not in names, "不得再发送完整模板后的 done"

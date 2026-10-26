@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -100,6 +101,7 @@ class StudentErrorRecordServiceTest {
         when(mapper.selectById("EL_1")).thenReturn(draft, confirmed);
         when(mapper.update(isNull(), any())).thenReturn(1);
         when(knowledgePointService.getById("KP0201")).thenReturn(kp());
+        when(knowledgePointService.findById("KP0201")).thenReturn(kp());
 
         ErrorRecordView view;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -132,12 +134,61 @@ class StudentErrorRecordServiceTest {
     }
 
     @Test
+    void createRejectsUnknownKpBeforeInsert() {
+        ErrorRecordCreate request = createRequest();
+        request.setKpId("KP9999");
+        when(knowledgePointService.getById("KP9999"))
+                .thenThrow(new BizException(com.zhixue.common.api.ErrorCode.NOT_FOUND, "知识点不存在"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(request))
+                    .isInstanceOf(BizException.class);
+        }
+
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
+    }
+
+    @Test
+    void createRetriesWithNewLogIdAfterPrimaryKeyCollision() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        when(mapper.insert(any(StudentErrorRecord.class)))
+                .thenThrow(new DuplicateKeyException("Duplicate entry for PRIMARY"))
+                .thenReturn(1);
+
+        ErrorRecordView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.create(createRequest());
+        }
+
+        assertThat(view).isNotNull();
+        verify(mapper, times(2)).insert(any(StudentErrorRecord.class));
+    }
+
+    @Test
+    void detailToleratesMissingKp() {
+        StudentErrorRecord record = record("EL_1", "DRAFT");
+        record.setKpId("KP0201");
+        when(mapper.selectById("EL_1")).thenReturn(record);
+        when(knowledgePointService.findById("KP0201")).thenReturn(null);
+
+        ErrorRecordView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.detail("EL_1");
+        }
+
+        assertThat(view.kpName()).isNull();
+    }
+
+    @Test
     void detailMapsKpName() {
         StudentErrorRecord record = record("EL_1", "DRAFT");
         record.setKpId("KP0201");
         record.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
         when(mapper.selectById("EL_1")).thenReturn(record);
-        when(knowledgePointService.getById("KP0201")).thenReturn(kp());
+        when(knowledgePointService.findById("KP0201")).thenReturn(kp());
 
         ErrorRecordView view;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {

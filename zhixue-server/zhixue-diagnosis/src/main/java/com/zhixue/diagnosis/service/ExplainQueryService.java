@@ -88,7 +88,7 @@ public class ExplainQueryService {
         }
         List<ExplainLogView.SourceView> views = new ArrayList<>(kpIds.size());
         for (String kpId : kpIds) {
-            KnowledgePoint kp = knowledgePointService.getById(kpId);
+            KnowledgePoint kp = knowledgePointService.findById(kpId);
             views.add(new ExplainLogView.SourceView(kpId,
                     kp == null ? null : kp.getTextbookPage(),
                     kp == null ? null : kp.getName()));

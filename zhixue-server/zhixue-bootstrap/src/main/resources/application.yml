@@ -12,6 +12,11 @@ spring:
       # 手机拍摄错题图片常超过 Spring 默认 1MB
       max-file-size: 10MB
       max-request-size: 12MB
+  data:
+    redis:
+      # 限流/缓存故障必须快速失败并降级放行，不能让 SSE 请求等默认 60s 命令超时
+      timeout: 500ms
+      connect-timeout: 500ms
 
 mybatis-plus:
   configuration:

@@ -59,7 +59,7 @@ class ExplainQueryServiceTest {
         kp.setKpId("KP0201");
         kp.setName("关系模型");
         kp.setTextbookPage("P34");
-        when(knowledgePointService.getById("KP0201")).thenReturn(kp);
+        when(knowledgePointService.findById("KP0201")).thenReturn(kp);
 
         ExplainLogView view;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -74,6 +74,28 @@ class ExplainQueryServiceTest {
         assertThat(view.createdAt()).isEqualTo("2026-10-26 12:00:00");
         assertThat(view.sources()).extracting(ExplainLogView.SourceView::title)
                 .containsExactly("关系模型");
+    }
+
+    @Test
+    void missingKpToleratedInSources() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_1");
+        row.setContentText("正文");
+        row.setSourceIds("[\"KP0201\"]");
+        row.setIsDegraded(0);
+        row.setIsBlocked(0);
+        when(logMapper.selectOne(any())).thenReturn(row);
+        when(knowledgePointService.findById("KP0201")).thenReturn(null);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.get("EX_1");
+        }
+
+        assertThat(view.sources()).hasSize(1);
+        assertThat(view.sources().getFirst().title()).isNull();
+        assertThat(view.sources().getFirst().textbookPage()).isNull();
     }
 
     @Test

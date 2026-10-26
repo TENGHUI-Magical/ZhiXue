@@ -4,6 +4,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.common.api.ErrorCode;
+import jakarta.annotation.PreDestroy;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
@@ -31,10 +32,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -82,10 +83,15 @@ public class RagExplainService {
     private final ExplainCacheService explainCacheService;
     private final WebClient webClient;
 
-    private final ScheduledExecutorService heartbeatPool =
-            Executors.newSingleThreadScheduledExecutor(daemonFactory("sse-heartbeat"));
-    private final ExecutorService fallbackPool =
-            Executors.newCachedThreadPool(daemonFactory("sse-fallback"));
+    /** 心跳调度：固定 2 线程，取消的任务及时移除，避免高并发 SSE 下队列堆积 */
+    private final ScheduledThreadPoolExecutor heartbeatPool =
+            new ScheduledThreadPoolExecutor(2, daemonFactory("sse-heartbeat"));
+    /** 降级/留痕线程池：有界队列，队列满时由调用线程执行，保证 SSE 一定收尾 */
+    private final ThreadPoolExecutor fallbackPool = new ThreadPoolExecutor(
+            2, 8, 60L, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(100),
+            daemonFactory("sse-fallback"),
+            new ThreadPoolExecutor.CallerRunsPolicy());
 
     public RagExplainService(KnowledgePointService knowledgePointService,
                              StudentErrorRecordService errorRecordService,
@@ -100,6 +106,7 @@ public class RagExplainService {
         this.aiGenerationLogMapper = aiGenerationLogMapper;
         this.explainCacheService = explainCacheService;
         this.webClient = WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build();
+        this.heartbeatPool.setRemoveOnCancelPolicy(true);
     }
 
     /**
@@ -180,10 +187,9 @@ public class RagExplainService {
         }
 
         // 契约 §6：sha1(kpId + errorType + correctedText)，TTL 7 天；forceRefresh 跳过读缓存。
-        // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText
-        String correctedText = record.getCorrectedText();
-        String cacheText = correctedText == null || correctedText.isBlank()
-                ? request.getQuestionText() : correctedText;
+        // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText；
+        // 同一份文本同时用于缓存键和上游 prompt，避免“按 A 生成、按 B 缓存”。
+        String cacheText = resolveCacheText(record, request);
         String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText);
         if (!Boolean.TRUE.equals(request.getForceRefresh())) {
             ExplainCacheService.Cached cached = explainCacheService.get(cacheKey);
@@ -251,7 +257,7 @@ public class RagExplainService {
         sendMeta(emitter, explainId, traceId, META_MODEL);
         sendSource(emitter, kp);
 
-        Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType, traceId);
+        Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType, traceId, cacheText);
         Flux<ServerSentEvent<String>> stream = webClient.post()
                 .uri("/api/rag/explain")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -432,8 +438,19 @@ public class RagExplainService {
         send(emitter, "error", error);
     }
 
+    /**
+     * 解析本轮讲解使用的题干文本：CONFIRMED 记录的 correctedText 优先，空则回退请求 questionText。
+     * 该值同时用于缓存键和上游 prompt，保证“生成依据”与“缓存键”一致。
+     */
+    String resolveCacheText(StudentErrorRecord record, ExplainRequest request) {
+        String correctedText = record.getCorrectedText();
+        return correctedText == null || correctedText.isBlank()
+                ? request.getQuestionText() : correctedText;
+    }
+
     private Map<String, Object> buildUpstreamPayload(ExplainRequest request, KnowledgePoint kp,
-                                                     String errorType, String traceId) {
+                                                     String errorType, String traceId,
+                                                     String questionText) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("traceId", traceId);
         payload.put("kpId", kp.getKpId());
@@ -441,7 +458,7 @@ public class RagExplainService {
         payload.put("conceptText", kp.getConceptText());
         payload.put("misconception", kp.getMisconception());
         payload.put("textbookPage", kp.getTextbookPage());
-        payload.put("questionText", request.getQuestionText());
+        payload.put("questionText", questionText);
         payload.put("errorType", errorType);
         payload.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
         payload.put("logId", request.getLogId());
@@ -607,10 +624,17 @@ public class RagExplainService {
     }
 
     private static ThreadFactory daemonFactory(String name) {
+        AtomicInteger sequence = new AtomicInteger();
         return runnable -> {
-            Thread thread = new Thread(runnable, name);
+            Thread thread = new Thread(runnable, name + "-" + sequence.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };
+    }
+
+    @PreDestroy
+    void shutdownPools() {
+        heartbeatPool.shutdownNow();
+        fallbackPool.shutdownNow();
     }
 }

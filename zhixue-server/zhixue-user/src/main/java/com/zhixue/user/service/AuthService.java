@@ -45,14 +45,15 @@ public class AuthService {
                 .last("LIMIT 1"));
         if (user == null) {
             BCrypt.verifyer().verify(password.toCharArray(), DUMMY_HASH.toCharArray());
-            log.info("登录失败：用户不存在 username={}", username);
+            // 不把用户名写进日志，避免日志侧 PII 与账号枚举线索
+            log.info("登录失败：用户不存在");
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
         }
         boolean verified = BCrypt.verifyer()
                 .verify(password.toCharArray(), user.getPassword().toCharArray())
                 .verified;
         if (!verified) {
-            log.info("登录失败：口令错误 username={}", username);
+            log.info("登录失败：口令错误");
             throw new BizException(ErrorCode.UNAUTHORIZED, "用户名或密码错误");
         }
         StpUtil.login(user.getUserId());

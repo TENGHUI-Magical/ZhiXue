@@ -42,11 +42,27 @@ public class KnowledgePointService {
      * @return 知识点；不存在抛 40400
      */
     public KnowledgePoint getById(String kpId) {
-        KnowledgePoint kp = knowledgePointMapper.selectById(kpId);
+        KnowledgePoint kp = findById(kpId);
         if (kp == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "知识点不存在: " + kpId);
         }
         return kp;
+    }
+
+    /**
+     * 按业务编号查询知识点，不存在返回 null。
+     * <p>
+     * 供视图映射使用：历史记录引用的知识点被停用/删除时，页面仍应能返回记录本身，
+     * 只把 kpName 降级为空，而不是让整个查询返回 40400。
+     *
+     * @param kpId 知识点编号
+     * @return 知识点或 null
+     */
+    public KnowledgePoint findById(String kpId) {
+        if (kpId == null || kpId.isBlank()) {
+            return null;
+        }
+        return knowledgePointMapper.selectById(kpId);
     }
 
     /**

@@ -154,6 +154,7 @@ import {
   getOcrTask,
   getRecommendations,
   mapKnowledgePoint,
+  newClientToken,
   streamExplain,
   uploadOcrImage,
   type ErrorRecord,
@@ -402,7 +403,7 @@ const ensureRecord = async (): Promise<string> => {
   if (logId.value) return logId.value;
   const created = await createErrorRecord({
     courseId: DEFAULT_COURSE_ID,
-    clientToken: crypto.randomUUID(),
+    clientToken: newClientToken(),
     kpId: selectedKpId.value,
     errorType: errorType.value,
     correctedText: questionText.value

@@ -6,6 +6,7 @@ import com.zhixue.user.entity.SysUser;
 import com.zhixue.user.service.AuthService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -27,8 +28,10 @@ public class AuthController {
 
     /** 契约 2.1 请求体 */
     public record LoginRequest(
-            @NotBlank(message = "用户名不能为空") String username,
-            @NotBlank(message = "密码不能为空") String password) {
+            @NotBlank(message = "用户名不能为空")
+            @Size(max = 64, message = "用户名最长 64 字") String username,
+            @NotBlank(message = "密码不能为空")
+            @Size(max = 128, message = "密码最长 128 字") String password) {
     }
 
     /** 契约 openapi LoginResult：token + userId + username + role 平铺 */

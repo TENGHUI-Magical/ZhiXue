@@ -5,6 +5,7 @@ import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.controller.DiagnosisController;
+import com.zhixue.diagnosis.dto.ExplainRequest;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -75,7 +77,7 @@ class RagExplainServiceTest {
                 mock(KpMappingService.class), service, mock(RecommendationService.class),
                 mock(OcrService.class), explainRateLimiter, mock(ExplainQueryService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
-        when(explainRateLimiter.acquire(anyLong()))
+        lenient().when(explainRateLimiter.acquire(anyLong()))
                 .thenReturn(new ExplainRateLimiter.Decision(true, 0L));
     }
 
@@ -149,6 +151,19 @@ class RagExplainServiceTest {
         }
 
         verify(explainCacheService, never()).get(anyString());
+    }
+
+    @Test
+    void cacheTextPrefersConfirmedRecordText() {
+        StudentErrorRecord record = new StudentErrorRecord();
+        record.setCorrectedText("记录中的校正题干");
+        ExplainRequest request = new ExplainRequest();
+        request.setQuestionText("请求里的题干");
+
+        assertThat(service.resolveCacheText(record, request)).isEqualTo("记录中的校正题干");
+
+        record.setCorrectedText("   ");
+        assertThat(service.resolveCacheText(record, request)).isEqualTo("请求里的题干");
     }
 
     private void stubRecordAndKp(String conceptText) {

@@ -15,6 +15,8 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -58,6 +60,18 @@ public class GlobalExceptionHandler {
     })
     public ApiResponse<Void> handleBadRequest(Exception e) {
         return ApiResponse.fail(ErrorCode.PARAM_ERROR);
+    }
+
+    /** 上传缺文件或多部件请求格式错误 → 40000，而不是落到兜底 50000 */
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ApiResponse<Void> handleMissingPart(MissingServletRequestPartException e) {
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR, "缺少上传文件字段: " + e.getRequestPartName());
+    }
+
+    /** multipart 超过容器上限 → 40000；业务侧 5MB 限制由 OcrService 再校验 */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ApiResponse<Void> handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR, "图片不能超过 10MB");
     }
 
     /** 未知路径（含未知静态资源）→ 40400；Spring 6.1 起统一抛 NoResourceFoundException */
