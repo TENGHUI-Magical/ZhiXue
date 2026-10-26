@@ -9,19 +9,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.support.EncodedResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -29,34 +25,37 @@ import org.testcontainers.utility.DockerImageName;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 真实 MySQL + Redis 的核心链路集成测试。
+ * 真实 MySQL + Redis + Tomcat 的核心链路集成测试。
  * <p>
  * 默认 {@code @Tag("it")} 被 Surefire 排除，避免没有 Docker 的本地环境失败；
  * CI 用 {@code mvn -Pit verify} 并设置 RUN_IT=true 执行。
  * AI 服务用 JDK HttpServer 桩替代，不依赖真实模型。
  */
 @Tag("it")
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class IntegrationFlowTest {
 
     private static final boolean RUN_IT = "true".equalsIgnoreCase(System.getenv("RUN_IT"));
     private static final AtomicInteger AI_CALLS = new AtomicInteger();
+    private static final HttpClient HTTP = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5)).build();
 
     private static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.0")).withDatabaseName("zhixue");
@@ -71,8 +70,8 @@ class IntegrationFlowTest {
         }
     }
 
-    @Autowired
-    private WebApplicationContext webApplicationContext;
+    @Value("${local.server.port}")
+    private int port;
     @Autowired
     private JdbcTemplate jdbcTemplate;
     @Autowired
@@ -82,8 +81,6 @@ class IntegrationFlowTest {
 
     /** 测试用户口令：It!Pass123 的 BCrypt 哈希（仅测试库使用） */
     private static final String TEST_HASH = "$2a$10$xARWaBRcoRVDmdtPMopUJecaI4F5/vskTeAA3IcIA9LIULv6v6XPO";
-
-    private MockMvc mockMvc;
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
@@ -135,8 +132,7 @@ class IntegrationFlowTest {
     }
 
     @BeforeEach
-    void setUpAndCleanData() {
-        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+    void cleanData() {
         jdbcTemplate.update("DELETE FROM student_error_record");
         jdbcTemplate.update("DELETE FROM ai_generation_log");
         jdbcTemplate.update("DELETE FROM recommendation");
@@ -159,18 +155,18 @@ class IntegrationFlowTest {
                 "SELECT COUNT(*) FROM student_error_record WHERE client_token = 'ct-1'", Integer.class);
         assertThat(rowCount).isEqualTo(1);
 
-        MvcResult confirmed = confirm(token, firstLogId);
+        HttpResponse<String> confirmed = confirm(token, firstLogId);
         assertThat(code(confirmed)).isZero();
         assertThat((String) JsonPath.read(body(confirmed), "$.data.status")).isEqualTo("CONFIRMED");
 
-        MvcResult duplicate = confirm(token, firstLogId);
+        HttpResponse<String> duplicate = confirm(token, firstLogId);
         assertThat(code(duplicate)).isEqualTo(40900);
     }
 
     @Test
     void createRejectsUnknownKpWithoutInserting() throws Exception {
         String token = login();
-        MvcResult result = createRaw(token, "ct-bad", "KP9999");
+        HttpResponse<String> result = createRaw(token, "ct-bad", "KP9999");
 
         assertThat(code(result)).isEqualTo(40400);
         Integer rowCount = jdbcTemplate.queryForObject(
@@ -183,13 +179,13 @@ class IntegrationFlowTest {
         String token = login();
         String logId = createAndConfirm(token, "ct-sse");
 
-        MvcResult first = explain(token, logId);
+        HttpResponse<String> first = explain(token, logId);
         String firstBody = body(first);
         assertThat(firstBody).contains("event:meta", "event:source", "event:delta", "event:done");
         assertThat(firstBody).doesNotContain("\"cached\":true");
         assertThat(AI_CALLS.get()).isEqualTo(1);
 
-        MvcResult second = explain(token, logId);
+        HttpResponse<String> second = explain(token, logId);
         String secondBody = body(second);
         assertThat(secondBody).contains("\"model\":\"cache\"", "\"cached\":true");
         assertThat(AI_CALLS.get()).isEqualTo(1);
@@ -204,9 +200,9 @@ class IntegrationFlowTest {
             assertThat(body(explain(token, logId))).doesNotContain("\"code\":42900");
         }
 
-        MvcResult rejected = explain(token, logId);
+        HttpResponse<String> rejected = explain(token, logId);
         assertThat(body(rejected)).contains("\"code\":42900");
-        assertThat(rejected.getResponse().getHeader("Retry-After")).isNotBlank();
+        assertThat(rejected.headers().firstValue("Retry-After").orElse("")).isNotBlank();
     }
 
     @Test
@@ -232,13 +228,11 @@ class IntegrationFlowTest {
     }
 
     private String login() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/auth/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"it_user\",\"password\":\"It!Pass123\"}"))
-                .andExpect(status().isOk())
-                .andReturn();
-        assertThat(code(result)).isZero();
-        return JsonPath.read(body(result), "$.data.token");
+        HttpResponse<String> response = postJson("/api/auth/login",
+                "{\"username\":\"it_user\",\"password\":\"It!Pass123\"}", null);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(code(response)).isZero();
+        return JsonPath.read(body(response), "$.data.token");
     }
 
     private String createAndConfirm(String token, String clientToken) throws Exception {
@@ -248,53 +242,55 @@ class IntegrationFlowTest {
     }
 
     private String createRecord(String token, String clientToken, String kpId) throws Exception {
-        MvcResult result = createRaw(token, clientToken, kpId);
+        HttpResponse<String> result = createRaw(token, clientToken, kpId);
         assertThat(code(result)).isZero();
         return JsonPath.read(body(result), "$.data.logId");
     }
 
-    private MvcResult createRaw(String token, String clientToken, String kpId) throws Exception {
+    private HttpResponse<String> createRaw(String token, String clientToken, String kpId) throws Exception {
         String payload = """
                 {"courseId":1,"clientToken":"%s","kpId":"%s","errorType":"CONCEPT_CONFUSION","correctedText":"求闭包"}
                 """.formatted(clientToken, kpId);
-        return mockMvc.perform(post("/api/error/records")
-                        .header("satoken", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andExpect(status().isOk())
-                .andReturn();
+        return postJson("/api/error/records", payload, token);
     }
 
-    private MvcResult confirm(String token, String logId) throws Exception {
-        return mockMvc.perform(put("/api/error/records/{logId}/confirm", logId)
-                        .header("satoken", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"kpId\":\"KP0201\",\"errorType\":\"CONCEPT_CONFUSION\",\"correctedText\":\"求闭包\"}"))
-                .andExpect(status().isOk())
-                .andReturn();
+    private HttpResponse<String> confirm(String token, String logId) throws Exception {
+        String payload = "{\"kpId\":\"KP0201\",\"errorType\":\"CONCEPT_CONFUSION\",\"correctedText\":\"求闭包\"}";
+        HttpRequest request = HttpRequest.newBuilder(uri("/api/error/records/" + logId + "/confirm"))
+                .header("Content-Type", "application/json")
+                .header("satoken", token)
+                .PUT(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+        return HTTP.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
-    private MvcResult explain(String token, String logId) throws Exception {
+    private HttpResponse<String> explain(String token, String logId) throws Exception {
         String payload = """
                 {"logId":"%s","kpId":"KP0201","errorType":"CONCEPT_CONFUSION","questionText":"求闭包","forceRefresh":false}
                 """.formatted(logId);
-        MvcResult result = mockMvc.perform(post("/api/diagnosis/explain")
-                        .header("satoken", token)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(payload))
-                .andReturn();
-        if (result.getRequest().isAsyncStarted()) {
-            result = mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
+        return postJson("/api/diagnosis/explain", payload, token);
+    }
+
+    private HttpResponse<String> postJson(String path, String payload, String token) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(uri(path))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8));
+        if (token != null) {
+            builder.header("satoken", token);
         }
-        return result;
+        return HTTP.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
-    private static String body(MvcResult result) throws Exception {
-        return result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+    private URI uri(String path) {
+        return URI.create("http://127.0.0.1:" + port + path);
     }
 
-    private static int code(MvcResult result) throws Exception {
-        return JsonPath.read(body(result), "$.code");
+    private static String body(HttpResponse<String> response) {
+        return response.body();
+    }
+
+    private static int code(HttpResponse<String> response) {
+        return JsonPath.read(response.body(), "$.code");
     }
 
     private static String jdbcUrl() {
