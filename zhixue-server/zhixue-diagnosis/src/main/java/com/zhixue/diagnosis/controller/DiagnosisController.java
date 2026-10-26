@@ -5,17 +5,21 @@ import com.zhixue.common.api.ApiResponse;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.common.web.TraceIdFilter;
+import com.zhixue.diagnosis.dto.ExplainLogView;
 import com.zhixue.diagnosis.dto.ExplainRequest;
 import com.zhixue.diagnosis.dto.MapRequest;
 import com.zhixue.diagnosis.dto.MapResult;
 import com.zhixue.diagnosis.dto.OcrAccepted;
 import com.zhixue.diagnosis.dto.OcrTaskView;
 import com.zhixue.diagnosis.dto.Recommendation;
+import com.zhixue.diagnosis.service.ExplainQueryService;
+import com.zhixue.diagnosis.service.ExplainRateLimiter;
 import com.zhixue.diagnosis.service.KpMappingService;
 import com.zhixue.diagnosis.service.OcrService;
 import com.zhixue.diagnosis.service.RagExplainService;
 import com.zhixue.diagnosis.service.RecommendationService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,15 +47,21 @@ public class DiagnosisController {
     private final RagExplainService ragExplainService;
     private final RecommendationService recommendationService;
     private final OcrService ocrService;
+    private final ExplainRateLimiter explainRateLimiter;
+    private final ExplainQueryService explainQueryService;
 
     public DiagnosisController(KpMappingService kpMappingService,
                                RagExplainService ragExplainService,
                                RecommendationService recommendationService,
-                               OcrService ocrService) {
+                               OcrService ocrService,
+                               ExplainRateLimiter explainRateLimiter,
+                               ExplainQueryService explainQueryService) {
         this.kpMappingService = kpMappingService;
         this.ragExplainService = ragExplainService;
         this.recommendationService = recommendationService;
         this.ocrService = ocrService;
+        this.explainRateLimiter = explainRateLimiter;
+        this.explainQueryService = explainQueryService;
     }
 
     /**
@@ -91,9 +101,28 @@ public class DiagnosisController {
      * traceId 由 TraceIdFilter 生成（契约 §1.2），在请求线程内取出透传给服务层。
      */
     @PostMapping(value = "/diagnosis/explain", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter explain(@Valid @RequestBody ExplainRequest request, HttpServletRequest httpRequest) {
+    public SseEmitter explain(@Valid @RequestBody ExplainRequest request,
+                              HttpServletRequest httpRequest,
+                              HttpServletResponse httpResponse) {
+        // SSE 帧含中文：显式 UTF-8，避免容器默认 ISO-8859-1 把讲解正文写成问号
+        httpResponse.setCharacterEncoding("UTF-8");
+        // 契约 §8：按用户 10 次/分钟；超限仍走 SSE error 事件（42900），并带 Retry-After
+        ExplainRateLimiter.Decision decision = explainRateLimiter.acquire(StpUtil.getLoginIdAsLong());
+        if (!decision.allowed()) {
+            httpResponse.setHeader("Retry-After", String.valueOf(decision.retryAfterSeconds()));
+            return ragExplainService.reject(ErrorCode.RATE_LIMITED.getCode(),
+                    ErrorCode.RATE_LIMITED.getMsg(), true);
+        }
         return ragExplainService.explain(request,
                 (String) httpRequest.getAttribute(TraceIdFilter.ATTRIBUTE));
+    }
+
+    /**
+     * 查询已生成讲解（契约 V2 §5.4，刷新页面恢复全文）。
+     */
+    @GetMapping("/diagnosis/explain/{explainId}")
+    public ApiResponse<ExplainLogView> explainLog(@PathVariable String explainId) {
+        return ApiResponse.ok(explainQueryService.get(explainId));
     }
 
     /**

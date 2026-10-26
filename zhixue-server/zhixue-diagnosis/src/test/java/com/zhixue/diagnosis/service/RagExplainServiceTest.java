@@ -1,0 +1,169 @@
+package com.zhixue.diagnosis.service;
+
+import cn.dev33.satoken.stp.StpUtil;
+import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.diagnosis.config.AiClientProperties;
+import com.zhixue.diagnosis.controller.DiagnosisController;
+import com.zhixue.diagnosis.entity.AiGenerationLog;
+import com.zhixue.diagnosis.entity.StudentErrorRecord;
+import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 讲解 SSE 网关单测：L4 concept_text 缺失 → 60001；缓存命中回放；forceRefresh 跳过缓存。
+ */
+@ExtendWith(MockitoExtension.class)
+class RagExplainServiceTest {
+
+    private static final String BODY = """
+            {"logId":"EL_1","kpId":"KP0201","errorType":"CONCEPT_CONFUSION","questionText":"求闭包"}
+            """;
+
+    @Mock
+    private KnowledgePointService knowledgePointService;
+
+    @Mock
+    private StudentErrorRecordService errorRecordService;
+
+    @Mock
+    private AiGenerationLogMapper aiGenerationLogMapper;
+
+    @Mock
+    private ExplainCacheService explainCacheService;
+
+    @Mock
+    private ExplainRateLimiter explainRateLimiter;
+
+    private RagExplainService service;
+
+    private MockMvc mockMvc;
+
+    @BeforeEach
+    void setUp() {
+        AiClientProperties properties = new AiClientProperties("http://127.0.0.1:1", 1);
+        service = new RagExplainService(knowledgePointService, errorRecordService, properties,
+                new ObjectMapper(), aiGenerationLogMapper, explainCacheService);
+        DiagnosisController controller = new DiagnosisController(
+                mock(KpMappingService.class), service, mock(RecommendationService.class),
+                mock(OcrService.class), explainRateLimiter, mock(ExplainQueryService.class));
+        mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+        when(explainRateLimiter.acquire(anyLong()))
+                .thenReturn(new ExplainRateLimiter.Decision(true, 0L));
+    }
+
+    @Test
+    void blankConceptReturns60001AndSkipsCacheAndTemplate() throws Exception {
+        stubRecordAndKp(null);
+
+        MvcResult result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = mockMvc.perform(post("/api/diagnosis/explain")
+                            .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+            result = mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
+        }
+
+        // SSE 响应未声明 charset，按 UTF-8 解码原始字节，避免 MockMvc 默认 ISO-8859-1
+        String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("\"code\":60001");
+        assertThat(body).doesNotContain("event:delta");
+        verify(explainCacheService, never()).get(anyString());
+
+        ArgumentCaptor<AiGenerationLog> log = ArgumentCaptor.forClass(AiGenerationLog.class);
+        verify(aiGenerationLogMapper).insert(log.capture());
+        assertThat(log.getValue().getDegradeLevel()).isEqualTo("L4");
+        assertThat(log.getValue().getIsDegraded()).isEqualTo(1);
+    }
+
+    @Test
+    void cacheHitReplaysFullContentWithoutCallingUpstream() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+        when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
+                "缓存中的完整讲解", "deepseek-chat", "v1",
+                List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
+                "2026-10-26T12:00:00"));
+
+        MvcResult result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = mockMvc.perform(post("/api/diagnosis/explain")
+                            .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+            result = mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
+        }
+
+        String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).contains("event:meta", "\"model\":\"cache\"");
+        assertThat(body).contains("event:delta", "缓存中的完整讲解");
+        assertThat(body).contains("event:done", "\"cached\":true");
+
+        ArgumentCaptor<AiGenerationLog> log = ArgumentCaptor.forClass(AiGenerationLog.class);
+        verify(aiGenerationLogMapper).insert(log.capture());
+        assertThat(log.getValue().getModel()).isEqualTo("cache");
+        verify(explainCacheService, never()).put(anyString(), any());
+    }
+
+    @Test
+    void forceRefreshSkipsCacheRead() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+
+        String body = BODY.replace("\"questionText\"", "\"forceRefresh\":true,\"questionText\"");
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            mockMvc.perform(post("/api/diagnosis/explain")
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(request().asyncStarted());
+        }
+
+        verify(explainCacheService, never()).get(anyString());
+    }
+
+    private void stubRecordAndKp(String conceptText) {
+        StudentErrorRecord record = new StudentErrorRecord();
+        record.setLogId("EL_1");
+        record.setKpId("KP0201");
+        record.setErrorType("CONCEPT_CONFUSION");
+        record.setCorrectedText("求闭包（校正）");
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setKpId("KP0201");
+        kp.setName("关系模型");
+        kp.setConceptText(conceptText);
+        kp.setTextbookPage("P34");
+
+        when(errorRecordService.getConfirmed("EL_1")).thenReturn(record);
+        when(knowledgePointService.getById("KP0201")).thenReturn(kp);
+    }
+}

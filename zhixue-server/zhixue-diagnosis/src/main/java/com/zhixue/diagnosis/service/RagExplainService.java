@@ -10,6 +10,7 @@ import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.dto.ExplainRequest;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
+import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,10 @@ public class RagExplainService {
     /** meta.model 暂用 auto；接入模型配置同步后改为真实模型名 */
     private static final String META_MODEL = "auto";
 
+    /** SSE 帧显式 UTF-8：TEXT_PLAIN 默认 ISO-8859-1 会把中文写成问号 */
+    private static final MediaType TEXT_PLAIN_UTF8 =
+            MediaType.parseMediaType("text/plain;charset=UTF-8");
+
     /** 契约 ExplainRequest.errorType 的五个英文枚举 */
     private static final Set<String> ERROR_TYPES = Set.of(
             "CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
@@ -74,6 +79,7 @@ public class RagExplainService {
     private final AiClientProperties aiClientProperties;
     private final ObjectMapper objectMapper;
     private final AiGenerationLogMapper aiGenerationLogMapper;
+    private final ExplainCacheService explainCacheService;
     private final WebClient webClient;
 
     private final ScheduledExecutorService heartbeatPool =
@@ -85,13 +91,30 @@ public class RagExplainService {
                              StudentErrorRecordService errorRecordService,
                              AiClientProperties aiClientProperties,
                              ObjectMapper objectMapper,
-                             AiGenerationLogMapper aiGenerationLogMapper) {
+                             AiGenerationLogMapper aiGenerationLogMapper,
+                             ExplainCacheService explainCacheService) {
         this.knowledgePointService = knowledgePointService;
         this.errorRecordService = errorRecordService;
         this.aiClientProperties = aiClientProperties;
         this.objectMapper = objectMapper;
         this.aiGenerationLogMapper = aiGenerationLogMapper;
+        this.explainCacheService = explainCacheService;
         this.webClient = WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build();
+    }
+
+    /**
+     * 限流拒绝：仍用 SSE error 事件返回，保持前端 fetch 流解析路径一致。
+     *
+     * @param code      错误码（42900）
+     * @param message   提示
+     * @param retryable 是否可重试
+     * @return 已发送 error 并关闭的 SSE 发射器
+     */
+    public SseEmitter reject(int code, String message, boolean retryable) {
+        SseEmitter emitter = new SseEmitter(0L);
+        sendError(emitter, code, message, retryable);
+        emitter.complete();
+        return emitter;
     }
 
     /**
@@ -110,9 +133,10 @@ public class RagExplainService {
 
         KnowledgePoint kp;
         String errorType;
+        StudentErrorRecord record;
         try {
             // 契约前置：必须是 CONFIRMED 错题记录，且记录里的 kpId 与请求一致
-            var record = errorRecordService.getConfirmed(request.getLogId());
+            record = errorRecordService.getConfirmed(request.getLogId());
             if (!record.getKpId().equals(request.getKpId())) {
                 sendError(emitter, ErrorCode.PARAM_ERROR.getCode(),
                         "kpId 与错题记录不一致", false);
@@ -133,8 +157,53 @@ public class RagExplainService {
             emitter.complete();
             return emitter;
         }
+        if (kp == null) {
+            sendError(emitter, ErrorCode.NOT_FOUND.getCode(), "知识点不存在", false);
+            emitter.complete();
+            return emitter;
+        }
 
         long userId = StpUtil.getLoginIdAsLong();
+
+        // 契约 §6 L4：L3 模板所需的 concept_text 为空时直接 60001，禁止用空概念伪造模板讲解
+        if (kp.getConceptText() == null || kp.getConceptText().isBlank()) {
+            log.warn("知识点原文缺失，L4 拒绝生成 explainId={} kpId={}", explainId, kp.getKpId());
+            sendMeta(emitter, explainId, traceId, META_MODEL);
+            sendSource(emitter, kp);
+            sendError(emitter, ErrorCode.AI_TIMEOUT.getCode(),
+                    "知识点原文缺失，暂无法生成讲解，请联系教师补全", false);
+            writeLog(explainId, traceId, userId, request.getLogId(), kp.getKpId(),
+                    "none", true, "L4", System.currentTimeMillis() - start,
+                    "unknown", 0, 0, "", false, new AtomicBoolean(false));
+            emitter.complete();
+            return emitter;
+        }
+
+        // 契约 §6：sha1(kpId + errorType + correctedText)，TTL 7 天；forceRefresh 跳过读缓存。
+        // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText
+        String correctedText = record.getCorrectedText();
+        String cacheText = correctedText == null || correctedText.isBlank()
+                ? request.getQuestionText() : correctedText;
+        String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText);
+        if (!Boolean.TRUE.equals(request.getForceRefresh())) {
+            ExplainCacheService.Cached cached = explainCacheService.get(cacheKey);
+            if (cached != null && cached.content() != null && !cached.content().isBlank()) {
+                sendMeta(emitter, explainId, traceId, "cache");
+                if (cached.sources() != null) {
+                    for (ExplainCacheService.Source source : cached.sources()) {
+                        sendSource(emitter, source);
+                    }
+                }
+                send(emitter, "delta", Map.of("text", cached.content()));
+                sendDone(emitter, explainId, start, 0, true);
+                writeLog(explainId, traceId, userId, request.getLogId(), kp.getKpId(),
+                        "cache", false, null, System.currentTimeMillis() - start,
+                        cached.promptVersion(), 0, 0, cached.content(), false,
+                        new AtomicBoolean(false));
+                emitter.complete();
+                return emitter;
+            }
+        }
         // StringBuffer：Reactor 线程、降级线程、cleanup 线程三方并发读写正文快照（线程安全）
         StringBuffer content = new StringBuffer();
         AtomicReference<String> modelUsed = new AtomicReference<>("unknown");
@@ -179,7 +248,7 @@ public class RagExplainService {
             emitter.complete();
         });
 
-        sendMeta(emitter, explainId, traceId);
+        sendMeta(emitter, explainId, traceId, META_MODEL);
         sendSource(emitter, kp);
 
         Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType, traceId);
@@ -257,6 +326,7 @@ public class RagExplainService {
                             characters, cleanup, content, modelUsed, degraded, degradeLevel);
                 },
                 () -> {
+                    saveCache(cacheKey, kp, content, modelUsed, promptVersion, degraded, blocked);
                     sendDone(emitter, explainId, start, completionTokens.get());
                     emitter.complete();
                     cleanup.run();
@@ -298,11 +368,11 @@ public class RagExplainService {
         });
     }
 
-    private void sendMeta(SseEmitter emitter, String explainId, String traceId) {
+    private void sendMeta(SseEmitter emitter, String explainId, String traceId, String model) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("explainId", explainId);
         meta.put("traceId", traceId);
-        meta.put("model", META_MODEL);
+        meta.put("model", model);
         meta.put("degraded", false);
         send(emitter, "meta", meta);
     }
@@ -315,12 +385,43 @@ public class RagExplainService {
         send(emitter, "source", source);
     }
 
+    private void sendSource(SseEmitter emitter, ExplainCacheService.Source cached) {
+        Map<String, Object> source = new LinkedHashMap<>();
+        source.put("kpId", cached.kpId());
+        source.put("textbookPage", cached.textbookPage());
+        source.put("title", cached.title());
+        send(emitter, "source", source);
+    }
+
     private void sendDone(SseEmitter emitter, String explainId, long start, int tokens) {
+        sendDone(emitter, explainId, start, tokens, false);
+    }
+
+    private void sendDone(SseEmitter emitter, String explainId, long start, int tokens, boolean cached) {
         Map<String, Object> done = new LinkedHashMap<>();
         done.put("explainId", explainId);
         done.put("latencyMs", System.currentTimeMillis() - start);
         done.put("tokens", tokens);
+        if (cached) {
+            done.put("cached", true);
+        }
         send(emitter, "done", done);
+    }
+
+    /**
+     * L1 正常完成且未降级/未拦截时写缓存；L2/L3 与空正文不缓存，避免把降级结果固化 7 天。
+     */
+    private void saveCache(String cacheKey, KnowledgePoint kp, StringBuffer content,
+                           AtomicReference<String> modelUsed, AtomicReference<String> promptVersion,
+                           AtomicBoolean degraded, AtomicBoolean blocked) {
+        if (degraded.get() || blocked.get() || content.length() == 0) {
+            return;
+        }
+        ExplainCacheService.Cached cached = new ExplainCacheService.Cached(
+                content.toString(), modelUsed.get(), promptVersion.get(),
+                List.of(new ExplainCacheService.Source(kp.getKpId(), kp.getTextbookPage(), kp.getName())),
+                LocalDateTime.now().toString());
+        explainCacheService.put(cacheKey, cached);
     }
 
     private void sendError(SseEmitter emitter, int code, String message, boolean retryable) {
@@ -342,7 +443,7 @@ public class RagExplainService {
         payload.put("textbookPage", kp.getTextbookPage());
         payload.put("questionText", request.getQuestionText());
         payload.put("errorType", errorType);
-        payload.put("courseId", 1L);
+        payload.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
         payload.put("logId", request.getLogId());
         payload.put("forceRefresh", Boolean.TRUE.equals(request.getForceRefresh()));
         return payload;
@@ -468,7 +569,7 @@ public class RagExplainService {
     private void sendRaw(SseEmitter emitter, String event, String data) {
         try {
             synchronized (emitter) {
-                emitter.send(SseEmitter.event().name(event).data(data, MediaType.TEXT_PLAIN));
+                emitter.send(SseEmitter.event().name(event).data(data, TEXT_PLAIN_UTF8));
             }
         } catch (Exception e) {
             log.debug("SSE 发送失败（客户端可能已断开）：{}", e.toString());

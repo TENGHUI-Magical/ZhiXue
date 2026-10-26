@@ -30,16 +30,20 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { api } from "../api/request";
 
-interface LoginUser {
+/** openapi LoginResult：token + userId + username + role 平铺 */
+interface LoginResult {
+  token: string;
   userId: number;
-  realName: string;
+  username: string;
   role: string;
-  className?: string | null;
 }
 
-interface LoginResponse {
-  token: string;
-  user: LoginUser;
+/** openapi UserInfo（/api/auth/me） */
+interface MeUser {
+  userId: number;
+  username: string;
+  realName: string;
+  role: string;
 }
 
 const router = useRouter();
@@ -54,12 +58,27 @@ const submit = async () => {
   }
   loading.value = true;
   try {
-    const data = await api.post<LoginResponse>("/api/auth/login", {
+    const data = await api.post<LoginResult>("/api/auth/login", {
       username: username.value,
       password: password.value
     });
     localStorage.setItem("satoken", data.token);
-    localStorage.setItem("zhixue_user", JSON.stringify(data.user));
+    try {
+      // 登录响应按 openapi 只含 userId/username/role；昵称从 me 补齐
+      const me = await api.get<MeUser>("/api/auth/me");
+      localStorage.setItem("zhixue_user", JSON.stringify(me));
+    } catch {
+      // /me 失败不阻断登录，用登录返回字段兜底
+      localStorage.setItem(
+        "zhixue_user",
+        JSON.stringify({
+          userId: data.userId,
+          username: data.username,
+          realName: data.username,
+          role: data.role
+        })
+      );
+    }
     await router.replace("/diagnosis");
   } finally {
     loading.value = false;

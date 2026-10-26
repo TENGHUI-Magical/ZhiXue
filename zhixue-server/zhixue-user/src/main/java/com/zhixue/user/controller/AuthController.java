@@ -31,17 +31,20 @@ public class AuthController {
             @NotBlank(message = "密码不能为空") String password) {
     }
 
-    /** 契约 2.1 响应 data：token + 用户子结构 */
-    public record LoginResponse(String token, LoginUser user) {
+    /** 契约 openapi LoginResult：token + userId + username + role 平铺 */
+    public record LoginResponse(String token, Long userId, String username, String role) {
     }
 
-    public record LoginUser(Long userId, String realName, String role, String className) {
+    /** 契约 openapi UserInfo（/api/auth/me） */
+    public record LoginUser(Long userId, String username, String realName, String role) {
     }
 
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
         AuthService.AuthResult result = authService.login(req.username(), req.password());
-        return ApiResponse.ok(new LoginResponse(result.token(), toUser(result.user())));
+        SysUser user = result.user();
+        return ApiResponse.ok(new LoginResponse(result.token(), user.getUserId(),
+                user.getUsername(), user.getRole()));
     }
 
     @PostMapping("/logout")
@@ -56,6 +59,7 @@ public class AuthController {
     }
 
     private LoginUser toUser(SysUser user) {
-        return new LoginUser(user.getUserId(), user.getRealName(), user.getRole(), user.getClassName());
+        return new LoginUser(user.getUserId(), user.getUsername(),
+                user.getRealName(), user.getRole());
     }
 }
