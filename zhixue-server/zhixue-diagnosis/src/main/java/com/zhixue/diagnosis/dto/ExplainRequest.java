@@ -1,5 +1,6 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -20,6 +21,9 @@ public class ExplainRequest {
 
     /** 五类错因英文 Key（契约枚举） */
     @NotBlank(message = "errorType 不能为空")
+    @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
+            "CALCULATION_ERROR", "BOUNDARY_ERROR"},
+            description = "五类标准错因枚举（契约）")
     private String errorType;
 
     /** 学生题干，可选 */

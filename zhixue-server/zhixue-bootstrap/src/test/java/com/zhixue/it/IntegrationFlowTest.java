@@ -21,9 +21,14 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import org.yaml.snakeyaml.Yaml;
+import tools.jackson.databind.ObjectMapper;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -40,7 +45,9 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -90,6 +97,8 @@ class IntegrationFlowTest {
     private StringRedisTemplate redisTemplate;
     @Autowired
     private OcrService ocrService;
+    @Autowired
+    private ObjectMapper objectMapper;
 
     /** 测试用户口令：It!Pass123 的 BCrypt 哈希（仅测试库使用） */
     private static final String TEST_HASH = "$2a$10$xARWaBRcoRVDmdtPMopUJecaI4F5/vskTeAA3IcIA9LIULv6v6XPO";
@@ -419,6 +428,130 @@ class IntegrationFlowTest {
         throw new AssertionError("讲解留痕未在 5 秒内写入: " + explainId);
     }
 
+    @Test
+    void contractImplementedEndpointsAligned() throws Exception {
+        HttpResponse<String> docsResponse = getJson("/v3/api-docs", null);
+        assertThat(docsResponse.statusCode()).isEqualTo(200);
+        Map<?, ?> generated = objectMapper.readValue(body(docsResponse), Map.class);
+
+        Map<?, ?> frozen = new Yaml().load(
+                Files.readString(Path.of("../docs/openapi.yaml"), StandardCharsets.UTF_8));
+
+        Map<?, ?> frozenPaths = asMap(frozen.get("paths"));
+        Map<?, ?> genPaths = asMap(generated.get("paths"));
+        Map<?, ?> frozenSchemas = asMap(asMap(
+                asMap(frozen.get("components")).get("schemas")));
+        Map<?, ?> genSchemas = asMap(asMap(
+                asMap(generated.get("components")).get("schemas")));
+
+        List<String> issues = new ArrayList<>();
+        // SSE 讲解响应为流，openapi 两侧均为平 schema，无信封可比；单独跳过响应比对
+        Set<String> sseSkip = Set.of("post /api/diagnosis/explain");
+
+        for (Object pathKey : frozenPaths.keySet()) {
+            String path = String.valueOf(pathKey);
+            Map<?, ?> frozenItem = asMap(frozenPaths.get(path));
+            Map<?, ?> genItem = asMap(genPaths.get(path));
+            for (Object methodKey : frozenItem.keySet()) {
+                String method = String.valueOf(methodKey).toLowerCase();
+                if (!genItem.containsKey(method)) {
+                    // 冻结契约中未实现的端点：登记为已知缺口，不属于本次对齐门禁
+                    continue;
+                }
+                Map<?, ?> frozenOp = asMap(frozenItem.get(methodKey));
+                Map<?, ?> genOp = asMap(genItem.get(method));
+                String ctx = method.toUpperCase() + " " + path;
+                compareRequestSchema(frozenOp, genOp, frozenSchemas, genSchemas, ctx, issues);
+                if (!sseSkip.contains(method + " " + path)) {
+                    compareResponseSchema(frozenOp, genOp, frozenSchemas, genSchemas, ctx, issues);
+                }
+            }
+        }
+        assertThat(issues)
+                .as("已实现端点的契约 schema 差异")
+                .isEmpty();
+    }
+
+    @Test
+    void mapP95UnderOneSecondWith15Threads() throws Exception {
+        String token = login();
+        // 预热一次，消除 JIT/连接池首包
+        postJson("/api/diagnosis/map",
+                "{\"text\":\"关系模型的三要素是什么\",\"courseId\":1}", token);
+
+        List<Long> samples = concurrentLatencies(15, 5, () -> postJson("/api/diagnosis/map",
+                "{\"text\":\"事务的ACID特性有哪些\",\"courseId\":1}", token));
+        long p95 = percentile(samples, 95);
+        System.out.println("[perf] map samples=" + samples.size() + " p95=" + p95 + "ms");
+        assertThat(p95).isLessThanOrEqualTo(1000L);
+    }
+
+    @Test
+    void explainFirstByteP95UnderFiveSeconds() throws Exception {
+        // 15 并发分摊到两个用户（讲解限流 10 次/分/用户），forceRefresh 跳过缓存
+        String token1 = login("it_user");
+        String token2 = login("it_user2");
+        List<String> logIds = new ArrayList<>();
+        List<String> tokens = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            logIds.add(createAndConfirm(token1, "ctp1-" + i));
+            tokens.add(token1);
+        }
+        for (int i = 0; i < 7; i++) {
+            logIds.add(createAndConfirm(token2, "ctp2-" + i));
+            tokens.add(token2);
+        }
+
+        int threads = 15;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Long>> futures = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            final int index = i;
+            futures.add(pool.submit(() -> {
+                start.await();
+                String payload = ("{\"logId\":\"%s\",\"kpId\":\"KP0201\","
+                        + "\"errorType\":\"CONCEPT_CONFUSION\",\"questionText\":\"求闭包\","
+                        + "\"forceRefresh\":true}").formatted(logIds.get(index));
+                long t0 = System.nanoTime();
+                HttpRequest request = HttpRequest.newBuilder(uri("/api/diagnosis/explain"))
+                        .timeout(Duration.ofSeconds(20))
+                        .header("Content-Type", "application/json")
+                        .header("satoken", tokens.get(index))
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                        .build();
+                HttpResponse<InputStream> response =
+                        HTTP.send(request, HttpResponse.BodyHandlers.ofInputStream());
+                boolean firstDelta = false;
+                try (InputStream stream = response.body();
+                     BufferedReader reader = new BufferedReader(
+                             new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if ("event:delta".equals(line.trim())) {
+                            firstDelta = true;
+                            break;
+                        }
+                    }
+                }
+                if (!firstDelta) {
+                    throw new IllegalStateException("SSE 未收到首个 delta");
+                }
+                return (System.nanoTime() - t0) / 1_000_000;
+            }));
+        }
+        start.countDown();
+        List<Long> samples = new ArrayList<>();
+        for (Future<Long> future : futures) {
+            samples.add(future.get(30, TimeUnit.SECONDS));
+        }
+        pool.shutdownNow();
+
+        long p95 = percentile(samples, 95);
+        System.out.println("[perf] explain-ttfb samples=15 p95=" + p95 + "ms");
+        assertThat(p95).isLessThanOrEqualTo(5000L);
+    }
+
     private void insertOcrTask(long userId, String taskId, String clientToken, String status) {
         jdbcTemplate.update("INSERT INTO ocr_task "
                         + "(task_id, user_id, client_token, image_path, status, retry_count, created_at, updated_at) "
@@ -545,6 +678,216 @@ class IntegrationFlowTest {
 
     private URI uri(String path) {
         return URI.create("http://127.0.0.1:" + port + path);
+    }
+
+    // ==================== 契约对齐比较器 ====================
+
+    @SuppressWarnings("unchecked")
+    private static Map<?, ?> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? map : Map.of();
+    }
+
+    /** 取请求体 schema：json / multipart 均纳入，忽略冻结与生成两侧 content-type 键的差异 */
+    private static Map<?, ?> contentSchema(Map<?, ?> operation, String bodyKey) {
+        Map<?, ?> body = asMap(operation.get(bodyKey));
+        Map<?, ?> content = asMap(body.get("content"));
+        for (Object key : content.keySet()) {
+            String contentType = String.valueOf(key);
+            if (contentType.contains("json") || contentType.contains("multipart")
+                    || contentType.contains("*/*")) {
+                return asMap(asMap(content.get(key)).get("schema"));
+            }
+        }
+        return Map.of();
+    }
+
+    private static void compareRequestSchema(Map<?, ?> frozenOp, Map<?, ?> genOp,
+                                             Map<?, ?> frozenSchemas, Map<?, ?> genSchemas,
+                                             String ctx, List<String> issues) {
+        compareSchemaPair(contentSchema(frozenOp, "requestBody"),
+                contentSchema(genOp, "requestBody"),
+                frozenSchemas, genSchemas, ctx + " 请求体", issues);
+    }
+
+    private static void compareResponseSchema(Map<?, ?> frozenOp, Map<?, ?> genOp,
+                                              Map<?, ?> frozenSchemas, Map<?, ?> genSchemas,
+                                              String ctx, List<String> issues) {
+        String frozenData = responseDataTarget(responseContentSchema(frozenOp), frozenSchemas);
+        String genData = responseDataTarget(responseContentSchema(genOp), genSchemas);
+        if (frozenData == null || genData == null) {
+            return;
+        }
+        compareSchemaPair(asMap(schemaRef(frozenData)), asMap(schemaRef(genData)),
+                frozenSchemas, genSchemas, ctx + " 响应 data", issues, false);
+    }
+
+    /** 取 200 响应 content 中 json（或生成侧的 * / *）schema */
+    private static Map<?, ?> responseContentSchema(Map<?, ?> operation) {
+        Map<?, ?> responses = asMap(operation.get("responses"));
+        Map<?, ?> ok = asMap(responses.get("200"));
+        Map<?, ?> content = asMap(ok.get("content"));
+        for (Object key : content.keySet()) {
+            String contentType = String.valueOf(key);
+            if (contentType.contains("json") || contentType.contains("*/*")) {
+                return asMap(asMap(content.get(key)).get("schema"));
+            }
+        }
+        return Map.of();
+    }
+
+    /** 从响应 content schema 解出 data 目标：路径链 top content schema → 信封（可能 allOf）→ properties.data.$ref */
+    private static String responseDataTarget(Map<?, ?> topSchema, Map<?, ?> schemas) {
+        Map<?, ?> resolved = resolve(topSchema, schemas);
+        if (resolved.isEmpty()) {
+            resolved = topSchema;
+        }
+        Object allOf = resolved.get("allOf");
+        if (allOf instanceof List<?> list) {
+            for (Object item : list) {
+                Map<?, ?> member = resolve(asMap(item), schemas);
+                Map<?, ?> props = asMap(member.get("properties"));
+                if (props.containsKey("data")) {
+                    String target = dataTargetName(asMap(props.get("data")));
+                    if (target != null) {
+                        return target;
+                    }
+                }
+            }
+        }
+        Map<?, ?> props = asMap(resolved.get("properties"));
+        return props.containsKey("data") ? dataTargetName(asMap(props.get("data"))) : null;
+    }
+
+    /** data 可能是 $ref、数组 items.$ref 或内联对象；这里只处理前两类（契约全部命中） */
+    private static String dataTargetName(Map<?, ?> dataSchema) {
+        if (dataSchema.get("$ref") != null) {
+            return refName(String.valueOf(dataSchema.get("$ref")));
+        }
+        if ("array".equals(String.valueOf(dataSchema.get("type")))) {
+            Map<?, ?> items = asMap(dataSchema.get("items"));
+            if (items.get("$ref") != null) {
+                return refName(String.valueOf(items.get("$ref")));
+            }
+        }
+        return null;
+    }
+
+    private static Map<?, ?> schemaRef(String name) {
+        return name == null ? Map.of() : Map.of("$ref", "#/components/schemas/" + name);
+    }
+
+    private static String refName(String ref) {
+        return ref.substring(ref.lastIndexOf('/') + 1);
+    }
+
+    private static void compareSchemaPair(Map<?, ?> frozenSchema, Map<?, ?> genSchema,
+                                          Map<?, ?> frozenSchemas, Map<?, ?> genSchemas,
+                                          String ctx, List<String> issues) {
+        compareSchemaPair(frozenSchema, genSchema, frozenSchemas, genSchemas, ctx, issues, true);
+    }
+
+    private static void compareSchemaPair(Map<?, ?> frozenSchema, Map<?, ?> genSchema,
+                                          Map<?, ?> frozenSchemas, Map<?, ?> genSchemas,
+                                          String ctx, List<String> issues, boolean checkRequired) {
+        if (frozenSchema.isEmpty() || genSchema.isEmpty()) {
+            return;
+        }
+        Map<?, ?> frozenResolved = resolve(frozenSchema, frozenSchemas);
+        Map<?, ?> genResolved = resolve(genSchema, genSchemas);
+        Map<?, ?> frozenProps = asMap(frozenResolved.get("properties"));
+        Map<?, ?> genProps = asMap(genResolved.get("properties"));
+        if (frozenProps.isEmpty() && genProps.isEmpty()) {
+            return;
+        }
+        for (Object prop : frozenProps.keySet()) {
+            if (!genProps.containsKey(prop)) {
+                issues.add(ctx + "：契约字段缺失于实现 " + prop);
+                continue;
+            }
+            comparePropertyConstraints(String.valueOf(prop),
+                    asMap(frozenProps.get(prop)), asMap(genProps.get(prop)), ctx, issues);
+        }
+        for (Object prop : genProps.keySet()) {
+            if (!frozenProps.containsKey(prop)) {
+                issues.add(ctx + "：实现多出契约未声明字段 " + prop);
+            }
+        }
+        List<?> frozenRequired = frozenResolved.get("required") instanceof List<?> list
+                ? list : List.of();
+        List<?> genRequired = genResolved.get("required") instanceof List<?> list
+                ? list : List.of();
+        // required 顺序无契约意义，按集合比较；响应侧的 required 只作为文档提示，不阻断
+        if (checkRequired
+                && !new java.util.LinkedHashSet<>(frozenRequired)
+                .equals(new java.util.LinkedHashSet<>(genRequired))) {
+            issues.add(ctx + "：required 不一致 契约=" + frozenRequired + " 实现=" + genRequired);
+        }
+    }
+
+    private static void comparePropertyConstraints(String prop, Map<?, ?> frozenProp, Map<?, ?> genProp,
+                                                   String ctx, List<String> issues) {
+        Object frozenType = frozenProp.get("type");
+        Object genType = genProp.get("type");
+        if (frozenType != null && genType != null && !String.valueOf(frozenType).equals(String.valueOf(genType))) {
+            // 契约 integer 与实现 number 视为兼容（int64 序列化为 number）
+            boolean numberCompat = ("integer".equals(String.valueOf(frozenType)) && "number".equals(String.valueOf(genType)))
+                    || ("number".equals(String.valueOf(frozenType)) && "integer".equals(String.valueOf(genType)));
+            if (!numberCompat) {
+                issues.add(ctx + "：字段 " + prop + " 类型不一致 契约=" + frozenType + " 实现=" + genType);
+            }
+        }
+        if (frozenProp.get("enum") instanceof List<?> frozenEnum) {
+            if (!(genProp.get("enum") instanceof List<?> genEnum)
+                    || !frozenEnum.toString().equals(genEnum.toString())) {
+                issues.add(ctx + "：字段 " + prop + " 枚举不一致 契约=" + frozenEnum);
+            }
+        }
+    }
+
+    private static Map<?, ?> resolve(Map<?, ?> schema, Map<?, ?> schemas) {
+        if (schema.get("$ref") != null) {
+            return asMap(schemas.get(refName(String.valueOf(schema.get("$ref")))));
+        }
+        return schema;
+    }
+
+    // ==================== 性能基线辅助 ====================
+
+    private interface LatencyCall {
+        void run() throws Exception;
+    }
+
+    private List<Long> concurrentLatencies(int threads, int rounds, LatencyCall call)
+            throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<List<Long>>> futures = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            futures.add(pool.submit(() -> {
+                start.await();
+                List<Long> samples = new ArrayList<>();
+                for (int r = 0; r < rounds; r++) {
+                    long t0 = System.nanoTime();
+                    call.run();
+                    samples.add((System.nanoTime() - t0) / 1_000_000);
+                }
+                return samples;
+            }));
+        }
+        start.countDown();
+        List<Long> all = new ArrayList<>();
+        for (Future<List<Long>> future : futures) {
+            all.addAll(future.get(60, TimeUnit.SECONDS));
+        }
+        pool.shutdownNow();
+        return all;
+    }
+
+    private static long percentile(List<Long> samples, int p) {
+        List<Long> sorted = new ArrayList<>(samples);
+        Collections.sort(sorted);
+        int index = (int) Math.ceil(p / 100.0 * sorted.size()) - 1;
+        return sorted.get(Math.max(0, index));
     }
 
     private static String body(HttpResponse<String> response) {

@@ -40,10 +40,11 @@ export interface Recommendation {
 export interface OcrTask {
   taskId: string;
   status: "PENDING" | "RUNNING" | "SUCCESS" | "FAILED";
+  ocrText?: string | null;
   confidence?: number | null;
   fields?: { stem?: string; rawText?: string } | null;
-  errorCode?: string | null;
-  errorMsg?: string | null;
+  errorCode?: number | null;
+  errorMessage?: string | null;
 }
 
 export interface ErrorRecord {

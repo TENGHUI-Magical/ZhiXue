@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.0
+  version: 2.0.2
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -143,7 +143,7 @@ paths:
           description: 任务已创建
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/OcrTaskResponse' }
+              schema: { $ref: '#/components/schemas/OcrAcceptedResponse' }
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -773,6 +773,16 @@ components:
               source: { type: string }
               target: { type: string }
               relation: { type: string, example: PREREQ }
+    OcrAcceptedResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/OcrAccepted' }
+    OcrAccepted:
+      type: object
+      properties:
+        taskId: { type: string, example: '9f2c1d7e8a4b4c1e9d3f0a6b5c7e8f90' }
     OcrTaskResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

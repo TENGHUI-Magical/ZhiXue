@@ -65,12 +65,14 @@ public class DiagnosisController {
     }
 
     /**
-     * 提交 OCR 任务（契约 V2 §4）：multipart 字段固定 file + clientToken（必填，幂等键）。
+     * 提交 OCR 任务（契约 V2 §4）：multipart 字段固定 file + clientToken（必填，幂等键），courseId 可选。
+     * clientToken/courseId 均为表单字段而非 query 参数，与冻结契约 requestBody 一致。
      */
     @PostMapping(value = "/error/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<OcrAccepted> ocrParse(@RequestPart("file") MultipartFile file,
-                                             @RequestParam(required = false) String clientToken) {
-        // 契约 §1：clientToken 必填；手动校验空值，保证 40000 口径统一（缺参/空串同语义）
+                                             @RequestPart("clientToken") String clientToken,
+                                             @RequestPart(value = "courseId", required = false) Long courseId) {
+        // 契约 §1：clientToken 必填；空白串虽可通过 required 校验，仍按 40000 口径拦截
         if (clientToken == null || clientToken.isBlank()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "clientToken 不能为空");
         }

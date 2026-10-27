@@ -12,9 +12,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+
+import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -45,8 +48,11 @@ class UploadValidationTest {
 
     @Test
     void missingFilePartReturnsParamError() throws Exception {
+        // clientToken 为表单字段（契约 §4）；此处只传 clientToken、缺 file
+        MockMultipartFile clientTokenPart = new MockMultipartFile(
+                "clientToken", "", "text/plain", "ct-1".getBytes(StandardCharsets.UTF_8));
         MvcResult result = mockMvc.perform(multipart("/api/error/upload")
-                        .param("clientToken", "ct-1"))
+                        .file(clientTokenPart))
                 .andExpect(status().isOk())
                 .andReturn();
 

@@ -3,6 +3,7 @@ package com.zhixue.course.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
+import com.zhixue.course.dto.KnowledgePointView;
 import com.zhixue.course.dto.KpMatchProfile;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.KpKeyword;
@@ -63,6 +64,23 @@ public class KnowledgePointService {
             return null;
         }
         return knowledgePointMapper.selectById(kpId);
+    }
+
+    /**
+     * 契约视图查询：返回 openapi KnowledgePoint 字段，补齐 chapterName，
+     * 不暴露 createdBy/isActive/时间戳等内部列。
+     */
+    public KnowledgePointView getViewById(String kpId) {
+        KnowledgePoint kp = getById(kpId);
+        return toView(kp,
+                kp.getChapterId() == null ? null : knowledgePointMapper.selectChapterTitle(kp.getChapterId()));
+    }
+
+    /** 实体 → 契约视图（chapterName 由调用方提供，内部列一律不下发） */
+    private KnowledgePointView toView(KnowledgePoint kp, String chapterName) {
+        return new KnowledgePointView(kp.getKpId(), kp.getCourseId(), kp.getChapterId(),
+                chapterName, kp.getName(), kp.getConceptText(), kp.getMisconception(),
+                kp.getTextbookPage(), kp.getTrialHint(), kp.getSortNo(), kp.getDimensionKey());
     }
 
     /**

@@ -248,7 +248,7 @@ const pollTask = (taskId: string) => {
       } else if (task.status === "FAILED") {
         stopPolling();
         parsing.value = false;
-        ocrError.value = task.errorMsg || "OCR 识别失败，请手动录入题干";
+        ocrError.value = task.errorMessage || "OCR 识别失败，请手动录入题干";
       }
     } catch {
       stopPolling();

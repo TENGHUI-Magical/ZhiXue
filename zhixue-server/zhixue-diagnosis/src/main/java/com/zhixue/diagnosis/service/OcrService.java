@@ -204,9 +204,28 @@ public class OcrService {
                 log.warn("OCR 结果 JSON 解析失败: {}", taskId, e);
             }
         }
-        return new OcrTaskView(taskId, task.getStatus(),
+        // 契约 OcrTask.errorCode 为整数；DB 存字符串，视图层转码，坏码降级为 null
+        Integer errorCode = null;
+        if (task.getErrorCode() != null) {
+            try {
+                errorCode = Integer.valueOf(task.getErrorCode());
+            } catch (NumberFormatException e) {
+                log.warn("OCR 错误码非法: {}", task.getErrorCode(), e);
+            }
+        }
+        String ocrText = null;
+        if (fields != null) {
+            Object rawText = fields.get("rawText");
+            Object stem = fields.get("stem");
+            if (rawText != null) {
+                ocrText = String.valueOf(rawText);
+            } else if (stem != null) {
+                ocrText = String.valueOf(stem);
+            }
+        }
+        return new OcrTaskView(taskId, task.getStatus(), ocrText,
                 task.getConfidence() == null ? null : task.getConfidence().doubleValue(),
-                fields, task.getErrorCode(), task.getErrorMsg());
+                fields, errorCode, task.getErrorMsg());
     }
 
     private void recognize(String taskId, Path file, String filename) {

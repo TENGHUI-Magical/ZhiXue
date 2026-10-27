@@ -62,26 +62,26 @@ public class StudentErrorRecordService {
      */
     public ErrorRecordView create(ErrorRecordCreate request) {
         long userId = StpUtil.getLoginIdAsLong();
-        StudentErrorRecord existing = findByClientToken(userId, request.getClientToken());
+        StudentErrorRecord existing = findByClientToken(userId, request.clientToken());
         if (existing != null) {
             return toView(existing);
         }
         // DRAFT 允许 kpId 为空；一旦非空就必须存在，否则插入后再查知识点会留下无法重试的脏记录
-        if (request.getKpId() != null && !request.getKpId().isBlank()) {
-            knowledgePointService.getById(request.getKpId());
+        if (request.kpId() != null && !request.kpId().isBlank()) {
+            knowledgePointService.getById(request.kpId());
         }
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId(nextLogId());
         record.setUserId(userId);
-        record.setClientToken(request.getClientToken());
-        record.setQId(request.getQId());
-        record.setKpId(request.getKpId());
-        record.setImageUrl(request.getImageUrl());
-        record.setOcrText(request.getOcrText());
-        record.setCorrectedText(request.getCorrectedText());
-        record.setOcrConfidence(request.getOcrConfidence());
-        record.setErrorType(request.getErrorType());
-        record.setStudentNote(request.getStudentNote());
+        record.setClientToken(request.clientToken());
+        record.setQId(request.qId());
+        record.setKpId(request.kpId());
+        record.setImageUrl(request.imageUrl());
+        record.setOcrText(request.ocrText());
+        record.setCorrectedText(request.correctedText());
+        record.setOcrConfidence(request.ocrConfidence());
+        record.setErrorType(request.errorType());
+        record.setStudentNote(request.studentNote());
         record.setStatus(DRAFT);
         for (int attempt = 1; ; attempt++) {
             try {
@@ -89,7 +89,7 @@ public class StudentErrorRecordService {
                 break;
             } catch (DuplicateKeyException e) {
                 // 并发竞态：另一同 token 请求先插入；回查首次结果
-                StudentErrorRecord winner = findByClientToken(userId, request.getClientToken());
+                StudentErrorRecord winner = findByClientToken(userId, request.clientToken());
                 if (winner != null) {
                     return toView(winner);
                 }

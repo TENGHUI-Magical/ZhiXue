@@ -135,8 +135,8 @@ class StudentErrorRecordServiceTest {
 
     @Test
     void createRejectsUnknownKpBeforeInsert() {
-        ErrorRecordCreate request = createRequest();
-        request.setKpId("KP9999");
+        ErrorRecordCreate request = new ErrorRecordCreate(1L, "ct-1", null, "KP9999",
+                null, null, null, null, null, null);
         when(knowledgePointService.getById("KP9999"))
                 .thenThrow(new BizException(com.zhixue.common.api.ErrorCode.NOT_FOUND, "知识点不存在"));
 
@@ -201,10 +201,8 @@ class StudentErrorRecordServiceTest {
     }
 
     private ErrorRecordCreate createRequest() {
-        ErrorRecordCreate request = new ErrorRecordCreate();
-        request.setCourseId(1L);
-        request.setClientToken("ct-1");
-        return request;
+        return new ErrorRecordCreate(1L, "ct-1", null, null, null, null, null,
+                null, null, null);
     }
 
     private ConfirmRequest confirmRequest() {
