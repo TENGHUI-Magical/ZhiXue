@@ -3,8 +3,11 @@ package com.zhixue.diagnosis.controller;
 import com.zhixue.common.api.ApiResponse;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
+import com.zhixue.diagnosis.dto.ErrorRecordPageView;
 import com.zhixue.diagnosis.dto.ErrorRecordView;
 import com.zhixue.diagnosis.service.StudentErrorRecordService;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -12,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -32,6 +36,20 @@ public class ErrorRecordController {
     @PostMapping
     public ApiResponse<ErrorRecordView> create(@Valid @RequestBody ErrorRecordCreate request) {
         return ApiResponse.ok(recordService.create(request));
+    }
+
+    /** 当前学生的错题列表（分页，创建时间倒序） */
+    @GetMapping
+    public ApiResponse<ErrorRecordPageView> page(
+            @Parameter(schema = @Schema(type = "integer", minimum = "1", defaultValue = "1"))
+            @RequestParam(defaultValue = "1") int page,
+            @Parameter(schema = @Schema(type = "integer", minimum = "1", maximum = "50",
+                    defaultValue = "10"))
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String kpId,
+            @Parameter(schema = @Schema(allowableValues = {"DRAFT", "CONFIRMED"}))
+            @RequestParam(required = false) String status) {
+        return ApiResponse.ok(recordService.page(page, size, kpId, status));
     }
 
     /** 错题详情 */

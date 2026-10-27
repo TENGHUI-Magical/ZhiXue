@@ -1,6 +1,7 @@
 package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.QuestionView;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
@@ -18,8 +19,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
@@ -51,11 +54,12 @@ class RecommendationServiceTest {
     void setUp() {
         service = new RecommendationService(errorRecordService, knowledgePointService,
                 questionBankService, recommendationRecordMapper, practiceRecordMapper);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
-        when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
+        lenient().when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
+        lenient().when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
         KnowledgePoint kp = new KnowledgePoint();
         kp.setKpId("KP0201");
         kp.setName("关系模型");
+        kp.setCourseId(1L);
         when(knowledgePointService.getById("KP0201")).thenReturn(kp);
     }
 
@@ -114,6 +118,29 @@ class RecommendationServiceTest {
 
         assertThat(result).isNotEmpty();
         assertThat(result.get(0).qId()).isEqualTo("Q_0213");
+    }
+
+    @Test
+    void resolvesCourseIdFromKnowledgePointWhenNotProvided() {
+        when(questionBankService.listByKp(1L, "KP0201"))
+                .thenReturn(List.of(question("Q_0201", 1)));
+        when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of());
+        when(knowledgePointService.successors("KP0201")).thenReturn(List.of());
+
+        List<Recommendation> result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = service.recommend(null, "KP0201", null);
+        }
+
+        assertThat(result).isNotEmpty();
+    }
+
+    @Test
+    void rejectsMismatchedCourseId() {
+        assertThatThrownBy(() -> service.recommend(null, "KP0201", 2L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("courseId");
     }
 
     private QuestionView question(String qId, int difficulty) {

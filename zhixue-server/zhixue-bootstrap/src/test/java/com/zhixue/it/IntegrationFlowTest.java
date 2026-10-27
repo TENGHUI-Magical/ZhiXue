@@ -222,6 +222,36 @@ class IntegrationFlowTest {
     }
 
     @Test
+    void errorRecordPageFiltersByStatusAndIsUserScoped() throws Exception {
+        String token = login();
+        String draftLogId = createRecord(token, "ct-page-draft", "KP0201");
+        String confirmedLogId = createAndConfirm(token, "ct-page-confirmed", "KP0201");
+
+        HttpResponse<String> all = getJson("/api/error/records?page=1&size=10", token);
+        assertThat(code(all)).isZero();
+        assertThat((Integer) JsonPath.read(body(all), "$.data.total")).isEqualTo(2);
+        assertThat((List<?>) JsonPath.read(body(all), "$.data.records")).hasSize(2);
+
+        HttpResponse<String> drafts = getJson(
+                "/api/error/records?page=1&size=10&status=DRAFT", token);
+        assertThat((Integer) JsonPath.read(body(drafts), "$.data.total")).isEqualTo(1);
+        assertThat((String) JsonPath.read(body(drafts), "$.data.records[0].logId"))
+                .isEqualTo(draftLogId);
+
+        HttpResponse<String> confirmed = getJson(
+                "/api/error/records?page=1&size=10&status=CONFIRMED", token);
+        assertThat((Integer) JsonPath.read(body(confirmed), "$.data.total")).isEqualTo(1);
+        assertThat((String) JsonPath.read(body(confirmed), "$.data.records[0].logId"))
+                .isEqualTo(confirmedLogId);
+
+        String otherToken = login("it_user2");
+        HttpResponse<String> other = getJson("/api/error/records?page=1&size=10", otherToken);
+        assertThat((Integer) JsonPath.read(body(other), "$.data.total")).isZero();
+
+        assertThat(code(getJson("/api/error/records?page=1&size=51", token))).isEqualTo(40000);
+    }
+
+    @Test
     void createRejectsUnknownKpWithoutInserting() throws Exception {
         String token = login();
         HttpResponse<String> result = createRaw(token, "ct-bad", "KP9999");

@@ -8,6 +8,7 @@ import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
+import com.zhixue.diagnosis.dto.ErrorRecordPageView;
 import com.zhixue.diagnosis.dto.ErrorRecordView;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
@@ -22,6 +23,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -200,6 +203,48 @@ class StudentErrorRecordServiceTest {
         assertThat(view.createdAt()).isEqualTo("2026-10-26 11:00:00");
     }
 
+    @Test
+    void pageReturnsFilteredRecordsWithBatchKpNames() {
+        StudentErrorRecord confirmed = record("EL_2", "CONFIRMED");
+        confirmed.setKpId("KP0201");
+        confirmed.setCreatedAt(LocalDateTime.of(2026, 10, 26, 12, 0));
+        StudentErrorRecord draft = record("EL_1", "DRAFT");
+        draft.setKpId("KP0202");
+        draft.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
+        when(mapper.selectCount(any())).thenReturn(2L);
+        when(mapper.selectList(any())).thenReturn(List.of(confirmed, draft));
+        when(knowledgePointService.findByIds(any())).thenReturn(
+                Map.of("KP0201", kp("KP0201", "关系模型"),
+                        "KP0202", kp("KP0202", "事务")));
+
+        ErrorRecordPageView page;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            page = service.page(1, 10, null, null);
+        }
+
+        assertThat(page.page()).isEqualTo(1);
+        assertThat(page.size()).isEqualTo(10);
+        assertThat(page.total()).isEqualTo(2);
+        assertThat(page.records()).extracting(ErrorRecordView::logId)
+                .containsExactly("EL_2", "EL_1");
+        assertThat(page.records()).extracting(ErrorRecordView::kpName)
+                .containsExactly("关系模型", "事务");
+        verify(knowledgePointService, times(1)).findByIds(any());
+        verify(knowledgePointService, never()).findById(anyString());
+    }
+
+    @Test
+    void pageRejectsInvalidStatus() {
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.page(1, 10, null, "BAD"))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("status");
+        }
+        verify(mapper, never()).selectCount(any());
+    }
+
     private ErrorRecordCreate createRequest() {
         return new ErrorRecordCreate(1L, "ct-1", null, null, null, null, null,
                 null, null, null);
@@ -222,9 +267,13 @@ class StudentErrorRecordServiceTest {
     }
 
     private KnowledgePoint kp() {
+        return kp("KP0201", "关系模型");
+    }
+
+    private KnowledgePoint kp(String kpId, String name) {
         KnowledgePoint kp = new KnowledgePoint();
-        kp.setKpId("KP0201");
-        kp.setName("关系模型");
+        kp.setKpId(kpId);
+        kp.setName(name);
         return kp;
     }
 }

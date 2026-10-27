@@ -137,7 +137,7 @@ public class DiagnosisController {
     public ApiResponse<List<Recommendation>> recommendations(
             @RequestParam(required = false) String logId,
             @RequestParam(required = false) String kpId,
-            @RequestParam(defaultValue = "1") Long courseId) {
+            @RequestParam(required = false) Long courseId) {
         return ApiResponse.ok(recommendationService.recommend(logId, kpId, courseId));
     }
 }

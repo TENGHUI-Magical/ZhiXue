@@ -9,6 +9,7 @@ import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
+import com.zhixue.diagnosis.dto.ErrorRecordPageView;
 import com.zhixue.diagnosis.dto.ErrorRecordView;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
@@ -19,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -161,6 +163,47 @@ public class StudentErrorRecordService {
     }
 
     /**
+     * 当前登录学生的错题列表（契约 GET /api/error/records）。
+     * <p>
+     * 分页用 count + LIMIT/OFFSET 两查实现，不引 PaginationInnerInterceptor：
+     * 单用户错题量为百级，两查成本可忽略，避免为单一端点引入分页插件依赖。
+     *
+     * @param page   页码，从 1 起；越界返回 40000（契约 minimum: 1）
+     * @param size   每页条数；越界返回 40000（契约 minimum: 1 / maximum: 50）
+     * @param kpId   可选过滤：知识点编号
+     * @param status 可选过滤：DRAFT / CONFIRMED；其他值返回 40000
+     * @return 分页视图，创建时间倒序
+     */
+    public ErrorRecordPageView page(int page, int size, String kpId, String status) {
+        if (page < 1) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须从 1 起");
+        }
+        if (size < 1 || size > 50) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
+        }
+        if (status != null && !status.isBlank() && !DRAFT.equals(status) && !CONFIRMED.equals(status)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "status 只能为 DRAFT 或 CONFIRMED");
+        }
+        long userId = StpUtil.getLoginIdAsLong();
+        LambdaQueryWrapper<StudentErrorRecord> query = new LambdaQueryWrapper<StudentErrorRecord>()
+                .eq(StudentErrorRecord::getUserId, userId)
+                .eq(kpId != null && !kpId.isBlank(), StudentErrorRecord::getKpId, kpId)
+                .eq(status != null && !status.isBlank(), StudentErrorRecord::getStatus, status)
+                .orderByDesc(StudentErrorRecord::getCreatedAt)
+                .orderByDesc(StudentErrorRecord::getLogId);
+        long total = mapper.selectCount(query);
+        // last() 只加在列表查询上；count 与 list 共用 wrapper，先 count 后 last
+        List<StudentErrorRecord> rows = mapper.selectList(
+                query.last("LIMIT " + size + " OFFSET " + (long) (page - 1) * size));
+        Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(
+                rows.stream().map(StudentErrorRecord::getKpId).toList());
+        List<ErrorRecordView> records = rows.stream()
+                .map(row -> toView(row, kpById.get(row.getKpId())))
+                .toList();
+        return new ErrorRecordPageView(page, size, total, records);
+    }
+
+    /**
      * 按编号读取记录（内部使用，供讲解/推荐取 CONFIRMED 记录）。
      *
      * @param logId 错题记录编号
@@ -203,13 +246,16 @@ public class StudentErrorRecordService {
 
     /** 实体 → 视图：补齐 kpName，隐藏 clientToken 等内部字段。 */
     private ErrorRecordView toView(StudentErrorRecord record) {
-        String kpName = null;
+        KnowledgePoint kp = null;
         if (record.getKpId() != null && !record.getKpId().isBlank()) {
-            KnowledgePoint kp = knowledgePointService.findById(record.getKpId());
-            if (kp != null) {
-                kpName = kp.getName();
-            }
+            kp = knowledgePointService.findById(record.getKpId());
         }
+        return toView(record, kp);
+    }
+
+    /** 实体 → 视图；知识点由调用方批量预取，避免列表 N+1。 */
+    private ErrorRecordView toView(StudentErrorRecord record, KnowledgePoint kp) {
+        String kpName = kp == null ? null : kp.getName();
         return new ErrorRecordView(
                 record.getLogId(),
                 record.getUserId(),

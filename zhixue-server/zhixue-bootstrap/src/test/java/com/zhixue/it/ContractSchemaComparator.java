@@ -143,9 +143,9 @@ final class ContractSchemaComparator {
                 continue;
             }
             Map<?, ?> frozenParam = entry.getValue();
-            Object frozenRequired = frozenParam.get("required");
-            Object genRequired = genParam.get("required");
-            if (!String.valueOf(frozenRequired).equals(String.valueOf(genRequired))) {
+            boolean frozenRequired = isRequired(frozenParam.get("required"));
+            boolean genRequired = isRequired(genParam.get("required"));
+            if (frozenRequired != genRequired) {
                 issues.add(ctx + "：参数 " + entry.getKey() + " required 不一致 契约="
                         + frozenRequired + " 实现=" + genRequired);
             }
@@ -158,6 +158,11 @@ final class ContractSchemaComparator {
                 issues.add(ctx + "：实现多出契约未声明参数 " + key);
             }
         }
+    }
+
+    /** OpenAPI 参数 required 缺省即 false，不能用字符串比较 null 与 false。 */
+    private static boolean isRequired(Object value) {
+        return value instanceof Boolean bool ? bool : Boolean.parseBoolean(String.valueOf(value));
     }
 
     private static Map<String, Map<?, ?>> parameterMap(Map<?, ?> pathItem, Map<?, ?> operation,

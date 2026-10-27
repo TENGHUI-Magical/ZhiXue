@@ -13,9 +13,11 @@ import com.zhixue.course.mapper.KnowledgePrereqMapper;
 import com.zhixue.course.mapper.KpKeywordMapper;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -64,6 +66,26 @@ public class KnowledgePointService {
             return null;
         }
         return knowledgePointMapper.selectById(kpId);
+    }
+
+    /**
+     * 批量按业务编号查询知识点，供列表视图一次补齐 kpName，避免 N+1。
+     *
+     * @param kpIds 知识点编号集合，允许空值/重复
+     * @return kpId → 知识点；不存在的编号不放入结果
+     */
+    public Map<String, KnowledgePoint> findByIds(Collection<String> kpIds) {
+        List<String> ids = kpIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(id -> !id.isEmpty())
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return knowledgePointMapper.selectBatchIds(ids).stream()
+                .collect(Collectors.toMap(KnowledgePoint::getKpId, kp -> kp));
     }
 
     /**

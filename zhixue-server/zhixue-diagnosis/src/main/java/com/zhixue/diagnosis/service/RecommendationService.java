@@ -73,7 +73,7 @@ public class RecommendationService {
      *
      * @param logId    错题记录编号；有值时才落 recommendation 表
      * @param kpId     知识点编号；logId 为空时使用（不落库，recommendationId 为 null）
-     * @param courseId 课程 ID；当前单课程阶段默认 1
+     * @param courseId 课程 ID；为空时按知识点所属课程解析，显式传入时须与知识点课程一致
      * @return 1—3 条推荐；无题可推时返回空数组
      */
     @Transactional
@@ -89,17 +89,18 @@ public class RecommendationService {
             throw new BizException(ErrorCode.PARAM_ERROR, "logId 与 kpId 至少提供一个");
         }
         KnowledgePoint kp = knowledgePointService.getById(resolvedKp);
+        long resolvedCourseId = resolveCourseId(kp, courseId);
         long userId = StpUtil.getLoginIdAsLong();
 
         int avgDiff = recentAvgDifficulty(userId, resolvedKp);
         String currentQid = record == null ? null : record.getQId();
-        Set<String> cooldown7 = practicedQids(userId, courseId, 7);
-        Set<String> cooldown3 = practicedQids(userId, courseId, 3);
+        Set<String> cooldown7 = practicedQids(userId, resolvedCourseId, 7);
+        Set<String> cooldown3 = practicedQids(userId, resolvedCourseId, 3);
 
-        List<QuestionView> same = questionBankService.listByKp(courseId, resolvedKp);
+        List<QuestionView> same = questionBankService.listByKp(resolvedCourseId, resolvedKp);
         // 05 §3.1/§3.6：先修/后继池走 question_kp 关联（含次要关联），题量不足时同池兜底
-        List<QuestionView> prereq = collectLinked(knowledgePointService.prerequisites(resolvedKp), courseId);
-        List<QuestionView> successor = collectLinked(knowledgePointService.successors(resolvedKp), courseId);
+        List<QuestionView> prereq = collectLinked(knowledgePointService.prerequisites(resolvedKp), resolvedCourseId);
+        List<QuestionView> successor = collectLinked(knowledgePointService.successors(resolvedKp), resolvedCourseId);
 
         Set<String> picked = new HashSet<>();
         List<Recommendation> result = new ArrayList<>(3);
@@ -179,7 +180,19 @@ public class RecommendationService {
         return q.difficulty() == null ? 2 : q.difficulty();
     }
 
-    /** 先修/后继池：按 question_kp 关联取题（含次要关联，05 §3.1） */
+    /** 课程解析：未传时取知识点所属课程；显式传入时必须一致，避免多课程下拿错题库。 */
+    private long resolveCourseId(KnowledgePoint kp, Long courseId) {
+        Long kpCourseId = kp.getCourseId();
+        if (kpCourseId == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "知识点缺少课程归属: " + kp.getKpId());
+        }
+        if (courseId != null && !courseId.equals(kpCourseId)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "courseId 与知识点所属课程不一致");
+        }
+        return kpCourseId;
+    }
+
+    /** 05 §3.1：先修/后继池：按 question_kp 关联取题（含次要关联，05 §3.1） */
     private List<QuestionView> collectLinked(List<String> kpIds, Long courseId) {
         List<QuestionView> pool = new ArrayList<>();
         for (String kpId : kpIds) {

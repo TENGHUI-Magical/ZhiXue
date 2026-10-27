@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.6
+  version: 2.0.7
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -317,8 +317,8 @@ paths:
         - name: courseId
           in: query
           required: false
-          description: 课程 ID；当前单课程阶段默认 1。
-          schema: { type: integer, format: int64, default: 1 }
+          description: 课程 ID；缺省时按 logId/kpId 解析知识点所属课程；与解析结果不一致返回 40000。
+          schema: { type: integer, format: int64 }
       responses:
         '200':
           description: 成功
