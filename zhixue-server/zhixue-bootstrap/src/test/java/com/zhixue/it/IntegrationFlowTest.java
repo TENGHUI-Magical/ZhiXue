@@ -435,7 +435,7 @@ class IntegrationFlowTest {
         Map<?, ?> generated = objectMapper.readValue(body(docsResponse), Map.class);
 
         Map<?, ?> frozen = new Yaml().load(
-                Files.readString(Path.of("../docs/openapi.yaml"), StandardCharsets.UTF_8));
+                Files.readString(Path.of("../../docs/openapi.yaml"), StandardCharsets.UTF_8));
 
         Map<?, ?> frozenPaths = asMap(frozen.get("paths"));
         Map<?, ?> genPaths = asMap(generated.get("paths"));
@@ -479,7 +479,8 @@ class IntegrationFlowTest {
         postJson("/api/diagnosis/map",
                 "{\"text\":\"关系模型的三要素是什么\",\"courseId\":1}", token);
 
-        List<Long> samples = concurrentLatencies(15, 5, () -> postJson("/api/diagnosis/map",
+        // 06 号文 PT-01：15 并发单轮，P95 取这一轮的最大值
+        List<Long> samples = concurrentLatencies(15, 1, () -> postJson("/api/diagnosis/map",
                 "{\"text\":\"事务的ACID特性有哪些\",\"courseId\":1}", token));
         long p95 = percentile(samples, 95);
         System.out.println("[perf] map samples=" + samples.size() + " p95=" + p95 + "ms");
