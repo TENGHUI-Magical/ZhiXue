@@ -435,40 +435,10 @@ class IntegrationFlowTest {
         Map<?, ?> generated = objectMapper.readValue(body(docsResponse), Map.class);
 
         Map<?, ?> frozen = new Yaml().load(
-                Files.readString(Path.of("../../docs/openapi.yaml"), StandardCharsets.UTF_8));
+                Files.readString(ContractSchemaComparator.openapiPath(), StandardCharsets.UTF_8));
 
-        Map<?, ?> frozenPaths = asMap(frozen.get("paths"));
-        Map<?, ?> genPaths = asMap(generated.get("paths"));
-        Map<?, ?> frozenSchemas = asMap(asMap(
-                asMap(frozen.get("components")).get("schemas")));
-        Map<?, ?> genSchemas = asMap(asMap(
-                asMap(generated.get("components")).get("schemas")));
-
-        List<String> issues = new ArrayList<>();
-        // SSE 讲解响应为流，openapi 两侧均为平 schema，无信封可比；单独跳过响应比对
-        Set<String> sseSkip = Set.of("post /api/diagnosis/explain");
-
-        for (Object pathKey : frozenPaths.keySet()) {
-            String path = String.valueOf(pathKey);
-            Map<?, ?> frozenItem = asMap(frozenPaths.get(path));
-            Map<?, ?> genItem = asMap(genPaths.get(path));
-            for (Object methodKey : frozenItem.keySet()) {
-                String method = String.valueOf(methodKey).toLowerCase();
-                if (!genItem.containsKey(method)) {
-                    // 冻结契约中未实现的端点：登记为已知缺口，不属于本次对齐门禁
-                    continue;
-                }
-                Map<?, ?> frozenOp = asMap(frozenItem.get(methodKey));
-                Map<?, ?> genOp = asMap(genItem.get(method));
-                String ctx = method.toUpperCase() + " " + path;
-                compareRequestSchema(frozenOp, genOp, frozenSchemas, genSchemas, ctx, issues);
-                if (!sseSkip.contains(method + " " + path)) {
-                    compareResponseSchema(frozenOp, genOp, frozenSchemas, genSchemas, ctx, issues);
-                }
-            }
-        }
-        assertThat(issues)
-                .as("已实现端点的契约 schema 差异")
+        assertThat(ContractSchemaComparator.compare(frozen, generated))
+                .as("已实现端点的契约差异")
                 .isEmpty();
     }
 

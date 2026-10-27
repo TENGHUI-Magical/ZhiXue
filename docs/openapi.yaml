@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.3
+  version: 2.0.4
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -136,7 +136,6 @@ paths:
               required: [file, clientToken]
               properties:
                 file: { type: string, format: binary }
-                courseId: { type: integer, format: int64 }
                 clientToken: { type: string, maxLength: 64 }
       responses:
         '200':
@@ -307,8 +306,17 @@ paths:
       parameters:
         - name: logId
           in: query
-          required: true
+          required: false
           schema: { type: string, example: EL_101 }
+        - name: kpId
+          in: query
+          required: false
+          description: 无 logId 时的兜底知识点过滤（竖切阶段）
+          schema: { type: string, example: KP0201 }
+        - name: courseId
+          in: query
+          required: false
+          schema: { type: integer, format: int64, default: 1 }
       responses:
         '200':
           description: 成功
