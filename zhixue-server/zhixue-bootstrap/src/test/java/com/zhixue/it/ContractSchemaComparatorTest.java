@@ -1,7 +1,11 @@
 package com.zhixue.it;
 
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -104,6 +108,193 @@ class ContractSchemaComparatorTest {
         assertThat(ContractSchemaComparator.compare(frozen, generated))
                 .anyMatch(issue -> issue.contains("required 不一致"))
                 .anyMatch(issue -> issue.contains("多出契约未声明参数"));
+    }
+
+    @Test
+    void enumOrderIsInsensitive() {
+        Map<String, Object> frozen = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))),
+                Map.of("id", Map.of("type", "string"),
+                        "status", Map.of("type", "string", "enum", List.of("A", "B"))));
+        Map<String, Object> generated = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))),
+                Map.of("id", Map.of("type", "string"),
+                        "status", Map.of("type", "string", "enum", List.of("B", "A"))));
+
+        assertThat(ContractSchemaComparator.compare(frozen, generated)).isEmpty();
+    }
+
+    @Test
+    void detectsNestedAllOfDrift() {
+        Map<String, Object> frozen = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))),
+                Map.of("id", Map.of("type", "string"),
+                        "status", Map.of("type", "string", "enum", List.of("A", "B"))));
+        Map<String, Object> generated = documentWithSchemas(Map.of(
+                "TestResponse", responseSchema(),
+                "Item", Map.of("allOf", List.of(
+                        Map.of("type", "object", "properties", Map.of(
+                                "id", Map.of("type", "string"))),
+                        Map.of("type", "object", "properties", Map.of(
+                                "status", Map.of("type", "string")))))));
+        Map<String, Object> generatedDoc = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", generated);
+
+        assertThat(ContractSchemaComparator.compare(frozen, generatedDoc))
+                .anyMatch(issue -> issue.contains("status"));
+    }
+
+    @Test
+    void detectsEmptySchemaAsymmetry() {
+        Map<String, Object> frozen = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))),
+                Map.of("id", Map.of("type", "string")));
+        Map<String, Object> generated = documentWithSchemas(Map.of(
+                "TestResponse", Map.of("allOf", List.of(
+                        Map.of("type", "object", "properties", Map.of(
+                                "code", Map.of("type", "integer"))),
+                        Map.of("type", "object", "properties", Map.of(
+                                "data", Map.of()))))));
+        Map<String, Object> generatedDoc = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", generated);
+
+        assertThat(ContractSchemaComparator.compare(frozen, generatedDoc))
+                .anyMatch(issue -> issue.contains("schema 一侧为空"));
+    }
+
+    @Test
+    void nullAndEmptyResponseDataAreCompatible() {
+        Map<String, Object> frozen = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", Map.of("schemas", Map.of(
+                        "TestResponse", Map.of("allOf", List.of(
+                                Map.of("type", "object", "properties", Map.of(
+                                        "code", Map.of("type", "integer"))),
+                                Map.of("type", "object", "properties", Map.of(
+                                        "data", Map.of("type", "null"))))))));
+        Map<String, Object> generated = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", Map.of("schemas", Map.of(
+                        "TestResponse", Map.of("allOf", List.of(
+                                Map.of("type", "object", "properties", Map.of(
+                                        "code", Map.of("type", "integer"))),
+                                Map.of("type", "object", "properties", Map.of(
+                                        "data", Map.of())))))));
+
+        assertThat(ContractSchemaComparator.compare(frozen, generated)).isEmpty();
+    }
+
+    @Test
+    void recursiveSchemaDoesNotOverflow() {
+        Map<String, Object> schemas = Map.of(
+                "TestResponse", responseSchema(),
+                "Item", Map.of("type", "object", "properties", Map.of(
+                        "id", Map.of("type", "string"),
+                        "child", Map.of("$ref", "#/components/schemas/Item"))));
+        Map<String, Object> frozen = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", Map.of("schemas", schemas));
+        Map<String, Object> generated = Map.of(
+                "paths", Map.of("/api/test", Map.of("get", operation(List.of()))),
+                "components", Map.of("schemas", schemas));
+
+        assertThat(ContractSchemaComparator.compare(frozen, generated)).isEmpty();
+    }
+
+    @Test
+    void frozenOpenapiIsSelfConsistent() throws Exception {
+        Map<?, ?> doc = new Yaml().load(Files.readString(
+                ContractSchemaComparator.openapiPath(), StandardCharsets.UTF_8));
+        Map<?, ?> schemas = asMap(asMap(asMap(doc.get("components")).get("schemas")));
+        List<String> issues = new ArrayList<>();
+        lint(schemas, issues);
+        assertThat(issues).isEmpty();
+    }
+
+    @Test
+    void degradeLevelExcludesMainModelL1() throws Exception {
+        Map<?, ?> doc = new Yaml().load(Files.readString(
+                ContractSchemaComparator.openapiPath(), StandardCharsets.UTF_8));
+        Map<?, ?> schemas = asMap(asMap(asMap(doc.get("components")).get("schemas")));
+        Object raw = asMap(asMap(schemas.get("ExplainLog")).get("properties")).get("degradeLevel");
+        Map<?, ?> degradeLevel = raw instanceof Map<?, ?> map ? map : Map.of();
+        assertThat(asMap(degradeLevel).get("enum"))
+                .as("L1 是主力模型，不是降级级别")
+                .isEqualTo(java.util.Arrays.asList("L2", "L3", "L4", null));
+    }
+
+    private static void lint(Object node, List<String> issues) {
+        if (node instanceof Map<?, ?> map) {
+            Object enumValues = map.get("enum");
+            if (enumValues instanceof List<?> values) {
+                Object type = map.get("type");
+                for (Object value : values) {
+                    if (!enumValueMatchesType(value, type, map.get("nullable"))) {
+                        issues.add("enum 值 " + value + " 与 type=" + type + " 不一致");
+                    }
+                }
+            }
+            Object required = map.get("required");
+            Map<?, ?> properties = asMap(map.get("properties"));
+            if (required instanceof List<?> names && !properties.isEmpty()) {
+                for (Object name : names) {
+                    if (!properties.containsKey(name)) {
+                        issues.add("required 字段 " + name + " 不在 properties 中");
+                    }
+                }
+            }
+            for (Object value : map.values()) {
+                lint(value, issues);
+            }
+        } else if (node instanceof List<?> list) {
+            for (Object value : list) {
+                lint(value, issues);
+            }
+        }
+    }
+
+    private static boolean enumValueMatchesType(Object value, Object type, Object nullable) {
+        String typeText = String.valueOf(type);
+        if (value == null) {
+            return typeText.contains("null") || Boolean.TRUE.equals(nullable);
+        }
+        if (value instanceof String) {
+            return typeText.contains("string");
+        }
+        if (value instanceof Integer || value instanceof Long) {
+            return typeText.contains("integer") || typeText.contains("number");
+        }
+        if (value instanceof Number) {
+            return typeText.contains("number");
+        }
+        if (value instanceof Boolean) {
+            return typeText.contains("boolean");
+        }
+        if (value instanceof Map) {
+            return typeText.contains("object");
+        }
+        if (value instanceof List) {
+            return typeText.contains("array");
+        }
+        return false;
+    }
+
+    private static Map<String, Object> responseSchema() {
+        return Map.of("allOf", List.of(
+                Map.of("type", "object", "properties", Map.of(
+                        "code", Map.of("type", "integer"))),
+                Map.of("type", "object", "properties", Map.of(
+                        "data", Map.of("$ref", "#/components/schemas/Item")))));
+    }
+
+    private static Map<String, Object> documentWithSchemas(Map<String, Object> schemas) {
+        return Map.of("schemas", schemas);
+    }
+
+    private static Map<?, ?> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? map : Map.of();
     }
 
     private static Map<String, Object> document(Map<String, Object> paths,

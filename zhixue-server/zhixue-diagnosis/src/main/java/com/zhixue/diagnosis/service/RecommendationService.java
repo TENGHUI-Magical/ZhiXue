@@ -69,11 +69,11 @@ public class RecommendationService {
     }
 
     /**
-     * 按错题记录（logId）或知识点（kpId，竖切兜底）生成三层推荐。
+     * 按错题记录（logId）或知识点（kpId，竖切兜底）生成三层推荐；两者至少提供一个。
      *
-     * @param logId    错题记录编号；契约必填，有值时才落 recommendation 表
+     * @param logId    错题记录编号；有值时才落 recommendation 表
      * @param kpId     知识点编号；logId 为空时使用（不落库，recommendationId 为 null）
-     * @param courseId 课程 ID
+     * @param courseId 课程 ID；当前单课程阶段默认 1
      * @return 1—3 条推荐；无题可推时返回空数组
      */
     @Transactional

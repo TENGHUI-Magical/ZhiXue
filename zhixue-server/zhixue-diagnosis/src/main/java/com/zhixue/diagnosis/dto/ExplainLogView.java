@@ -19,7 +19,7 @@ import java.util.List;
  */
 public record ExplainLogView(String explainId, String traceId, String model, boolean degraded,
                              @Schema(nullable = true,
-                                     allowableValues = {"L1", "L2", "L3", "L4"}) String degradeLevel,
+                                     allowableValues = {"L2", "L3", "L4"}) String degradeLevel,
                              String content, List<SourceView> sources,
                              boolean blocked, String createdAt) {
 

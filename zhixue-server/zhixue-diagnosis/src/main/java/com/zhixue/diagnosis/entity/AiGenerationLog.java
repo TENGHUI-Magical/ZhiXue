@@ -40,7 +40,7 @@ public class AiGenerationLog {
     /** 是否降级：1 是，0 否 */
     private Integer isDegraded;
 
-    /** 降级级别：L2 / L3；未降级为 NULL */
+    /** 降级级别：L2（备用模型）/ L3（本地模板）/ L4（拒绝生成）；未降级为 NULL。L1 是主力模型，不写入本字段。 */
     private String degradeLevel;
 
     /** 讲解耗时毫秒 */

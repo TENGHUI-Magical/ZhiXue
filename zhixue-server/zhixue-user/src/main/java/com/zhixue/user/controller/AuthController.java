@@ -27,12 +27,12 @@ public class AuthController {
         this.authService = authService;
     }
 
-    /** 契约 2.1 请求体 */
+    /** 契约 2.1 请求体：username 对齐 DB VARCHAR(50)，password 对齐契约 6—64 */
     public record LoginRequest(
             @NotBlank(message = "用户名不能为空")
-            @Size(max = 64, message = "用户名最长 64 字") String username,
+            @Size(max = 50, message = "用户名最长 50 字") String username,
             @NotBlank(message = "密码不能为空")
-            @Size(max = 128, message = "密码最长 128 字") String password) {
+            @Size(min = 6, max = 64, message = "密码长度需在 6—64 字") String password) {
     }
 
     /** 契约 openapi LoginResult：token + userId + username + role 平铺 */

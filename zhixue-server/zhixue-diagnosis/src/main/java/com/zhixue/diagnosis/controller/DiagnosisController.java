@@ -71,9 +71,12 @@ public class DiagnosisController {
     @PostMapping(value = "/error/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<OcrAccepted> ocrParse(@RequestPart("file") MultipartFile file,
                                              @RequestPart("clientToken") String clientToken) {
-        // 契约 §1：clientToken 必填；空白串虽可通过 required 校验，仍按 40000 口径拦截
+        // 契约 §1：clientToken 必填且最长 64；空白串与超长串按 40000 口径拦截
         if (clientToken == null || clientToken.isBlank()) {
             throw new BizException(ErrorCode.PARAM_ERROR, "clientToken 不能为空");
+        }
+        if (clientToken.length() > 64) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "clientToken 最长 64 字");
         }
         return ApiResponse.ok(new OcrAccepted(
                 ocrService.submit(file, clientToken, StpUtil.getLoginIdAsLong())));

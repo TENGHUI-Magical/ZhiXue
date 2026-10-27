@@ -253,7 +253,15 @@ final class ContractSchemaComparator {
                                           Map<?, ?> frozenSchemas, Map<?, ?> genSchemas,
                                           String ctx, List<String> issues,
                                           boolean checkRequired, int depth, Set<String> visiting) {
-        if (depth > MAX_DEPTH || frozenSchema.isEmpty() || genSchema.isEmpty()) {
+        if (depth > MAX_DEPTH) {
+            return;
+        }
+        if (frozenSchema.isEmpty() || genSchema.isEmpty()) {
+            if (isNullSchema(frozenSchema) && isNullSchema(genSchema)) {
+                return;
+            }
+            issues.add(ctx + "：schema 一侧为空 契约空=" + frozenSchema.isEmpty()
+                    + " 实现空=" + genSchema.isEmpty());
             return;
         }
         Map<?, ?> frozenResolved = resolve(frozenSchema, frozenSchemas);
@@ -261,8 +269,8 @@ final class ContractSchemaComparator {
         if (frozenResolved.isEmpty() || genResolved.isEmpty()) {
             return;
         }
-        Map<?, ?> frozenProps = asMap(frozenResolved.get("properties"));
-        Map<?, ?> genProps = asMap(genResolved.get("properties"));
+        Map<?, ?> frozenProps = mergedProperties(frozenResolved, frozenSchemas);
+        Map<?, ?> genProps = mergedProperties(genResolved, genSchemas);
         if (frozenProps.isEmpty() && genProps.isEmpty()) {
             return;
         }
@@ -356,7 +364,7 @@ final class ContractSchemaComparator {
             }
             List<?> expected = normalizeEnum(frozenEnum, frozenProp.get("type"));
             List<?> actual = normalizeEnum(genEnum, genProp.get("type"));
-            if (!expected.toString().equals(actual.toString())) {
+            if (!new LinkedHashSet<>(expected).equals(new LinkedHashSet<>(actual))) {
                 issues.add(ctx + "：字段 " + prop + " 枚举不一致 契约=" + frozenEnum);
             }
         }
@@ -372,6 +380,27 @@ final class ContractSchemaComparator {
             return values;
         }
         return values.stream().filter(value -> value != null).toList();
+    }
+
+    /** 空 schema 与 type: null 都表示“无 data”，视为等价；$ref 不算 null。 */
+    private static boolean isNullSchema(Map<?, ?> schema) {
+        if (schema.get("$ref") != null) {
+            return false;
+        }
+        return schema.isEmpty() || "null".equals(String.valueOf(schema.get("type")));
+    }
+
+    /** 合并 properties 与 allOf 成员，支持信封/嵌套对象的组合 schema。 */
+    private static Map<?, ?> mergedProperties(Map<?, ?> schema, Map<?, ?> schemas) {
+        Map<?, ?> resolved = resolve(schema, schemas);
+        Map<Object, Object> properties = new LinkedHashMap<>();
+        properties.putAll(asMap(resolved.get("properties")));
+        if (resolved.get("allOf") instanceof List<?> list) {
+            for (Object item : list) {
+                properties.putAll(mergedProperties(asMap(item), schemas));
+            }
+        }
+        return properties;
     }
 
     private static Map<?, ?> resolve(Map<?, ?> schema, Map<?, ?> schemas) {

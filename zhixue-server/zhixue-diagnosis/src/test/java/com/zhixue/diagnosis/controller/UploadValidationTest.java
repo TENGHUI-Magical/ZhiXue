@@ -60,4 +60,21 @@ class UploadValidationTest {
                 .contains("\"code\":40000")
                 .contains("file");
     }
+
+    @Test
+    void overlongClientTokenReturnsParamError() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "a.jpg", "image/jpeg", new byte[]{1});
+        MockMultipartFile clientTokenPart = new MockMultipartFile(
+                "clientToken", "", "text/plain",
+                "x".repeat(65).getBytes(StandardCharsets.UTF_8));
+        MvcResult result = mockMvc.perform(multipart("/api/error/upload")
+                        .file(file).file(clientTokenPart))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString())
+                .contains("\"code\":40000")
+                .contains("clientToken");
+    }
 }

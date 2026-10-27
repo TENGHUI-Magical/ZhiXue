@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.5
+  version: 2.0.6
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -307,15 +307,17 @@ paths:
         - name: logId
           in: query
           required: false
+          description: 错题记录编号，优先使用；与 kpId 至少提供一个。
           schema: { type: string, example: EL_101 }
         - name: kpId
           in: query
           required: false
-          description: 无 logId 时的兜底知识点过滤（竖切阶段）
+          description: 无 logId 时的兜底知识点过滤（竖切阶段）；与 logId 至少提供一个。
           schema: { type: string, example: KP0201 }
         - name: courseId
           in: query
           required: false
+          description: 课程 ID；当前单课程阶段默认 1。
           schema: { type: integer, format: int64, default: 1 }
       responses:
         '200':
@@ -908,8 +910,8 @@ components:
         degraded: { type: boolean }
         degradeLevel:
           type: [string, "null"]
-          enum: [L1, L2, L3, L4, null]
-          description: 未降级时为 null；降级时为 L1—L4。enum 含 null 与 type 联合类型共同表达可空。
+          enum: [L2, L3, L4, null]
+          description: 未降级时为 null；降级时为 L2（备用模型）/L3（本地模板）/L4（拒绝生成）。L1 是主力模型，不是降级级别。
         content: { type: string }
         sources:
           type: array
