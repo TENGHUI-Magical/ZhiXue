@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -16,7 +18,9 @@ import java.util.List;
  * @param createdAt   生成时间（ISO-8601）
  */
 public record ExplainLogView(String explainId, String traceId, String model, boolean degraded,
-                             String degradeLevel, String content, List<SourceView> sources,
+                             @Schema(nullable = true,
+                                     allowableValues = {"L1", "L2", "L3", "L4"}) String degradeLevel,
+                             String content, List<SourceView> sources,
                              boolean blocked, String createdAt) {
 
     /**

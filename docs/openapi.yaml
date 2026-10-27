@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.2
+  version: 2.0.3
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -898,7 +898,7 @@ components:
         traceId: { type: string }
         model: { type: string }
         degraded: { type: boolean }
-        degradeLevel: { type: string, nullable: true, enum: [L1, L2, L3, L4, null] }
+        degradeLevel: { type: string, nullable: true, enum: [L1, L2, L3, L4] }
         content: { type: string }
         sources:
           type: array

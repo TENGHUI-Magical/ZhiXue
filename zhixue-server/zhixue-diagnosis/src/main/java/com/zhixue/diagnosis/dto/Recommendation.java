@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 推荐项（契约 Recommendation）。
  * 当前未落 recommendation 表，recommendationId 返回 null。
@@ -12,6 +14,8 @@ package com.zhixue.diagnosis.dto;
  * @param isAdopted        是否已被作答
  * @param questionText     题干
  */
-public record Recommendation(Long recommendationId, String qId, String layer, String reason,
+public record Recommendation(Long recommendationId, String qId,
+                             @Schema(allowableValues = {"CONSOLIDATE", "VARIANT", "ADVANCE"}) String layer,
+                             String reason,
                              Integer difficulty, boolean isAdopted, String questionText) {
 }
