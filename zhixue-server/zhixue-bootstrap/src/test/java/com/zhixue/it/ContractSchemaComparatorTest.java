@@ -41,6 +41,25 @@ class ContractSchemaComparatorTest {
     }
 
     @Test
+    void nullableEnumWithNullIsCompatible() {
+        Map<String, Object> frozenProperties = Map.of(
+                "id", Map.of("type", "string"),
+                "status", Map.of("type", List.of("string", "null"),
+                        "enum", java.util.Arrays.asList("A", "B", null)));
+        Map<String, Object> generatedProperties = Map.of(
+                "id", Map.of("type", "string"),
+                "status", Map.of("type", List.of("string", "null"),
+                        "enum", List.of("A", "B")));
+
+        Map<String, Object> frozen = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))), frozenProperties);
+        Map<String, Object> generated = document(
+                Map.of("/api/test", Map.of("get", operation(List.of()))), generatedProperties);
+
+        assertThat(ContractSchemaComparator.compare(frozen, generated)).isEmpty();
+    }
+
+    @Test
     void detectsMissingResponseData() {
         Map<String, Object> frozen = document(
                 Map.of("/api/test", Map.of("get", operation(List.of()))),

@@ -350,11 +350,28 @@ final class ContractSchemaComparator {
             }
         }
         if (frozenProp.get("enum") instanceof List<?> frozenEnum) {
-            if (!(genProp.get("enum") instanceof List<?> genEnum)
-                    || !frozenEnum.toString().equals(genEnum.toString())) {
+            if (!(genProp.get("enum") instanceof List<?> genEnum)) {
+                issues.add(ctx + "：字段 " + prop + " 枚举不一致 契约=" + frozenEnum);
+                return;
+            }
+            List<?> expected = normalizeEnum(frozenEnum, frozenProp.get("type"));
+            List<?> actual = normalizeEnum(genEnum, genProp.get("type"));
+            if (!expected.toString().equals(actual.toString())) {
                 issues.add(ctx + "：字段 " + prop + " 枚举不一致 契约=" + frozenEnum);
             }
         }
+    }
+
+    /**
+     * enum 中的 null 与 type 联合类型重复表达可空：冻结侧为了 JSON Schema 正确性
+     * 会在 enum 里写 null，生成侧 springdoc 只给 type: [string, "null"]。
+     * 比较时去掉 null，只比非空枚举值。
+     */
+    private static List<?> normalizeEnum(List<?> values, Object type) {
+        if (!String.valueOf(type).contains("null")) {
+            return values;
+        }
+        return values.stream().filter(value -> value != null).toList();
     }
 
     private static Map<?, ?> resolve(Map<?, ?> schema, Map<?, ?> schemas) {
