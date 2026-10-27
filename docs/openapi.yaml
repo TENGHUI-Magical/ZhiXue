@@ -898,7 +898,7 @@ components:
         traceId: { type: string }
         model: { type: string }
         degraded: { type: boolean }
-        degradeLevel: { type: string, nullable: true, enum: [L1, L2, L3, L4] }
+        degradeLevel: { type: [string, "null"], enum: [L1, L2, L3, L4] }
         content: { type: string }
         sources:
           type: array
