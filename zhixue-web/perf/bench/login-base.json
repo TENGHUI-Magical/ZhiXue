@@ -1,0 +1,455 @@
+{
+ "started": "2026-10-28 00:47:24",
+ "finished": "2026-10-28 00:47:37",
+ "config": {
+  "runs": 10,
+  "profile": "fast4g",
+  "cpu": 1,
+  "width": 1440,
+  "height": 900,
+  "ready": "document.querySelector(\"input[autocomplete='username']\")?.offsetParent !== null",
+  "type_check": "input[autocomplete=\"username\"]"
+ },
+ "paired": false,
+ "results": {
+  "A": {
+   "url": "http://127.0.0.1:4173/login",
+   "summary": {
+    "n": 10,
+    "n_ok": 10,
+    "ready": {
+     "p50": 123.5,
+     "p75": 127.8,
+     "p95": 131.1
+    },
+    "lcp": {
+     "p50": 510.0,
+     "p75": 515.0,
+     "p95": 522.6
+    },
+    "fcp": {
+     "p50": 416.0,
+     "p75": 420.0,
+     "p95": 428.4
+    },
+    "dcl": {
+     "p50": 385.2,
+     "p75": 389.1,
+     "p95": 396.7
+    },
+    "load": {
+     "p50": 470.0,
+     "p75": 474.3,
+     "p95": 486.3
+    },
+    "longtask": {
+     "p50": 0.0,
+     "p75": 0.0,
+     "p95": 0.0
+    },
+    "requests": {
+     "p50": 10.0,
+     "p75": 10.0,
+     "p95": 10.0
+    },
+    "bytes_total": {
+     "p50": 159194.0,
+     "p75": 159194.0,
+     "p95": 159194.0
+    }
+   },
+   "runs": [
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 125.69999998807907,
+     "lcp": 528,
+     "longtask": 0,
+     "fcp": 420,
+     "dcl": 387.5999999642372,
+     "load": 485.80000001192093,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 500
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 485
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 455
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 443
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 441
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 123.89999997615814,
+     "lcp": 492,
+     "longtask": 0,
+     "fcp": 412,
+     "dcl": 382.69999998807907,
+     "load": 453.39999997615814,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 467
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 453
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 437
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 437
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 437
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 120.90000003576279,
+     "lcp": 496,
+     "longtask": 0,
+     "fcp": 408,
+     "dcl": 376.19999998807907,
+     "load": 464.69999998807907,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 463
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 463
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 431
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 421
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 418
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 119.59999996423721,
+     "lcp": 504,
+     "longtask": 0,
+     "fcp": 408,
+     "dcl": 378.69999998807907,
+     "load": 461.89999997615814,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "link": 14509,
+      "script": 143449
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 476
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 461
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 446
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 433
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 431
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 123.10000002384186,
+     "lcp": 508,
+     "longtask": 0,
+     "fcp": 424,
+     "dcl": 394.60000002384186,
+     "load": 467.7000000476837,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 482
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 467
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 451
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 451
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 435
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 128.5,
+     "lcp": 512,
+     "longtask": 0,
+     "fcp": 412,
+     "dcl": 382.80000001192093,
+     "load": 472.19999998807907,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 487
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 471
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 440
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 427
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 425
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 123.19999998807907,
+     "lcp": 504,
+     "longtask": 0,
+     "fcp": 408,
+     "dcl": 379.10000002384186,
+     "load": 464.69999998807907,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 478
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 463
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 447
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 432
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 432
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 129.60000002384186,
+     "lcp": 516,
+     "longtask": 0,
+     "fcp": 432,
+     "dcl": 398.5,
+     "load": 486.7000000476837,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 486
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 486
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 454
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 443
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 440
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 132.30000001192093,
+     "lcp": 516,
+     "longtask": 0,
+     "fcp": 420,
+     "dcl": 388.89999997615814,
+     "load": 474.19999998807907,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 489
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 473
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-CYuyahmG.css",
+       "responseEnd": 457
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 457
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 442
+      }
+     ]
+    },
+    {
+     "url": "http://127.0.0.1:4173/login",
+     "ok": true,
+     "type_check": true,
+     "ready": 120.39999997615814,
+     "lcp": 512,
+     "longtask": 0,
+     "fcp": 420,
+     "dcl": 389.19999998807907,
+     "load": 474.39999997615814,
+     "requests": 10,
+     "bytes_total": 159194,
+     "bytes_by_type": {
+      "script": 143449,
+      "link": 14509
+     },
+     "slowest": [
+      {
+       "name": "http://127.0.0.1:4173/assets/el-input-DqaJTTw3.js",
+       "responseEnd": 489
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/LoginView-DrpBDN86.css",
+       "responseEnd": 473
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BdKezwVt.js",
+       "responseEnd": 443
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/_baseClone-D8m9cqCg.js",
+       "responseEnd": 443
+      },
+      {
+       "name": "http://127.0.0.1:4173/assets/el-card-BAyktVMS.css",
+       "responseEnd": 429
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

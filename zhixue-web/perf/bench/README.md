@@ -10,7 +10,7 @@ node perf/bench/bundle-budget.mjs --update  # 优化后收紧上限
 
 `ceilings.json` 是当前上限；只允许通过 `--update` 下调，不允许为了过 CI 上调。
 
-## 2. 真实浏览器计时（待安装 Playwright）
+## 2. 真实浏览器计时（已安装 Playwright）
 
 `bench.py` / `ratchet.py` 原样来自花叔 `huashu-flash`（MIT，https://github.com/alchaincyf/huashu-flash），未修改。
 
@@ -19,15 +19,22 @@ D:\Python3.12.10\python.exe -m pip install playwright
 D:\Python3.12.10\python.exe -m playwright install chromium
 ```
 
-登录页基线：
+> 2026-10-28 已在本机验证：Playwright 1.64.1 + Chromium 156。官方源下载慢时用清华镜像：
+> `pip install -i https://pypi.tuna.tsinghua.edu.cn/simple playwright`；
+> 浏览器走 npmmirror：
+> `$env:PLAYWRIGHT_BROWSERS_PATH='C:\Users\TENGHUI\Library\Caches\ms-playwright'; $env:PLAYWRIGHT_DOWNLOAD_HOST='https://cdn.npmmirror.com/binaries/playwright'; python -m playwright install chromium`
+
+登录页基线（生产构建 preview，2026-10-28）：
 
 ```powershell
 D:\Python3.12.10\python.exe perf\bench\bench.py `
-  --url http://127.0.0.1:5173/login `
+  --url http://127.0.0.1:4173/login `
   --ready "document.querySelector('input[autocomplete=\"username\"]')?.offsetParent !== null" `
   --type-check "input[autocomplete=\"username\"]" `
   --runs 10 --profile fast4g --out perf\bench\login-base.json
 ```
+
+结果：10/10 成功，能用 p50/p75/p95 = **123.5 / 127.8 / 131.1 ms**；原始数据 `perf/bench/login-base.json`，上限 `perf/bench/timing-ceilings.json`（本机基线，未接入 CI）。
 
 诊断台基线需要先登录并写入 `localStorage.satoken`，或用真实账号在脚本外完成登录；判定表达式用：
 
@@ -47,8 +54,11 @@ D:\Python3.12.10\python.exe perf\bench\bench.py `
 
 ```powershell
 D:\Python3.12.10\python.exe perf\bench\ratchet.py init `
-  --result perf\bench\login-base.json --ceilings perf\bench\timing-ceilings.json
+  --result perf\bench\login-base.json --ceilings perf\bench\timing-ceilings.json `
+  --label "login-4173"
 ```
+
+> 已执行，当前上限 `login-4173::ready_p75 = 127.8`。
 
 ## 3. 口径
 
