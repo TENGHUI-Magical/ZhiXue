@@ -3,7 +3,7 @@
     <button type="button" class="theme-trigger" :aria-label="`切换主题，当前 ${current.label}`">
       <span class="swatch" aria-hidden="true" :style="{ background: current.accent }" />
       <span class="label">{{ current.label }}</span>
-      <span class="caret" aria-hidden="true">▾</span>
+      <ChevronDown class="caret" :size="14" aria-hidden="true" />
     </button>
     <template #dropdown>
       <el-dropdown-menu class="theme-menu">
@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ChevronDown } from "@lucide/vue";
 import { applyTheme, getStoredTheme, THEMES, type ThemeKey } from "../composables/useTheme";
 
 const active = ref<ThemeKey>(getStoredTheme());
@@ -63,7 +64,7 @@ const select = (key: ThemeKey) => {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-border) 70%, transparent);
 }
 .caret {
-  font-size: 10px;
+  flex: none;
   opacity: 0.7;
 }
 .theme-menu :deep(.el-dropdown-menu__item) {

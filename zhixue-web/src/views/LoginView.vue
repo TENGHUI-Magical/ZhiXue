@@ -27,7 +27,6 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
 import { api } from "../api/request";
 
 /** openapi LoginResult：token + userId + username + role 平铺 */

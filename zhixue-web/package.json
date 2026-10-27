@@ -6,11 +6,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node perf/bench/bundle-budget.mjs",
+    "perf:bundle": "node perf/bench/bundle-budget.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
     "@antv/g6": "^5.0.0",
+    "@element-plus/icons-vue": "^2.3.2",
+    "@lucide/vue": "^1.62.0",
     "axios": "^1.7.2",
     "echarts": "^5.5.0",
     "element-plus": "^2.7.5",
@@ -21,6 +24,8 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",
     "typescript": "~5.4.5",
+    "unplugin-auto-import": "^0.18.6",
+    "unplugin-vue-components": "^0.27.5",
     "vite": "^5.2.11",
     "vue-tsc": "^2.0.19"
   }

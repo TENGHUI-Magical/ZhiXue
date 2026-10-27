@@ -22,6 +22,7 @@
             :show-file-list="false"
             :http-request="handleUpload"
           >
+            <UploadIcon class="upload-icon" />
             <div class="upload-title">拖拽错题图片，或点击上传</div>
             <div class="upload-sub">JPG/PNG，≤5MB；识别失败可直接手动输入</div>
           </el-upload>
@@ -144,8 +145,8 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
 import type { UploadRequestOptions } from "element-plus";
+import { Upload as UploadIcon } from "@element-plus/icons-vue";
 import {
   DEFAULT_COURSE_ID,
   LOW_CONFIDENCE_THRESHOLD,
@@ -489,6 +490,12 @@ onBeforeUnmount(() => {
 .upload-title {
   font-size: 13px;
   color: var(--app-text);
+}
+.upload-icon {
+  display: block;
+  margin: 0 auto 8px;
+  font-size: 28px;
+  color: var(--app-text-muted);
 }
 .upload-sub {
   margin-top: 4px;

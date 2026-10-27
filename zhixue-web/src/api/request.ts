@@ -2,7 +2,6 @@
 // 约定：响应体恒为 {code, message, data, timestamp}；成功由 unwrap 取 data，失败抛 ApiError 并携带业务 code。
 import axios from 'axios'
 import type { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios'
-import { ElMessage } from 'element-plus'
 
 /** 契约 1.1 统一响应包装 */
 export interface ApiResponse<T = unknown> {

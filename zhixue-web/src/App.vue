@@ -6,6 +6,7 @@
       <div class="logo">智学领航</div>
       <el-menu :default-active="$route.path" router class="menu">
         <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
+          <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
           {{ item.label }}
         </el-menu-item>
       </el-menu>
@@ -21,7 +22,9 @@
             aria-label="打开导航菜单"
             @click="navOpen = true"
           >
-            <span class="nav-icon" aria-hidden="true">☰</span>
+            <span class="nav-icon" aria-hidden="true">
+              <Menu :size="20" />
+            </span>
           </el-button>
           <span class="title">{{ $route.meta.title }}</span>
         </span>
@@ -44,6 +47,7 @@
         @select="navOpen = false"
       >
         <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
+          <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
           {{ item.label }}
         </el-menu-item>
       </el-menu>
@@ -54,6 +58,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { BookOpen, CalendarCheck, Menu, Network, Radar, Stethoscope } from "@lucide/vue";
 import { api } from "./api/request";
 
 const router = useRouter();
@@ -63,11 +68,11 @@ const userName = ref("未登录");
 const navOpen = ref(false);
 
 const menus = [
-  { path: "/diagnosis", label: "错题诊断工作台" },
-  { path: "/error-book", label: "我的错题本" },
-  { path: "/portrait", label: "学情画像看板" },
-  { path: "/plan", label: "周计划与打卡" },
-  { path: "/knowledge-graph", label: "课程知识图谱" }
+  { path: "/diagnosis", label: "错题诊断工作台", icon: Stethoscope },
+  { path: "/error-book", label: "我的错题本", icon: BookOpen },
+  { path: "/portrait", label: "学情画像看板", icon: Radar },
+  { path: "/plan", label: "周计划与打卡", icon: CalendarCheck },
+  { path: "/knowledge-graph", label: "课程知识图谱", icon: Network }
 ];
 
 interface MeUser {
@@ -138,6 +143,10 @@ const logout = async () => {
 .menu {
   border-right: none;
 }
+.menu-icon {
+  margin-right: 8px;
+  flex: none;
+}
 .header {
   display: flex;
   align-items: center;
@@ -162,7 +171,9 @@ const logout = async () => {
   flex-shrink: 0;
 }
 .nav-icon {
-  font-size: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
 .user {
