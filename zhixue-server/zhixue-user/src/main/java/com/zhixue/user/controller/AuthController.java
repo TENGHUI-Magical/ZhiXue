@@ -4,6 +4,7 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.common.api.ApiResponse;
 import com.zhixue.user.entity.SysUser;
 import com.zhixue.user.service.AuthService;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -35,11 +36,13 @@ public class AuthController {
     }
 
     /** 契约 openapi LoginResult：token + userId + username + role 平铺 */
-    public record LoginResponse(String token, Long userId, String username, String role) {
+    public record LoginResponse(String token, Long userId, String username,
+                                @Schema(allowableValues = {"STUDENT", "TEACHER"}) String role) {
     }
 
     /** 契约 openapi UserInfo（/api/auth/me） */
-    public record LoginUser(Long userId, String username, String realName, String role) {
+    public record LoginUser(Long userId, String username, String realName,
+                            @Schema(allowableValues = {"STUDENT", "TEACHER"}) String role) {
     }
 
     @PostMapping("/login")

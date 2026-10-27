@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.Map;
 
 /**
@@ -14,6 +16,8 @@ import java.util.Map;
  * @param errorCode    失败错误码（整数），如 60002
  * @param errorMessage 失败原因
  */
-public record OcrTaskView(String taskId, String status, String ocrText, Double confidence,
+public record OcrTaskView(String taskId,
+                          @Schema(allowableValues = {"PENDING", "RUNNING", "SUCCESS", "FAILED"})
+                          String status, String ocrText, Double confidence,
                           Map<String, Object> fields, Integer errorCode, String errorMessage) {
 }

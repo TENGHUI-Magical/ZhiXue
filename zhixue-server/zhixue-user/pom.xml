@@ -26,6 +26,11 @@
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
         </dependency>
+        <!-- 契约字段注解：登录/我 的 role 枚举与 openapi 对齐 -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+        </dependency>
         <!-- BCrypt 校验（仅密码哈希库，不引入 Spring Security 框架） -->
         <dependency>
             <groupId>at.favre.lib</groupId>

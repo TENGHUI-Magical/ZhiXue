@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.math.BigDecimal;
 
 /**
@@ -25,5 +27,6 @@ import java.math.BigDecimal;
 public record ErrorRecordView(String logId, Long userId, String qId, String kpId, String kpName,
                               String imageUrl, String ocrText, String correctedText,
                               BigDecimal ocrConfidence, String errorType, String studentNote,
-                              String status, String confirmedAt, String createdAt) {
+                              @Schema(allowableValues = {"DRAFT", "CONFIRMED"}) String status,
+                              String confirmedAt, String createdAt) {
 }

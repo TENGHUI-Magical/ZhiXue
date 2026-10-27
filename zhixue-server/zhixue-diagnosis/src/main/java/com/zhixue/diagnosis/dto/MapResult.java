@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -10,6 +12,7 @@ import java.util.List;
  * @param candidates 按分数倒序的候选列表
  * @param degraded   是否发生降级
  */
-public record MapResult(String decision, MapCandidate top1, List<MapCandidate> candidates,
+public record MapResult(@Schema(allowableValues = {"AUTO", "CONFIRM", "FAILED"}) String decision,
+                        MapCandidate top1, List<MapCandidate> candidates,
                         boolean degraded) {
 }
