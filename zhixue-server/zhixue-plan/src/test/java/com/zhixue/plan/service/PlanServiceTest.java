@@ -9,6 +9,7 @@ import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.service.PracticeService;
 import com.zhixue.plan.dto.CheckinRequest;
+import com.zhixue.plan.dto.PlanView;
 import com.zhixue.plan.entity.StudyPlan;
 import com.zhixue.plan.entity.StudyPlanItem;
 import com.zhixue.plan.mapper.StudyPlanItemMapper;
@@ -22,6 +23,8 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -97,6 +100,27 @@ class PlanServiceTest {
             BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
                     () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-1", null)));
             assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+        }
+    }
+
+    @Test
+    void pastPendingPlanIsDerivedOverdue() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        LocalDate yesterday = LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(1);
+        plan.setPlanDate(yesterday);
+        plan.setPlanCount(3);
+        plan.setDoneCount(1);
+        plan.setStatus("PENDING");
+        when(planMapper.selectList(any())).thenReturn(List.of(plan));
+        when(itemMapper.selectList(any())).thenReturn(List.of());
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            List<PlanView> views = service.list(yesterday, yesterday);
+            assertEquals(1, views.size());
+            assertEquals("OVERDUE", views.get(0).status());
         }
     }
 }

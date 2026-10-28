@@ -126,8 +126,14 @@ public class PlanService {
                 .thenComparing(KnowledgePoint::getKpId));
         Map<String, List<QuestionView>> questionsByKp = new LinkedHashMap<>();
         for (KnowledgePoint kp : orderedKps) {
-            questionsByKp.put(kp.getKpId(),
-                    questionBankService.listByKp(course.getCourseId(), kp.getKpId()));
+            questionsByKp.put(kp.getKpId(), new ArrayList<>());
+        }
+        // 一次取回后按知识点分组，避免每个知识点再查一次库（N+1）
+        for (QuestionView question : allQuestions) {
+            if (question.primaryKpId() != null) {
+                questionsByKp.computeIfAbsent(question.primaryKpId(), key -> new ArrayList<>())
+                        .add(question);
+            }
         }
 
         LocalDate weekEnd = weekStart.plusDays(6);
@@ -242,17 +248,8 @@ public class PlanService {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
 
-        long done = itemMapper.selectCount(new LambdaQueryWrapper<StudyPlanItem>()
-                .eq(StudyPlanItem::getPlanId, planId)
-                .eq(StudyPlanItem::getIsDone, 1));
-        int doneCount = (int) done;
-        int planCount = plan.getPlanCount() == null ? 0 : plan.getPlanCount();
-        String status = doneCount >= planCount ? "DONE"
-                : ("OVERDUE".equals(plan.getStatus()) ? "OVERDUE" : "PENDING");
-        planMapper.update(null, new LambdaUpdateWrapper<StudyPlan>()
-                .eq(StudyPlan::getPlanId, planId)
-                .set(StudyPlan::getDoneCount, doneCount)
-                .set(StudyPlan::getStatus, status));
+        // 原子重算完成数与状态，避免并发打卡把 done_count 写小
+        planMapper.refreshProgress(planId);
     }
 
     private List<PlanView> toViews(List<StudyPlan> plans) {
@@ -289,8 +286,16 @@ public class PlanService {
                         item.getKpId(), item.getSortNo(),
                         item.getIsDone() != null && item.getIsDone() == 1))
                 .toList();
+        // 没有定时任务扫描过期计划：读取时派生 OVERDUE，避免前端“已逾期”成为死分支
+        String status = plan.getStatus();
+        int doneCount = plan.getDoneCount() == null ? 0 : plan.getDoneCount();
+        int planCount = plan.getPlanCount() == null ? 0 : plan.getPlanCount();
+        if ("PENDING".equals(status) && plan.getPlanDate() != null
+                && plan.getPlanDate().isBefore(LocalDate.now(ZONE)) && doneCount < planCount) {
+            status = "OVERDUE";
+        }
         return new PlanView(plan.getPlanId(), plan.getPlanDate(), plan.getPlanCount(),
-                plan.getDoneCount(), plan.getStatus(), itemViews);
+                plan.getDoneCount(), status, itemViews);
     }
 
     /**

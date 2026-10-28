@@ -6,6 +6,7 @@ import com.zhixue.plan.dto.PlanGenerateRequest;
 import com.zhixue.plan.dto.PlanView;
 import com.zhixue.plan.service.PlanService;
 import jakarta.validation.Valid;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,7 +43,12 @@ public class PlanController {
 
     @PostMapping("/generate")
     public ApiResponse<List<PlanView>> generate(@Valid @RequestBody PlanGenerateRequest request) {
-        return ApiResponse.ok(planService.generate(request));
+        try {
+            return ApiResponse.ok(planService.generate(request));
+        } catch (DuplicateKeyException e) {
+            // 并发双击：第一个事务已提交，重试会复用已存在日期，不再冒 50000
+            return ApiResponse.ok(planService.generate(request));
+        }
     }
 
     @PostMapping("/{planId}/checkin")
