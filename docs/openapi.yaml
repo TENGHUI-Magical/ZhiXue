@@ -822,9 +822,9 @@ components:
         correctedText: { type: string, nullable: true, maxLength: 3000 }
         ocrConfidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
         errorType:
-          type: string
+          type: [string, "null"]
           nullable: true
-          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
         studentNote: { type: string, nullable: true, maxLength: 500 }
     ErrorRecordResponse:
       allOf:
@@ -936,9 +936,9 @@ components:
         isCorrect: { type: boolean }
         myAnswer: { type: string, nullable: true }
         errorType:
-          type: string
+          type: [string, "null"]
           nullable: true
-          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
         costSeconds: { type: integer, nullable: true }
         source: { type: string, enum: [RECOMMEND, SELF], default: SELF }
         recommendationId: { type: integer, format: int64, nullable: true, description: 来自推荐时传入，服务端置 is_adopted=1 }
