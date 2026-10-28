@@ -408,8 +408,10 @@ class IntegrationFlowTest {
     }
 
     /**
-     * IT-SSE-01：上游长时间静默时，Java 每 15 秒补一个 {@code : heartbeat} 注释帧，
+     * IT-SSE-01：上游慢速但存活（每 6 秒一段）时，Java 仍每 15 秒补一个 {@code : heartbeat} 注释帧，
      * 防止代理/浏览器把空闲连接当死连接掐掉（契约 5.2）。
+     * <p>
+     * 不要用「握手后完全不发字节」来测心跳：那会先撞上首字节 10 秒超时（IT-SSE-03 覆盖的场景）。
      */
     @Test
     void heartbeatCommentIsSentWhileUpstreamIsSilent() throws Exception {
@@ -435,8 +437,8 @@ class IntegrationFlowTest {
         long elapsedMs = (System.nanoTime() - begin) / 1_000_000;
 
         assertThat(seen.toString()).contains(":heartbeat");
-        // 心跳先于正文：读到心跳时上游仍在静默，不应已有 delta
-        assertThat(seen.toString()).doesNotContain("event:delta");
+        // 心跳先于收尾：读到心跳时上游尚未 done，证明确实是空闲期补帧而非流结束前的残留
+        assertThat(seen.toString()).doesNotContain("event:done");
         assertThat(elapsedMs).isGreaterThanOrEqualTo(14_000L);
         assertThat(elapsedMs).isLessThan(45_000L);
     }
@@ -1023,8 +1025,14 @@ class IntegrationFlowTest {
                 return;
             }
             if (requestBody.contains("\"kpId\":\"KPITHB\"")) {
-                pause(16_000);   // 让 Java 的 15 秒心跳先落地
-                write(output, "event: chunk\ndata: {\"content\":\"心跳之后到达的讲解。\"}\n\n");
+                // 每 6 秒吐一段：间隔小于首字节 10s 超时，流始终存活；
+                // 心跳在订阅后 15s 触发，因此第 3 段（18s）之前必须先看到 heartbeat。
+                write(output, "event: chunk\ndata: {\"content\":\"心跳场景第一段。\"}\n\n");
+                pause(6_000);
+                write(output, "event: chunk\ndata: {\"content\":\"心跳场景第二段。\"}\n\n");
+                pause(6_000);
+                write(output, "event: chunk\ndata: {\"content\":\"心跳场景第三段。\"}\n\n");
+                pause(6_000);
                 write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
                         + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\"}\n\n");
                 return;
