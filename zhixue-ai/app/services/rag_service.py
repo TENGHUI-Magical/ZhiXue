@@ -120,6 +120,24 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         "name": req.kpName or req.kpId,
         "ref": f"《数据库系统概论（第6版）》{req.textbookPage or '页码待确认'}",
     }]
+    # 索引有内容时用检索命中的多来源增强；索引为空/失败时保持原有单来源，不影响降级链
+    try:
+        from app.services import vector_index
+        hits = vector_index.retrieve(
+            req.questionText or req.conceptText,
+            top_k=settings.rag_top_k,
+            threshold=settings.rag_score_threshold,
+            kp_id=req.kpId,
+            course_id=req.courseId,
+        )
+        if hits:
+            sources = [{
+                "kpId": hit.chunk.kp_id,
+                "name": hit.chunk.kp_name or hit.chunk.kp_id,
+                "ref": f"《数据库系统概论（第6版）》{hit.chunk.ref or '页码待确认'}",
+            } for hit in hits]
+    except Exception as exc:  # 检索是增强项，不允许中断讲解
+        logger.warning("RAG 检索增强失败，保持单来源：%s", exc)
     blocked, block_tip = compliance_check(req.questionText or "")
 
     yield _sse("meta", {"traceId": trace_id, "sources": sources})

@@ -89,7 +89,10 @@
             :key="node.id"
             :type="weakIds.has(node.id ?? '') ? 'danger' : 'info'"
             class="node-tag"
+            tabindex="0"
             @click="openNode(node.id)"
+            @keydown.enter.prevent="openNode(node.id)"
+            @keydown.space.prevent="openNode(node.id)"
           >
             {{ node.id }} {{ node.name }}
           </el-tag>

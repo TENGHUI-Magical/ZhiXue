@@ -49,9 +49,12 @@ class RagExplainRequest(BaseModel):
 
 class RagRetrieveRequest(BaseModel):
     """检索请求（内部接口，供 Java 诊断模块调用）。"""
-    logId: str = Field(description="错题记录 EL_xxx")
+    logId: Optional[str] = Field(default=None, description="错题记录 EL_xxx；可只作追踪，不参与检索")
     kpId: Optional[str] = None
+    text: Optional[str] = Field(default=None, description="检索 query；为空时返回空 sources，由 Java 映射 60003")
+    courseId: Optional[int] = None
     topK: int = Field(default=5, ge=3, le=8, description="检索切片数，算法文档默认 5")
+    threshold: Optional[float] = Field(default=None, ge=0, le=1, description="相似度阈值，缺省 0.35")
 
 
 class RagSource(BaseModel):
@@ -64,6 +67,22 @@ class RagSource(BaseModel):
 
 class RagRetrieveResponse(BaseModel):
     sources: list[RagSource]
+
+
+class RagEmbedRequest(BaseModel):
+    """切片入索引：教师/脚本显式传入文本，不在此做 PDF/PPT 解析。"""
+    kpId: str = Field(description="知识点编号，如 KP0201")
+    text: str = Field(description="要切片入库的原始文本（concept_text 或教师资料）")
+    kpName: str = ""
+    courseId: Optional[int] = None
+    chapterId: Optional[int] = None
+    ref: str = Field(default="", description="教材页码/讲义章节")
+
+
+class RagEmbedResponse(BaseModel):
+    kpId: str
+    chunks: int
+    mode: str
 
 
 # ===== /api/llm =====

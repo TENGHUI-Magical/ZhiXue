@@ -1,0 +1,425 @@
+<template>
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <h2>教师评阅</h2>
+        <p class="sub">抽评 AI 讲解，1—5 分；同一讲解只能评一次，重复提交会被拦截。</p>
+      </div>
+    </div>
+
+    <div class="stat-row">
+      <el-card class="stat-card" shadow="never">
+        <div class="stat-label">待评阅</div>
+        <div class="stat-value">{{ total }}</div>
+      </el-card>
+      <el-card class="stat-card" shadow="never">
+        <div class="stat-label">本页记录</div>
+        <div class="stat-value">{{ records.length }}</div>
+      </el-card>
+      <el-card class="stat-card" shadow="never">
+        <div class="stat-label">评分标准</div>
+        <div class="stat-value small">1—5 分</div>
+      </el-card>
+    </div>
+
+    <PageState
+      :loading="loading"
+      :error="error"
+      :empty="!loading && !error && records.length === 0"
+      empty-text="当前没有待评阅的讲解；学生生成讲解后会进入队列"
+      @retry="load"
+    >
+      <template #empty-action>
+        <el-button type="primary" plain @click="load">刷新队列</el-button>
+      </template>
+
+      <el-card class="table-card desktop-only">
+        <el-table :data="records" row-key="logPk" stripe>
+          <el-table-column label="学生" width="100" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.userName || "—" }}</template>
+          </el-table-column>
+          <el-table-column label="知识点" width="130" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.kpId || "—" }}</template>
+          </el-table-column>
+          <el-table-column label="错因" width="100">
+            <template #default="{ row }">
+              <el-tag v-if="row.errorType" size="small" type="warning">
+                {{ errorTypeLabel(row.errorType) }}
+              </el-tag>
+              <span v-else>—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="模型 / 状态" width="130">
+            <template #default="{ row }">
+              <span class="model">{{ row.model || "—" }}</span>
+              <el-tag v-if="row.degraded" size="small" type="warning">降级</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="讲解摘要" min-width="220" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.content || "（空）" }}</template>
+          </el-table-column>
+          <el-table-column prop="createdAt" label="生成时间" width="150" show-overflow-tooltip />
+          <el-table-column label="操作" width="80" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openReview(row as ReviewItem)">评阅</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="pager">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            @current-change="load"
+            @size-change="handleSizeChange"
+          />
+        </div>
+      </el-card>
+
+      <div class="mobile-only mobile-list">
+        <el-card v-for="row in records" :key="row.logPk" class="mobile-card" shadow="never">
+          <div class="mobile-head">
+            <strong>{{ row.userName || "学生" }} · {{ row.kpId || "—" }}</strong>
+            <el-tag v-if="row.degraded" size="small" type="warning">降级</el-tag>
+          </div>
+          <div class="mobile-meta">
+            {{ errorTypeLabel(row.errorType || "") }} · {{ row.model || "—" }} · {{ row.createdAt }}
+          </div>
+          <div class="mobile-content">{{ row.content || "（空讲解）" }}</div>
+          <div class="mobile-foot">
+            <span class="sources">{{ sourceText(row) }}</span>
+            <el-button type="primary" size="small" @click="openReview(row as ReviewItem)">评阅</el-button>
+          </div>
+        </el-card>
+        <div class="pager">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            layout="total, prev, pager, next"
+            @current-change="load"
+            @size-change="handleSizeChange"
+          />
+        </div>
+      </div>
+    </PageState>
+
+    <el-drawer v-model="drawerVisible" title="评阅讲解" size="520px" class="review-drawer" @closed="resetForm">
+      <template v-if="selected">
+        <div class="review-meta">
+          <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
+          <el-tag size="small" type="info">{{ selected.kpId || "—" }}</el-tag>
+          <el-tag v-if="selected.degraded" size="small" type="warning">降级</el-tag>
+          <span class="review-time">{{ selected.createdAt }}</span>
+        </div>
+        <div class="review-content">{{ selected.content || "（空讲解）" }}</div>
+        <div v-if="selected.sources?.length" class="review-sources">
+          <div class="label">引用来源</div>
+          <div v-for="source in selected.sources" :key="source.kpId">
+            {{ source.kpId }} · {{ source.title || source.kpId }} · {{ source.textbookPage || "页码待确认" }}
+          </div>
+        </div>
+
+        <div class="section-label">评分</div>
+        <div class="score-row" role="radiogroup" aria-label="评分 1 到 5 分">
+          <button
+            v-for="n in 5"
+            :key="n"
+            type="button"
+            class="score-pill"
+            :class="{ active: score === n }"
+            role="radio"
+            :aria-checked="score === n"
+            @click="score = n"
+          >
+            {{ n }}
+          </button>
+        </div>
+        <el-input
+          v-model="comment"
+          type="textarea"
+          :rows="4"
+          maxlength="500"
+          show-word-limit
+          placeholder="写下评语：讲解是否准确、是否贴合错因、下一步建议"
+        />
+        <div class="drawer-actions">
+          <el-button @click="drawerVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">
+            提交评阅
+          </el-button>
+        </div>
+      </template>
+    </el-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from "vue";
+import { ElMessage } from "element-plus";
+import PageState from "../components/PageState.vue";
+import { listReviews, submitReview, type ReviewItem } from "../api/review";
+import { ApiError } from "../api/request";
+
+const records = ref<ReviewItem[]>([]);
+const total = ref(0);
+const page = ref(1);
+const size = ref(10);
+const loading = ref(false);
+const error = ref("");
+const drawerVisible = ref(false);
+const selected = ref<ReviewItem | null>(null);
+const score = ref<number | null>(null);
+const comment = ref("");
+const submitting = ref(false);
+
+const ERROR_LABELS: Record<string, string> = {
+  CONCEPT_CONFUSION: "概念混淆",
+  METHOD_MISSING: "方法缺失",
+  STEP_OMISSION: "步骤遗漏",
+  CALCULATION_ERROR: "计算失误",
+  BOUNDARY_ERROR: "边界条件"
+};
+
+const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? (value || "—");
+const canSubmit = computed(() => score.value != null && comment.value.trim().length > 0);
+const sourceText = (row: ReviewItem) =>
+  (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
+
+const load = async () => {
+  loading.value = true;
+  error.value = "";
+  try {
+    const data = await listReviews({ page: page.value, size: size.value });
+    records.value = data.records ?? [];
+    total.value = data.total ?? 0;
+  } catch (e) {
+    error.value = (e as Error).message || "评阅队列加载失败";
+  } finally {
+    loading.value = false;
+  }
+};
+
+const handleSizeChange = () => {
+  page.value = 1;
+  load();
+};
+
+const openReview = (row: ReviewItem) => {
+  selected.value = row;
+  score.value = null;
+  comment.value = "";
+  drawerVisible.value = true;
+};
+
+const resetForm = () => {
+  selected.value = null;
+  score.value = null;
+  comment.value = "";
+};
+
+const submit = async () => {
+  if (!selected.value?.logPk || !canSubmit.value) return;
+  submitting.value = true;
+  try {
+    await submitReview(selected.value.logPk, {
+      score: score.value as number,
+      comment: comment.value.trim()
+    });
+    ElMessage.success("评阅已提交");
+    drawerVisible.value = false;
+    await load();
+  } catch (e) {
+    if (e instanceof ApiError && e.code === 40900) {
+      ElMessage.warning("这条讲解已经评阅过了");
+      drawerVisible.value = false;
+      await load();
+    } else {
+      ElMessage.error((e as Error).message || "提交失败");
+    }
+  } finally {
+    submitting.value = false;
+  }
+};
+
+onMounted(load);
+</script>
+
+<style scoped>
+.page {
+  max-width: 1240px;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.stat-card {
+  text-align: left;
+}
+.stat-label {
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+.stat-value {
+  margin-top: 6px;
+  color: var(--app-text);
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stat-value.small {
+  font-size: 20px;
+}
+.table-card {
+  overflow: hidden;
+}
+.model {
+  margin-right: 6px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 14px;
+}
+.mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mobile-card {
+  width: 100%;
+}
+.mobile-head,
+.mobile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.mobile-meta {
+  margin-top: 6px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+}
+.mobile-content {
+  margin: 10px 0;
+  line-height: 1.6;
+  color: var(--app-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sources {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-time {
+  color: var(--app-text-muted);
+  font-size: 12px;
+  margin-left: auto;
+}
+.review-content {
+  margin: 14px 0;
+  line-height: 1.75;
+  color: var(--app-text);
+  white-space: pre-wrap;
+  background: var(--app-surface-muted);
+  border-radius: var(--app-radius-md);
+  padding: 14px;
+}
+.review-sources {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.review-sources .label {
+  color: var(--app-text-muted);
+  margin-bottom: 4px;
+}
+.section-label {
+  margin: 16px 0 8px;
+  color: var(--app-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.score-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.score-pill {
+  width: 44px;
+  height: 40px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    color var(--app-dur-fast) var(--app-ease-standard);
+}
+.score-pill:hover {
+  border-color: var(--app-primary);
+  color: var(--app-primary);
+}
+.score-pill.active {
+  background: var(--app-primary);
+  border-color: var(--app-primary);
+  color: var(--app-accent-contrast);
+}
+.score-pill:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.drawer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.desktop-only {
+  display: block;
+}
+.mobile-only {
+  display: none;
+}
+:deep(.el-drawer) {
+  max-width: 92vw;
+}
+@media (max-width: 1024px) {
+  .stat-row {
+    grid-template-columns: 1fr;
+  }
+  .desktop-only {
+    display: none;
+  }
+  .mobile-only {
+    display: flex;
+  }
+}
+@media (max-width: 768px) {
+  :deep(.el-drawer) {
+    width: 92vw !important;
+  }
+}
+</style>

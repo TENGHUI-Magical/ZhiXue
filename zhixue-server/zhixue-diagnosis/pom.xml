@@ -24,6 +24,12 @@
             <artifactId>zhixue-course</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 教师评阅队列补 userName：只经 user 的 Service，不直接查 sys_user -->
+        <dependency>
+            <groupId>com.zhixue</groupId>
+            <artifactId>zhixue-user</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>

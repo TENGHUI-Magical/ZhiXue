@@ -112,8 +112,12 @@
             <el-empty
               v-else
               description="样本不足：每个知识点至少 3 次练习才会进入薄弱点排名"
-              :image-size="72"
-            />
+              :image-size="56"
+            >
+              <el-button link type="primary" @click="router.push('/diagnosis')">
+                去完成一次练习
+              </el-button>
+            </el-empty>
           </el-card>
 
           <el-card header="错因分布（5 类标准错因）" class="mt16">

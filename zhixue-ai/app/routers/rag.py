@@ -4,11 +4,13 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
-from app.schemas import RagExplainRequest, RagRetrieveRequest, RagRetrieveResponse
-from app.services import rag_service
+from app.schemas import (RagEmbedRequest, RagEmbedResponse, RagExplainRequest, RagRetrieveRequest,
+                         RagRetrieveResponse, RagSource)
+from app.services import rag_service, vector_index
 
 router = APIRouter()
 
@@ -25,16 +27,33 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
 
 @router.post("/retrieve", response_model=RagRetrieveResponse)
 async def retrieve(req: RagRetrieveRequest):
-    """检索知识点切片（内部接口，供 Java 诊断模块调用）。"""
-    # TODO(P1)：numpy VectorIndex 检索 topK → 低于阈值时 Java 侧映射 60003
-    # 未实现前显式返回 501，避免调用方把空结果当成"检索无匹配"（评审 C10）
-    _ = req
-    raise HTTPException(status_code=501, detail="RAG 检索尚未实现（P1）")
+    """检索知识点切片（内部接口）：topK=5、阈值 0.35；无命中返回空 sources。"""
+    query = (req.text or "").strip()
+    if not query:
+        return RagRetrieveResponse(sources=[])
+    hits = await run_in_threadpool(
+        vector_index.retrieve, query, req.topK, req.threshold, req.kpId, req.courseId
+    )
+    sources = [
+        RagSource(
+            kpId=hit.chunk.kp_id,
+            name=hit.chunk.kp_name or hit.chunk.kp_id,
+            ref=f"《数据库系统概论（第6版）》{hit.chunk.ref or '页码待确认'}",
+            content=hit.chunk.content,
+            score=hit.score,
+        )
+        for hit in hits
+    ]
+    return RagRetrieveResponse(sources=sources)
 
 
-@router.post("/embed")
-async def embed_document(kp_id: str = Query(..., alias="kpId", description="知识点编号，如 KP0201")):
-    """教师端上传课程资料 → 切片(300-500字) → 向量化入库的触发桩。"""
-    # TODO(P1 任务 60)：PPT/PDF 解析切片 → bge-small-zh-v1.5 Embedding → VectorIndex 持久化
-    _ = kp_id
-    raise HTTPException(status_code=501, detail="向量化入库尚未实现（P1）")
+@router.post("/embed", response_model=RagEmbedResponse)
+async def embed_document(req: RagEmbedRequest):
+    """按 kpId 将文本切片（300—500 字、重叠 50）并写入 numpy 向量索引。"""
+    if not req.text.strip():
+        return RagEmbedResponse(kpId=req.kpId, chunks=0, mode="empty")
+    count, mode = await run_in_threadpool(
+        vector_index.embed_document, req.kpId, req.text, req.kpName,
+        req.courseId, req.chapterId, req.ref,
+    )
+    return RagEmbedResponse(kpId=req.kpId, chunks=count, mode=mode)

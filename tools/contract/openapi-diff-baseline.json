@@ -6,16 +6,6 @@
   "captureCommit": "dfa0d5b",
   "missingEndpoints": [
     {
-      "method": "get",
-      "path": "/api/teacher/reviews",
-      "reason": "功能缺口；P5 评阅队列"
-    },
-    {
-      "method": "post",
-      "path": "/api/teacher/reviews/{logPk}",
-      "reason": "功能缺口；P5 提交评阅"
-    },
-    {
       "method": "post",
       "path": "/api/teacher/knowledge-points",
       "reason": "功能缺口；P5 新建知识点"

@@ -43,9 +43,24 @@ const router = createRouter({
       name: 'knowledge-graph',
       component: () => import('../views/KnowledgeGraph.vue'),
       meta: { title: '课程知识图谱' }
+    },
+    {
+      path: '/teacher/reviews',
+      name: 'teacher-reviews',
+      component: () => import('../views/TeacherReviews.vue'),
+      meta: { title: '教师评阅', roles: ['TEACHER'] }
     }
   ]
 })
+
+const currentRole = () => {
+  try {
+    const raw = localStorage.getItem('zhixue_user')
+    return raw ? (JSON.parse(raw) as { role?: string }).role ?? '' : ''
+  } catch {
+    return ''
+  }
+}
 
 router.beforeEach((to) => {
   const token = localStorage.getItem('satoken')
@@ -53,6 +68,9 @@ router.beforeEach((to) => {
     return '/login'
   }
   if (to.path === '/login' && token) {
+    return currentRole() === 'TEACHER' ? '/teacher/reviews' : '/diagnosis'
+  }
+  if (to.meta.roles && !to.meta.roles.includes(currentRole())) {
     return '/diagnosis'
   }
   return true

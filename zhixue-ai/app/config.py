@@ -10,6 +10,13 @@ class Settings(BaseSettings):
 
     # 向量索引目录（numpy + VectorIndex，200 条规模；不引入 Chroma/Milvus）
     vector_index_dir: str = "./data/vector_index"
+    # RAG 检索参数（docs/05 §0：集中配置，禁止散落硬编码）
+    rag_top_k: int = 5
+    rag_score_threshold: float = 0.35
+    rag_chunk_size: int = 450
+    rag_chunk_overlap: int = 50
+    rag_hybrid_vector: float = 0.7
+    rag_embed_model: str = "BAAI/bge-small-zh-v1.5"
 
     # 大模型（模型名配置驱动：改模型只改 .env，不改业务代码）
     llm_model_main: str = "deepseek-chat"

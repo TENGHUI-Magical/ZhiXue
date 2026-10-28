@@ -1,6 +1,13 @@
 <template>
   <div class="login-page">
-    <el-card class="login-card" header="智学领航 · 登录">
+    <el-card class="login-card">
+      <div class="login-brand">
+        <span class="brand-mark" aria-hidden="true">智</span>
+        <div>
+          <strong>智学领航</strong>
+          <span>数据库课程学情诊断</span>
+        </div>
+      </div>
       <el-form label-position="top" @submit.prevent="submit">
         <el-form-item label="账号（学号 / 工号）">
           <el-input v-model="username" autocomplete="username" placeholder="请输入账号" />
@@ -19,7 +26,7 @@
           登录
         </el-button>
       </el-form>
-      <div class="login-hint">本地开发种子账号见 zhixue-server/README.md</div>
+      <div v-if="isDev" class="login-hint">本地开发种子账号见 zhixue-server/README.md</div>
     </el-card>
   </div>
 </template>
@@ -49,6 +56,7 @@ const router = useRouter();
 const username = ref("");
 const password = ref("");
 const loading = ref(false);
+const isDev = import.meta.env.DEV;
 
 const submit = async () => {
   if (!username.value || !password.value) {
@@ -78,7 +86,7 @@ const submit = async () => {
         })
       );
     }
-    await router.replace("/diagnosis");
+    await router.replace(data.role === "TEACHER" ? "/teacher/reviews" : "/diagnosis");
   } finally {
     loading.value = false;
   }
@@ -91,18 +99,57 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 55%, #ecfeff 100%);
+  padding: 24px;
+  background:
+    radial-gradient(520px 280px at 12% 8%, color-mix(in srgb, var(--app-primary) 13%, transparent), transparent 65%),
+    radial-gradient(460px 280px at 92% 92%, color-mix(in srgb, var(--app-success) 9%, transparent), transparent 65%),
+    var(--app-bg);
 }
 .login-card {
   width: min(420px, calc(100vw - 32px));
+  border-radius: var(--app-radius-xl);
+  box-shadow: var(--app-shadow-lg);
+}
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--app-accent-contrast);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--app-primary), var(--app-primary-strong));
+  box-shadow: var(--app-shadow-sm);
+}
+.login-brand strong {
+  display: block;
+  color: var(--app-text);
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.login-brand span {
+  display: block;
+  margin-top: 2px;
+  color: var(--app-text-muted);
+  font-size: 12px;
 }
 .login-btn {
   width: 100%;
+  height: 40px;
 }
 .login-hint {
-  margin-top: 12px;
+  margin-top: 14px;
   font-size: 12px;
-  color: #909399;
+  color: var(--app-text-muted);
   text-align: center;
 }
 </style>
