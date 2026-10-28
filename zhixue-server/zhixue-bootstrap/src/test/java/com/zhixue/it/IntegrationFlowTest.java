@@ -1,6 +1,7 @@
 package com.zhixue.it;
 
 import com.jayway.jsonpath.JsonPath;
+import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.zhixue.diagnosis.service.OcrService;
 import org.junit.jupiter.api.AfterAll;
@@ -132,6 +133,15 @@ class IntegrationFlowTest {
             insertTestKp(connection, chapterId, "KPITL3", "集成测试L3",
                     "用于触发上游 500 并验证 L3 本地模板降级的概念切片", "集成测试误区");
             insertTestKp(connection, chapterId, "KPITL4", "集成测试L4", null, null);
+            // 批次 3：降级链与 SSE 连接治理用例专用知识点（概念切片非空，避免落到 L4 60001）
+            insertTestKp(connection, chapterId, "KPITL2", "集成测试L2",
+                    "用于验证 Python 侧 L1 重试仍失败后降 L2（GLM）的透传与留痕", "集成测试误区");
+            insertTestKp(connection, chapterId, "KPITHB", "集成测试心跳",
+                    "用于验证上游长时间静默时 Java 侧 15 秒心跳注释帧仍然发送", "集成测试误区");
+            insertTestKp(connection, chapterId, "KPITSTALL", "集成测试首字节超时",
+                    "用于验证上游不发任何字节时 Java 侧首字节 10 秒超时并降 L3", "集成测试误区");
+            insertTestKp(connection, chapterId, "KPITDRIP", "集成测试断开取消",
+                    "用于验证客户端中途断开后仍写讲解留痕并取消上游订阅", "集成测试误区");
         }
     }
 
@@ -349,6 +359,14 @@ class IntegrationFlowTest {
         assertThat(AI_CALLS.get()).isZero();
     }
 
+    /**
+     * IT-DEG-02：zhixue-ai 整体不可用 → 直接落 L3 本地模板。
+     * <p>
+     * {@code AI_CALLS == 1} 是正确预期，不是“缺口固化”：Java 对 zhixue-ai 只发一次请求，
+     * L1 重试与 L2（GLM）都在 Python 内部完成（{@code zhixue-ai/app/services/rag_service.py}）。
+     * 整个 AI 服务不可达时 GLM 同样调不到，且架构铁律是“Java 不直连大模型”，
+     * 因此这里不该、也不能出现第二次调用。24 号文 §5.3 曾把这条断言判为缺口，属口径误判，见 25 号文更正。
+     */
     @Test
     void upstreamFailureFallsBackToL3() throws Exception {
         String token = login();
@@ -358,6 +376,161 @@ class IntegrationFlowTest {
         assertThat(body).contains("\"level\":\"L3\"", "event:delta", "event:done");
         assertThat(body).doesNotContain("\"code\":60001");
         assertThat(AI_CALLS.get()).isEqualTo(1);
+    }
+
+    /**
+     * IT-DEG-01：L1 重试仍失败后由 Python 降 L2（GLM），Java 必须原样透传降级级别并留痕。
+     * <p>
+     * 桩上游直接吐 {@code degraded L2} + chunk + done，等价于 zhixue-ai 在
+     * {@code rag_service.py} 里 L1 两次失败后走 GLM 分支的线上形态。
+     * 断言两点：前端能看到 {@code level=L2}（不是笼统的“降级了”），
+     * 且 {@code ai_generation_log} 记为 L2 + glm-4-flash，论文与评阅据此可追溯。
+     */
+    @Test
+    void l2DegradeIsRelayedAndPersisted() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-deg-l2", "KPITL2");
+
+        String sse = body(explain(token, logId, "KPITL2"));
+        assertThat(sse).contains("event:degraded", "\"level\":\"L2\"", "event:delta", "event:done");
+        assertThat(sse).doesNotContain("\"level\":\"L3\"");
+
+        String explainId = explainIdFromSse(sse);
+        awaitExplainLog(explainId, userIdOf("it_user"));
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT degrade_level, is_degraded, model, content_text FROM ai_generation_log "
+                        + "WHERE explain_id = ?", explainId);
+        assertThat(row.get("degrade_level")).isEqualTo("L2");
+        assertThat(((Number) row.get("is_degraded")).intValue()).isEqualTo(1);
+        assertThat(row.get("model")).isEqualTo("glm-4-flash");
+        assertThat(String.valueOf(row.get("content_text"))).contains("GLM 兜底讲解");
+    }
+
+    /**
+     * IT-SSE-01：上游长时间静默时，Java 每 15 秒补一个 {@code : heartbeat} 注释帧，
+     * 防止代理/浏览器把空闲连接当死连接掐掉（契约 5.2）。
+     */
+    @Test
+    void heartbeatCommentIsSentWhileUpstreamIsSilent() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-heartbeat", "KPITHB");
+
+        long begin = System.nanoTime();
+        HttpResponse<InputStream> response = HTTP.send(
+                explainRequest(token, logId, "KPITHB", 45),
+                HttpResponse.BodyHandlers.ofInputStream());
+        StringBuilder seen = new StringBuilder();
+        try (InputStream stream = response.body();
+             BufferedReader reader = new BufferedReader(
+                     new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                seen.append(line).append('\n');
+                if (line.startsWith(":heartbeat")) {
+                    break;
+                }
+            }
+        }
+        long elapsedMs = (System.nanoTime() - begin) / 1_000_000;
+
+        assertThat(seen.toString()).contains(":heartbeat");
+        // 心跳先于正文：读到心跳时上游仍在静默，不应已有 delta
+        assertThat(seen.toString()).doesNotContain("event:delta");
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(14_000L);
+        assertThat(elapsedMs).isLessThan(45_000L);
+    }
+
+    /**
+     * IT-SSE-02：学生关页面（客户端断开）后，已生成正文必须照常留痕，供教师评阅；
+     * 同时上游订阅要被取消，不能让模型空跑（契约 5.3）。
+     */
+    @Test
+    void clientDisconnectStillWritesLog() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-disconnect", "KPITDRIP");
+
+        HttpResponse<InputStream> response = HTTP.send(
+                explainRequest(token, logId, "KPITDRIP", 30),
+                HttpResponse.BodyHandlers.ofInputStream());
+        StringBuilder prefix = new StringBuilder();
+        try (InputStream stream = response.body();
+             BufferedReader reader = new BufferedReader(
+                     new InputStreamReader(stream, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                prefix.append(line).append('\n');
+                if (line.startsWith("event:delta")) {
+                    break;  // 拿到首段正文后立刻断开，模拟用户关闭页面
+                }
+            }
+        }
+        assertThat(prefix.toString()).contains("event:delta");
+
+        String explainId = explainIdFromSse(prefix.toString());
+        awaitExplainLog(explainId, userIdOf("it_user"));
+
+        String content = jdbcTemplate.queryForObject(
+                "SELECT content_text FROM ai_generation_log WHERE explain_id = ?",
+                String.class, explainId);
+        assertThat(content).contains("第一段讲解");
+    }
+
+    /**
+     * IT-SSE-03：上游握手成功但一个字节都不发 → Java 侧首字节 10 秒超时 → 降 L3 本地模板，
+     * 不能把连接挂到整体 60 秒。
+     */
+    @Test
+    void firstByteTimeoutFallsBackToL3() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-stall", "KPITSTALL");
+
+        long begin = System.nanoTime();
+        String sse = body(explain(token, logId, "KPITSTALL"));
+        long elapsedMs = (System.nanoTime() - begin) / 1_000_000;
+
+        assertThat(sse).contains("\"level\":\"L3\"", "event:delta", "event:done");
+        assertThat(elapsedMs).isGreaterThanOrEqualTo(10_000L);
+        assertThat(elapsedMs).isLessThan(40_000L);
+
+        String explainId = explainIdFromSse(sse);
+        awaitExplainLog(explainId, userIdOf("it_user"));
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT degrade_level FROM ai_generation_log WHERE explain_id = ?",
+                String.class, explainId)).isEqualTo("L3");
+    }
+
+    /**
+     * IT-FLOW-02：低置信度 OCR 结果（&lt; 0.75）必须由学生显式确认才能生成讲解。
+     * <p>
+     * 契约 2.2 的“强制人工确认”在前端提示，服务端的兜底是状态机：
+     * 从 OCR 结果建出来的记录只能是 DRAFT，DRAFT 调讲解必须被 40900 拦住；
+     * 确认后同一份记录才能正常讲解。
+     */
+    @Test
+    void lowConfidenceOcrRequiresManualConfirmBeforeExplain() throws Exception {
+        String token = login();
+        byte[] jpg = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xD9};
+        HttpResponse<String> accepted = upload(token, "oct-low", jpg);
+        assertThat(code(accepted)).isZero();
+        String taskId = JsonPath.read(body(accepted), "$.data.taskId");
+
+        Map<String, Object> task = awaitOcrTerminal(taskId, token);
+        assertThat(task.get("status")).isEqualTo("SUCCESS");
+        assertThat(((Number) task.get("confidence")).doubleValue()).isLessThan(0.75);
+        assertThat(String.valueOf(task.get("ocrText"))).contains("低置信度题干");
+
+        String draftId = JsonPath.read(body(postJson("/api/error/records", """
+                {"courseId":1,"clientToken":"ct-low-conf","kpId":"KP0201","errorType":"CONCEPT_CONFUSION",
+                 "ocrText":"低置信度题干：主键与外键的区别","ocrConfidence":0.62}
+                """, token)), "$.data.logId");
+
+        String rejected = body(explain(token, draftId));
+        assertThat(rejected).contains("\"code\":40900");
+        assertThat(rejected).doesNotContain("event:delta");
+
+        assertThat(code(confirm(token, draftId))).isZero();
+        assertThat(body(explain(token, draftId))).contains("event:delta", "event:done");
     }
 
     @Test
@@ -446,7 +619,7 @@ class IntegrationFlowTest {
     }
 
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
-        for (int i = 0; i < 50; i++) {
+        for (int i = 0; i < 100; i++) {
             Integer count = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM ai_generation_log WHERE explain_id = ? AND user_id = ?",
                     Integer.class, explainId, userId);
@@ -455,7 +628,51 @@ class IntegrationFlowTest {
             }
             Thread.sleep(100);
         }
-        throw new AssertionError("讲解留痕未在 5 秒内写入: " + explainId);
+        throw new AssertionError("讲解留痕未在 10 秒内写入: " + explainId);
+    }
+
+    private long userIdOf(String username) {
+        Long userId = jdbcTemplate.queryForObject(
+                "SELECT user_id FROM sys_user WHERE username = ?", Long.class, username);
+        assertThat(userId).isNotNull();
+        return userId;
+    }
+
+    /** 轮询 OCR 任务到终态（SUCCESS/FAILED），返回 data 段。 */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> awaitOcrTerminal(String taskId, String token) throws Exception {
+        for (int i = 0; i < 60; i++) {
+            HttpResponse<String> response = getJson("/api/error/tasks/" + taskId, token);
+            assertThat(code(response)).isZero();
+            Map<String, Object> data = JsonPath.read(body(response), "$.data");
+            Object status = data.get("status");
+            if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
+                return data;
+            }
+            Thread.sleep(200);
+        }
+        throw new AssertionError("OCR 任务未在 12 秒内到达终态: " + taskId);
+    }
+
+    /** SSE 请求构造：forceRefresh=true，跳过缓存，保证每次真的打到桩上游。 */
+    private HttpRequest explainRequest(String token, String logId, String kpId, int timeoutSeconds) {
+        String payload = """
+                {"logId":"%s","kpId":"%s","errorType":"CONCEPT_CONFUSION","questionText":"求闭包","forceRefresh":true}
+                """.formatted(logId, kpId);
+        return HttpRequest.newBuilder(uri("/api/diagnosis/explain"))
+                .timeout(Duration.ofSeconds(timeoutSeconds))
+                .header("Content-Type", "application/json")
+                .header("satoken", token)
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+    }
+
+    private static void pause(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test
@@ -768,27 +985,78 @@ class IntegrationFlowTest {
     private static HttpServer startAi() {
         try {
             HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-            server.createContext("/api/rag/explain", exchange -> {
-                AI_CALLS.incrementAndGet();
-                String requestBody = new String(exchange.getRequestBody().readAllBytes(),
-                        StandardCharsets.UTF_8);
-                if (requestBody.contains("\"kpId\":\"KPITL3\"")) {
-                    exchange.sendResponseHeaders(500, -1);
-                    return;
-                }
-                exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
-                exchange.sendResponseHeaders(200, 0);
-                try (OutputStream output = exchange.getResponseBody()) {
-                    write(output, "event: chunk\ndata: {\"content\":\"第一段讲解。\"}\n\n");
-                    write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
-                            + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\",\"tokens\":10,\"promptTokens\":5}\n\n");
-                }
-            });
-            server.setExecutor(null);
+            server.createContext("/api/rag/explain", IntegrationFlowTest::handleExplain);
+            server.createContext("/api/ocr/recognize", IntegrationFlowTest::handleOcr);
+            // 慢用例（心跳静默 16s、首字节静默 20s）会占住处理线程，必须多线程：
+            // 沿用单线程默认执行器会让后续用例排队到超时。
+            server.setExecutor(Executors.newCachedThreadPool(runnable -> {
+                Thread thread = new Thread(runnable, "stub-ai");
+                thread.setDaemon(true);
+                return thread;
+            }));
             server.start();
             return server;
         } catch (IOException e) {
             throw new IllegalStateException("启动桩 AI 服务失败", e);
+        }
+    }
+
+    /** 桩 /api/rag/explain：按 kpId 模拟 L2 降级、长静默、首字节超时、中途断流与正常返回。 */
+    private static void handleExplain(HttpExchange exchange) throws IOException {
+        AI_CALLS.incrementAndGet();
+        String requestBody = new String(exchange.getRequestBody().readAllBytes(),
+                StandardCharsets.UTF_8);
+        if (requestBody.contains("\"kpId\":\"KPITL3\"")) {
+            exchange.sendResponseHeaders(500, -1);
+            return;
+        }
+        exchange.getResponseHeaders().set("Content-Type", "text/event-stream; charset=utf-8");
+        exchange.sendResponseHeaders(200, 0);
+        try (OutputStream output = exchange.getResponseBody()) {
+            if (requestBody.contains("\"kpId\":\"KPITL2\"")) {
+                // 等价于 Python 侧 L1 两次失败后走 GLM 分支的线上形态
+                write(output, "event: degraded\ndata: {\"level\":\"L2\",\"reason\":\"L1 调用失败\"}\n\n");
+                write(output, "event: chunk\ndata: {\"content\":\"GLM 兜底讲解。\"}\n\n");
+                write(output, "event: done\ndata: {\"degraded\":true,\"blocked\":false,"
+                        + "\"modelUsed\":\"glm-4-flash\",\"promptVersion\":\"v1\","
+                        + "\"tokens\":8,\"promptTokens\":4}\n\n");
+                return;
+            }
+            if (requestBody.contains("\"kpId\":\"KPITHB\"")) {
+                pause(16_000);   // 让 Java 的 15 秒心跳先落地
+                write(output, "event: chunk\ndata: {\"content\":\"心跳之后到达的讲解。\"}\n\n");
+                write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
+                        + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\"}\n\n");
+                return;
+            }
+            if (requestBody.contains("\"kpId\":\"KPITSTALL\"")) {
+                pause(20_000);   // 握手后一个字节都不发：触发 Java 首字节 10s 超时
+                return;
+            }
+            if (requestBody.contains("\"kpId\":\"KPITDRIP\"")) {
+                write(output, "event: chunk\ndata: {\"content\":\"第一段讲解。\"}\n\n");
+                pause(5_000);    // 客户端在此期间断开，第二段写入会失败
+                write(output, "event: chunk\ndata: {\"content\":\"第二段讲解。\"}\n\n");
+                return;
+            }
+            write(output, "event: chunk\ndata: {\"content\":\"第一段讲解。\"}\n\n");
+            write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
+                    + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\",\"tokens\":10,\"promptTokens\":5}\n\n");
+        } catch (IOException ignored) {
+            // 客户端主动断开（IT-SSE-02）：桩侧写失败属预期，不是服务异常
+        }
+    }
+
+    /** 桩 /api/ocr/recognize：固定返回 0.62 低置信度结果，用于 IT-FLOW-02。 */
+    private static void handleOcr(HttpExchange exchange) throws IOException {
+        exchange.getRequestBody().readAllBytes();
+        byte[] payload = ("{\"text\":\"低置信度题干：主键与外键的区别\",\"confidence\":0.62,"
+                + "\"lines\":[{\"text\":\"低置信度题干\",\"score\":0.62}],\"elapsedMs\":12}")
+                .getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        exchange.sendResponseHeaders(200, payload.length);
+        try (OutputStream output = exchange.getResponseBody()) {
+            output.write(payload);
         }
     }
 
