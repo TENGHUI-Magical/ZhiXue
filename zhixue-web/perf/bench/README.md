@@ -12,7 +12,7 @@ node perf/bench/bundle-budget.mjs --update  # 优化后收紧上限
 
 ## 2. 真实浏览器计时（已安装 Playwright）
 
-`bench.py` / `ratchet.py` 原样来自花叔 `huashu-flash`（MIT，https://github.com/alchaincyf/huashu-flash），未修改。
+`bench.py` / `ratchet.py` 改编自花叔 `huashu-flash`（MIT，https://github.com/alchaincyf/huashu-flash）。**2026-10-29 改动**：为通过安全扫描门禁，写盘路径已常量化——bench 结果固定写 `perf/bench/last_result.json`（已 gitignore），ratchet 上限只允许 `ceilings.json` / `timing-ceilings.json` 两个常量文件，`--out` / `--ceilings` 仅作提示或选择器。
 
 ```powershell
 D:\Python3.12.10\python.exe -m pip install playwright
@@ -31,7 +31,9 @@ D:\Python3.12.10\python.exe perf\bench\bench.py `
   --url http://127.0.0.1:4173/login `
   --ready "document.querySelector('input[autocomplete=\"username\"]')?.offsetParent !== null" `
   --type-check "input[autocomplete=\"username\"]" `
-  --runs 10 --profile fast4g --out perf\bench\login-base.json
+  --runs 10 --profile fast4g
+# 结果固定写入 perf\bench\last_result.json；要留档就改名保存：
+Move-Item perf\bench\last_result.json perf\bench\login-base.json
 ```
 
 结果：10/10 成功，能用 p50/p75/p95 = **123.5 / 127.8 / 131.1 ms**；原始数据 `perf/bench/login-base.json`，上限 `perf/bench/timing-ceilings.json`（本机基线，未接入 CI）。
@@ -47,14 +49,15 @@ A/B 配对测量：
 ```powershell
 D:\Python3.12.10\python.exe perf\bench\bench.py `
   --url http://127.0.0.1:5173/login --url-b http://127.0.0.1:5174/login `
-  --ready "<同一个判定表达式>" --runs 10 --profile fast4g --out perf\bench\paired.json
+  --ready "<同一个判定表达式>" --runs 10 --profile fast4g
+# 结果固定写入 perf\bench\last_result.json
 ```
 
 棘轮：
 
 ```powershell
 D:\Python3.12.10\python.exe perf\bench\ratchet.py init `
-  --result perf\bench\login-base.json --ceilings perf\bench\timing-ceilings.json `
+  --result perf\bench\login-base.json --ceilings timing `
   --label "login-4173"
 ```
 

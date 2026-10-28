@@ -61,6 +61,7 @@ backup/
 upload/
 ai-log/
 chroma/
+perf/bench/last_result.json
 
 # ============ 临时文件 ============
 *.tmp

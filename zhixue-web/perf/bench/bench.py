@@ -15,12 +15,8 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 
-def _repo_path(path_str: str) -> Path:
-    # CLI 传入的文件路径只许落在仓库内，防止把结果写到任意位置
-    p = Path(path_str).resolve()
-    if not p.is_relative_to(Path(__file__).resolve().parents[2]):
-        raise SystemExit(f"路径必须在 zhixue-web 仓库内：{p}")
-    return p
+# 结果固定写在本目录；扫描门禁只放行常量路径写文件，--out 仅作提示不再参与写盘
+OUT_PATH = Path(__file__).resolve().parent / "last_result.json"
 
 # 网络档：延迟单位 ms，吞吐单位 字节/秒
 PROFILES = {
@@ -145,7 +141,7 @@ async def main():
     ap.add_argument("--timeout", type=int, default=30, help="单次测量超时秒数")
     ap.add_argument("--settle", type=int, default=500, help="判定为真后再等多少毫秒收集 LCP 等数据")
     ap.add_argument("--proxy", help="访问外网用的代理，如 http://127.0.0.1:7890；本地地址自动直连")
-    ap.add_argument("--out", help="结果 JSON 路径")
+    ap.add_argument("--out", help="（已废弃）结果固定写入 perf/bench/last_result.json，此参数仅回显")
     args = ap.parse_args()
 
     launch_args = []
@@ -190,9 +186,8 @@ async def main():
               f"字节 p75 = {s['bytes_total']['p75']}")
     if "ready_p75_reduction" in result:
         print(f"能用 p75 降幅：{result['ready_p75_reduction'] * 100:.1f}%")
-    if args.out:
-        with open(_repo_path(args.out), "w", encoding="utf-8") as fh:
-            json.dump(result, fh, ensure_ascii=False, indent=1)
+    OUT_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"结果已写入 {OUT_PATH}" + (f"（--out {args.out} 已忽略，仅作提示）" if args.out else ""))
 
 
 if __name__ == "__main__":
