@@ -117,6 +117,22 @@ export const getRecommendations = (params: {
   courseId: number;
 }) => api.get<Recommendation[]>("/api/recommendations", params);
 
+export interface PracticeSubmitPayload {
+  qId: string;
+  kpId: string;
+  isCorrect: boolean;
+  myAnswer?: string | null;
+  errorType?: string | null;
+  costSeconds?: number | null;
+  source?: "RECOMMEND" | "SELF";
+  recommendationId?: number | null;
+  clientToken: string;
+}
+
+/** 提交作答（契约 POST /api/practices）：推荐题/自主练习；计划内作答走打卡接口 */
+export const submitPractice = (payload: PracticeSubmitPayload) =>
+  api.post<{ practiceId: number; duplicate: boolean }>("/api/practices", payload);
+
 /** 解析单个 SSE 帧：Java 发出的是 `event:meta`（冒号后无空格），必须 trim */
 export const parseSseFrame = (frame: string, onFrame: (event: string, payload: Record<string, unknown>) => void) => {
   if (!frame.trim()) return;

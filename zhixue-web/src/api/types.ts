@@ -269,6 +269,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/questions/{qId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 题目详情（不含答案与解析；学生先独立作答） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    qId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 成功 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuestionDetailResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/questions/{qId}/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 查看参考答案与解析（学生点击“查看答案”后显式调用） */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    qId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 成功 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuestionAnswerResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/error/upload": {
         parameters: {
             query?: never;
@@ -1649,6 +1725,37 @@ export interface components {
         };
         QuestionResponse: components["schemas"]["ApiEnvelope"] & {
             data?: components["schemas"]["Question"];
+        };
+        QuestionDetailResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: components["schemas"]["QuestionDetail"];
+        };
+        QuestionDetail: {
+            /** @example Q_0201 */
+            qId?: string;
+            /** Format: int64 */
+            courseId?: number;
+            /** @example KP0201 */
+            kpId?: string;
+            kpName?: string | null;
+            /** @enum {string} */
+            questionType?: "单选" | "多选" | "填空" | "简答" | "编程";
+            questionText?: string;
+            options?: components["schemas"]["QuestionOption"][];
+            difficulty?: number;
+        };
+        QuestionOption: {
+            /** @example A */
+            key?: string;
+            text?: string;
+        };
+        QuestionAnswerResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: components["schemas"]["QuestionAnswer"];
+        };
+        QuestionAnswer: {
+            /** @example Q_0201 */
+            qId?: string;
+            answerText?: string | null;
+            analysisText?: string | null;
         };
         Question: {
             /** @example Q_001 */

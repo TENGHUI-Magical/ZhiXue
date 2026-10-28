@@ -3,7 +3,10 @@ package com.zhixue.course.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
+import com.zhixue.course.dto.QuestionAnswerView;
+import com.zhixue.course.dto.QuestionDetailView;
 import com.zhixue.course.dto.QuestionView;
+import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.mapper.QuestionBankMapper;
 import org.springframework.stereotype.Service;
@@ -22,10 +25,13 @@ public class QuestionBankService {
 
     private final QuestionBankMapper questionBankMapper;
     private final ObjectMapper objectMapper;
+    private final KnowledgePointService knowledgePointService;
 
-    public QuestionBankService(QuestionBankMapper questionBankMapper, ObjectMapper objectMapper) {
+    public QuestionBankService(QuestionBankMapper questionBankMapper, ObjectMapper objectMapper,
+                               KnowledgePointService knowledgePointService) {
         this.questionBankMapper = questionBankMapper;
         this.objectMapper = objectMapper;
+        this.knowledgePointService = knowledgePointService;
     }
 
     /**
@@ -116,6 +122,39 @@ public class QuestionBankService {
     }
 
     /**
+     * 题目详情（不含答案与解析）：学生先独立作答。
+     */
+    public QuestionDetailView getDetail(String qId) {
+        QuestionBank question = getById(qId);
+        String kpName = null;
+        if (question.getPrimaryKpId() != null && !question.getPrimaryKpId().isBlank()) {
+            KnowledgePoint kp = knowledgePointService.findById(question.getPrimaryKpId());
+            if (kp != null) {
+                kpName = kp.getName();
+            }
+        }
+        List<QuestionDetailView.QuestionOption> options = new ArrayList<>();
+        for (Map<String, Object> item : parseRawOptions(question.getOptionsJson())) {
+            Object key = item.get("key");
+            Object text = item.get("text");
+            if (key != null && text != null) {
+                options.add(new QuestionDetailView.QuestionOption(
+                        String.valueOf(key), String.valueOf(text)));
+            }
+        }
+        return new QuestionDetailView(question.getQId(), question.getCourseId(),
+                question.getPrimaryKpId(), kpName, question.getQuestionType(),
+                question.getQuestionText(), options, question.getDifficulty());
+    }
+
+    /** 参考答案与解析：仅在学生显式点击“查看答案”后调用。 */
+    public QuestionAnswerView getAnswer(String qId) {
+        QuestionBank question = getById(qId);
+        return new QuestionAnswerView(question.getQId(), question.getAnswerText(),
+                question.getAnalysisText());
+    }
+
+    /**
      * 批量取题目难度（推荐难度基准用：practice_record 不冗余难度列）。
      *
      * @param qIds 题目编号列表
@@ -133,21 +172,29 @@ public class QuestionBankService {
                         QuestionBank::getQId, QuestionBank::getDifficulty));
     }
 
-    @SuppressWarnings("unchecked")
     private QuestionView toView(QuestionBank question) {
         List<QuestionView.Option> options = new ArrayList<>();
-        if (question.getOptionsJson() != null && !question.getOptionsJson().isBlank()) {
-            try {
-                List<Map<String, Object>> raw = objectMapper.readValue(question.getOptionsJson(), List.class);
-                for (Map<String, Object> item : raw) {
-                    options.add(new QuestionView.Option(
-                            String.valueOf(item.get("key")), String.valueOf(item.get("text"))));
-                }
-            } catch (Exception ignored) {
-                // 选项 JSON 异常不阻断推荐：前端按无选项渲染，教师端可发现脏数据
+        for (Map<String, Object> item : parseRawOptions(question.getOptionsJson())) {
+            Object key = item.get("key");
+            Object text = item.get("text");
+            if (key != null && text != null) {
+                options.add(new QuestionView.Option(String.valueOf(key), String.valueOf(text)));
             }
         }
         return new QuestionView(question.getQId(), question.getPrimaryKpId(), question.getQuestionType(),
                 question.getQuestionText(), options, question.getDifficulty(), question.getSource());
+    }
+
+    /** 解析 options_json；脏数据降级为空数组，不阻断推荐/详情。 */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> parseRawOptions(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, List.class);
+        } catch (Exception ignored) {
+            return List.of();
+        }
     }
 }

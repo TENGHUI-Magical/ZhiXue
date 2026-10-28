@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.9
+  version: 2.1.0
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -19,6 +19,7 @@ servers:
 tags:
   - name: auth
   - name: course
+  - name: question
   - name: error
   - name: diagnosis
   - name: recommend
@@ -120,6 +121,36 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/KpResponse' }
+  /api/questions/{qId}:
+    get:
+      tags: [question]
+      summary: 题目详情（不含答案与解析；学生先独立作答）
+      parameters:
+        - name: qId
+          in: path
+          required: true
+          schema: { type: string, example: Q_0201 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuestionDetailResponse' }
+  /api/questions/{qId}/answer:
+    get:
+      tags: [question]
+      summary: 查看参考答案与解析（学生点击“查看答案”后显式调用）
+      parameters:
+        - name: qId
+          in: path
+          required: true
+          schema: { type: string, example: Q_0201 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuestionAnswerResponse' }
   /api/error/upload:
     post:
       tags: [error]
@@ -1079,6 +1110,42 @@ components:
         - type: object
           properties:
             data: { $ref: '#/components/schemas/Question' }
+    QuestionDetailResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/QuestionDetail' }
+    QuestionDetail:
+      type: object
+      properties:
+        qId: { type: string, example: Q_0201 }
+        courseId: { type: integer, format: int64 }
+        kpId: { type: string, example: KP0201 }
+        kpName: { type: string, nullable: true }
+        questionType: { type: string, enum: [单选, 多选, 填空, 简答, 编程] }
+        questionText: { type: string }
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/QuestionOption' }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
+    QuestionOption:
+      type: object
+      properties:
+        key: { type: string, example: A }
+        text: { type: string }
+    QuestionAnswerResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/QuestionAnswer' }
+    QuestionAnswer:
+      type: object
+      properties:
+        qId: { type: string, example: Q_0201 }
+        answerText: { type: string, nullable: true }
+        analysisText: { type: string, nullable: true }
     Question:
       type: object
       properties:
