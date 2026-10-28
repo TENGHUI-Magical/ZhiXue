@@ -360,12 +360,14 @@ onMounted(() => {
   font-size: 12px;
 }
 .day-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
 }
 .day-card {
-  min-width: 0;
+  flex: 0 1 calc(25% - 9px);
+  min-width: 230px;
 }
 .day-head {
   display: flex;
