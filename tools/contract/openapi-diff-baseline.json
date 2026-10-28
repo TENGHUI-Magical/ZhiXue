@@ -2,8 +2,8 @@
   "_comment": "Baseline for official openapi-diff. Known incompatibilities that are NOT treated as regressions. New diffs NOT listed here should be treated as potential regressions.",
   "baselineOf": "docs/openapi.yaml",
   "capturedAt": "2026-10-28",
-  "baselineVersion": "2.0.8",
-  "captureCommit": "934f60f",
+  "baselineVersion": "2.0.9",
+  "captureCommit": "9760890",
 
   "missingEndpoints": [
     { "method": "get",  "path": "/api/courses",                              "reason": "功能缺口；P4.2 课程列表" },
@@ -45,17 +45,9 @@
       "blocker": false
     },
     {
-      "category": "error-responses-missing",
-      "paths": [
-        "post /api/auth/login:400",
-        "get /api/auth/me:401",
-        "get /api/course/kp/{kpId}:404",
-        "post /api/error/upload:400",
-        "post /api/error/upload:409",
-        "put /api/error/records/{logId}/confirm:409",
-        "get /api/diagnosis/explain/{explainId}:404"
-      ],
-      "reason": "控制器未声明 @ApiResponse，springdoc 不生成错误响应。计划批次 2-02-P1 补。",
+      "category": "error-responses",
+      "status": "resolved-in-2.0.9",
+      "resolution": "根因是 GlobalExceptionHandler 无 @ResponseStatus，所有业务错误实际返回 HTTP 200 + body.code（40000/40100/40300/40400/40900），而 2.0.8 及之前契约在 paths 中声明 HTTP 4xx，springdoc 永远生成不出。2.0.9 已按实现修正：删除 12 处 4xx 引用，错误码目录保留在 components.responses，并在 info.description 写明 200+code 约定；ContractSchemaComparatorTest#noHttpStatusErrorResponsesDeclared 防回归。",
       "blocker": false
     },
     {
@@ -78,5 +70,5 @@
     }
   ],
 
-  "diffStrategy": "仅拦截 baseline 外的新增差异；missing endpoints 不阻断（按 24 §2.4）；changedOperationIds 不阻断；content-type 系统性差异不阻断；真正阻断的是 schema type/enum/required 漂移（由自定义 ContractSchemaComparator 负责）。"
+  "diffStrategy": "仅拦截 baseline 外的新增差异；missing endpoints 不阻断（按 24 §2.4）；changedOperationIds 不阻断；content-type 系统性差异不阻断；error-responses 已在 2.0.9 按实现修正（200+code），不再是 baseline 项。真正阻断的是 schema type/enum/required 漂移（由自定义 ContractSchemaComparator 负责）。"
 }

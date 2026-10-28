@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.8
+  version: 2.0.9
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -10,6 +10,9 @@ info:
     - 时间统一 Asia/Shanghai，格式 yyyy-MM-dd HH:mm:ss；日期 yyyy-MM-dd。
     - 除登录与健康检查外，全部需要 header `satoken`。
     - 幂等：上传、作答提交、打卡必须携带 clientToken。
+    - 错误约定：业务错误（40000/40100/40300/40400/40900/42900/60001 等）一律返回
+      HTTP 200 + `code`≠0 的统一信封，不返回 HTTP 4xx/5xx；错误码语义见 docs/01 §1.2。
+      因此本契约不在 paths 中声明 4xx/5xx 响应，错误码目录见 components.responses。
 servers:
   - url: http://127.0.0.1:8080
     description: 本地开发（Windows 下用 127.0.0.1，不要用 localhost）
@@ -48,8 +51,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LoginResponse' }
-        '400':
-          $ref: '#/components/responses/BadRequest'
   /api/auth/logout:
     post:
       tags: [auth]
@@ -70,8 +71,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MeResponse' }
-        '401':
-          $ref: '#/components/responses/Unauthorized'
   /api/courses:
     get:
       tags: [course]
@@ -121,8 +120,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/KpResponse' }
-        '404':
-          $ref: '#/components/responses/NotFound'
   /api/error/upload:
     post:
       tags: [error]
@@ -143,10 +140,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OcrAcceptedResponse' }
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '409':
-          $ref: '#/components/responses/Conflict'
   /api/error/tasks/{taskId}:
     get:
       tags: [error]
@@ -238,8 +231,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorRecordResponse' }
-        '409':
-          $ref: '#/components/responses/Conflict'
   /api/diagnosis/map:
     post:
       tags: [diagnosis]
@@ -297,8 +288,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ExplainLogResponse' }
-        '404':
-          $ref: '#/components/responses/NotFound'
   /api/recommendations:
     get:
       tags: [recommend]
@@ -341,8 +330,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PracticeResponse' }
-        '409':
-          $ref: '#/components/responses/Conflict'
   /api/portraits/me:
     get:
       tags: [portrait]
@@ -365,8 +352,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ClassPortraitResponse' }
-        '403':
-          $ref: '#/components/responses/Forbidden'
   /api/plans:
     get:
       tags: [plan]
@@ -405,8 +390,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PlanListResponse' }
-        '409':
-          $ref: '#/components/responses/Conflict'
   /api/plans/{planId}/checkin:
     post:
       tags: [plan]
@@ -433,8 +416,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EmptyResponse' }
-        '409':
-          $ref: '#/components/responses/Conflict'
   /api/teacher/reviews:
     get:
       tags: [teacher]
@@ -452,8 +433,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReviewQueueResponse' }
-        '403':
-          $ref: '#/components/responses/Forbidden'
   /api/teacher/reviews/{logPk}:
     post:
       tags: [teacher]
@@ -598,27 +577,27 @@ components:
       schema: { type: string, example: EL_101 }
   responses:
     BadRequest:
-      description: 参数校验失败（40000）
+      description: 参数校验失败（HTTP 200，body.code=40000）
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unauthorized:
-      description: 未登录或 token 过期（40100）
+      description: 未登录或 token 过期（HTTP 200，body.code=40100）
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Forbidden:
-      description: 无权限（40300）
+      description: 无权限（HTTP 200，body.code=40300）
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     NotFound:
-      description: 资源不存在（40400）
+      description: 资源不存在（HTTP 200，body.code=40400）
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Conflict:
-      description: 重复提交或状态冲突（40900）
+      description: 重复提交或状态冲突（HTTP 200，body.code=40900）
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -16,6 +17,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 嵌套 schema、响应 data 缺失、实现多出端点、参数漂移四类行为。
  */
 class ContractSchemaComparatorTest {
+
+    private static final Set<String> METHODS = Set.of("get", "post", "put", "delete", "patch");
 
     @Test
     void cleanContractHasNoIssues() {
@@ -223,6 +226,34 @@ class ContractSchemaComparatorTest {
         assertThat(asMap(degradeLevel).get("enum"))
                 .as("L1 是主力模型，不是降级级别")
                 .isEqualTo(java.util.Arrays.asList("L2", "L3", "L4", null));
+    }
+
+    @Test
+    void noHttpStatusErrorResponsesDeclared() throws Exception {
+        Map<?, ?> doc = new Yaml().load(Files.readString(
+                ContractSchemaComparator.openapiPath(), StandardCharsets.UTF_8));
+        List<String> offenders = new ArrayList<>();
+        for (Map.Entry<?, ?> pathEntry : asMap(doc.get("paths")).entrySet()) {
+            Map<?, ?> item = asMap(pathEntry.getValue());
+            for (Map.Entry<?, ?> opEntry : item.entrySet()) {
+                String method = String.valueOf(opEntry.getKey()).toLowerCase();
+                if (!METHODS.contains(method)) {
+                    continue;
+                }
+                for (Object status : asMap(asMap(opEntry.getValue()).get("responses")).keySet()) {
+                    String code = String.valueOf(status);
+                    if (code.startsWith("4") || code.startsWith("5")) {
+                        offenders.add(method.toUpperCase() + " " + pathEntry.getKey() + " " + code);
+                    }
+                }
+            }
+        }
+        // 本项目所有业务错误统一返回 HTTP 200 + body.code≠0（GlobalExceptionHandler 不设 @ResponseStatus）。
+        // 若在 paths 里声明 4xx/5xx，既与实现不符，也会让 springdoc 永远对不上——
+        // 这正是 2026-10-28 之前“错误响应未生成”的根因。错误码目录保留在 components.responses。
+        assertThat(offenders)
+                .as("契约不得声明 HTTP 4xx/5xx 响应，业务错误统一 200 + code≠0")
+                .isEmpty();
     }
 
     private static void lint(Object node, List<String> issues) {

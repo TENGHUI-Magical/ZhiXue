@@ -39,7 +39,6 @@ export interface paths {
                         "application/json": components["schemas"]["LoginResponse"];
                     };
                 };
-                400: components["responses"]["BadRequest"];
             };
         };
         delete?: never;
@@ -110,7 +109,6 @@ export interface paths {
                         "application/json": components["schemas"]["MeResponse"];
                     };
                 };
-                401: components["responses"]["Unauthorized"];
             };
         };
         put?: never;
@@ -261,7 +259,6 @@ export interface paths {
                         "application/json": components["schemas"]["KpResponse"];
                     };
                 };
-                404: components["responses"]["NotFound"];
             };
         };
         put?: never;
@@ -308,8 +305,6 @@ export interface paths {
                         "application/json": components["schemas"]["OcrAcceptedResponse"];
                     };
                 };
-                400: components["responses"]["BadRequest"];
-                409: components["responses"]["Conflict"];
             };
         };
         delete?: never;
@@ -499,7 +494,6 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorRecordResponse"];
                     };
                 };
-                409: components["responses"]["Conflict"];
             };
         };
         post?: never;
@@ -627,7 +621,6 @@ export interface paths {
                         "application/json": components["schemas"]["ExplainLogResponse"];
                     };
                 };
-                404: components["responses"]["NotFound"];
             };
         };
         put?: never;
@@ -713,7 +706,6 @@ export interface paths {
                         "application/json": components["schemas"]["PracticeResponse"];
                     };
                 };
-                409: components["responses"]["Conflict"];
             };
         };
         delete?: never;
@@ -786,7 +778,6 @@ export interface paths {
                         "application/json": components["schemas"]["ClassPortraitResponse"];
                     };
                 };
-                403: components["responses"]["Forbidden"];
             };
         };
         put?: never;
@@ -878,7 +869,6 @@ export interface paths {
                         "application/json": components["schemas"]["PlanListResponse"];
                     };
                 };
-                409: components["responses"]["Conflict"];
             };
         };
         delete?: never;
@@ -925,7 +915,6 @@ export interface paths {
                         "application/json": components["schemas"]["EmptyResponse"];
                     };
                 };
-                409: components["responses"]["Conflict"];
             };
         };
         delete?: never;
@@ -963,7 +952,6 @@ export interface paths {
                         "application/json": components["schemas"]["ReviewQueueResponse"];
                     };
                 };
-                403: components["responses"]["Forbidden"];
             };
         };
         put?: never;
@@ -1707,7 +1695,7 @@ export interface components {
         };
     };
     responses: {
-        /** @description 参数校验失败（40000） */
+        /** @description 参数校验失败（HTTP 200，body.code=40000） */
         BadRequest: {
             headers: {
                 [name: string]: unknown;
@@ -1716,7 +1704,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 未登录或 token 过期（40100） */
+        /** @description 未登录或 token 过期（HTTP 200，body.code=40100） */
         Unauthorized: {
             headers: {
                 [name: string]: unknown;
@@ -1725,7 +1713,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 无权限（40300） */
+        /** @description 无权限（HTTP 200，body.code=40300） */
         Forbidden: {
             headers: {
                 [name: string]: unknown;
@@ -1734,7 +1722,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 资源不存在（40400） */
+        /** @description 资源不存在（HTTP 200，body.code=40400） */
         NotFound: {
             headers: {
                 [name: string]: unknown;
@@ -1743,7 +1731,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description 重复提交或状态冲突（40900） */
+        /** @description 重复提交或状态冲突（HTTP 200，body.code=40900） */
         Conflict: {
             headers: {
                 [name: string]: unknown;
