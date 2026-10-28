@@ -472,41 +472,48 @@ class IntegrationFlowTest {
                 .isEmpty();
     }
 
+    /**
+     * PT-01：15 学生并发刷错题本，P95 ≤1s。
+     * <p>
+     * 06 号文 §6 正式对象是错题列表（GET /api/error/records）；历史上用 POST map 做代理，
+     * 已在 openapi 2.0.7 实现端点后改测正式对象。
+     */
     @Test
-    void mapP95UnderOneSecondWith15Threads() throws Exception {
+    void errorRecordsP95UnderOneSecondWith15Threads() throws Exception {
         String token = login();
         // 预热一次，消除 JIT/连接池首包
-        postJson("/api/diagnosis/map",
-                "{\"text\":\"关系模型的三要素是什么\",\"courseId\":1}", token);
+        getJson("/api/error/records?page=1&size=10", token);
 
-        // 06 号文 PT-01：15 并发单轮，P95 取这一轮的最大值
-        List<Long> samples = concurrentLatencies(15, 1, () -> postJson("/api/diagnosis/map",
-                "{\"text\":\"事务的ACID特性有哪些\",\"courseId\":1}", token));
+        String listPath = "/api/error/records?page=1&size=10";
+        List<Long> samples = concurrentLatencies(15, 1, () -> {
+            HttpResponse<String> resp = getJson(listPath, token);
+            assertThat(resp.statusCode()).isEqualTo(200);
+            assertThat(code(resp)).isZero();
+        });
         long p95 = percentile(samples, 95);
-        System.out.println("[perf] map samples=" + samples.size() + " p95=" + p95 + "ms");
+        System.out.println("[perf] pt01-error-records samples=" + samples.size() + " p95=" + p95 + "ms");
         assertThat(p95).isLessThanOrEqualTo(1000L);
     }
 
+    /**
+     * PT-02：10 并发讲解，分别测 meta 首字节与首个 delta，P95 ≤5s。
+     * <p>
+     * 06 号文 §6 要求 10 并发（历史版本用 15 并发分摊两用户，现对齐口径）；
+     * forceRefresh 跳过缓存。10 并发刚好等于每用户每分钟限流阈值，单用户即可。
+     */
     @Test
-    void explainFirstByteP95UnderFiveSeconds() throws Exception {
-        // 15 并发分摊到两个用户（讲解限流 10 次/分/用户），forceRefresh 跳过缓存
-        String token1 = login("it_user");
-        String token2 = login("it_user2");
+    void explainMetaAndDeltaP95UnderFiveSeconds() throws Exception {
+        // 用 10 个不同客户端 token 创建错题，确保 10 条独立 logId
+        String token = login("it_user");
         List<String> logIds = new ArrayList<>();
-        List<String> tokens = new ArrayList<>();
-        for (int i = 0; i < 8; i++) {
-            logIds.add(createAndConfirm(token1, "ctp1-" + i));
-            tokens.add(token1);
-        }
-        for (int i = 0; i < 7; i++) {
-            logIds.add(createAndConfirm(token2, "ctp2-" + i));
-            tokens.add(token2);
+        for (int i = 0; i < 10; i++) {
+            logIds.add(createAndConfirm(token, "pt02-" + i));
         }
 
-        int threads = 15;
+        int threads = 10;
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
-        List<Future<Long>> futures = new ArrayList<>();
+        List<Future<long[]>> futures = new ArrayList<>();
         for (int i = 0; i < threads; i++) {
             final int index = i;
             futures.add(pool.submit(() -> {
@@ -516,41 +523,55 @@ class IntegrationFlowTest {
                         + "\"forceRefresh\":true}").formatted(logIds.get(index));
                 long t0 = System.nanoTime();
                 HttpRequest request = HttpRequest.newBuilder(uri("/api/diagnosis/explain"))
-                        .timeout(Duration.ofSeconds(20))
+                        .timeout(Duration.ofSeconds(30))
                         .header("Content-Type", "application/json")
-                        .header("satoken", tokens.get(index))
+                        .header("satoken", token)
                         .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                         .build();
                 HttpResponse<InputStream> response =
                         HTTP.send(request, HttpResponse.BodyHandlers.ofInputStream());
-                boolean firstDelta = false;
+                long metaMs = -1;
+                long deltaMs = -1;
                 try (InputStream stream = response.body();
                      BufferedReader reader = new BufferedReader(
                              new InputStreamReader(stream, StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        if ("event:delta".equals(line.trim())) {
-                            firstDelta = true;
+                        String trimmed = line.trim();
+                        long elapsed = (System.nanoTime() - t0) / 1_000_000;
+                        if (metaMs < 0 && "event:meta".equals(trimmed)) {
+                            metaMs = elapsed;
+                        } else if (deltaMs < 0 && "event:delta".equals(trimmed)) {
+                            deltaMs = elapsed;
+                        }
+                        if (metaMs >= 0 && deltaMs >= 0) {
                             break;
                         }
                     }
                 }
-                if (!firstDelta) {
-                    throw new IllegalStateException("SSE 未收到首个 delta");
+                if (metaMs < 0 || deltaMs < 0) {
+                    throw new IllegalStateException(
+                            "SSE 未收到完整事件：meta=" + metaMs + ", delta=" + deltaMs);
                 }
-                return (System.nanoTime() - t0) / 1_000_000;
+                return new long[]{metaMs, deltaMs};
             }));
         }
         start.countDown();
-        List<Long> samples = new ArrayList<>();
-        for (Future<Long> future : futures) {
-            samples.add(future.get(30, TimeUnit.SECONDS));
+        List<Long> metaSamples = new ArrayList<>();
+        List<Long> deltaSamples = new ArrayList<>();
+        for (Future<long[]> future : futures) {
+            long[] pair = future.get(30, TimeUnit.SECONDS);
+            metaSamples.add(pair[0]);
+            deltaSamples.add(pair[1]);
         }
         pool.shutdownNow();
 
-        long p95 = percentile(samples, 95);
-        System.out.println("[perf] explain-ttfb samples=15 p95=" + p95 + "ms");
-        assertThat(p95).isLessThanOrEqualTo(5000L);
+        long metaP95 = percentile(metaSamples, 95);
+        long deltaP95 = percentile(deltaSamples, 95);
+        System.out.println("[perf] pt02-explain-meta samples=" + metaSamples.size() + " p95=" + metaP95 + "ms");
+        System.out.println("[perf] pt02-explain-delta samples=" + deltaSamples.size() + " p95=" + deltaP95 + "ms");
+        assertThat(metaP95).isLessThanOrEqualTo(5000L);
+        assertThat(deltaP95).isLessThanOrEqualTo(5000L);
     }
 
     private void insertOcrTask(long userId, String taskId, String clientToken, String status) {
