@@ -1,6 +1,8 @@
 package com.zhixue.course.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.QuestionView;
 import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.mapper.QuestionBankMapper;
@@ -76,6 +78,41 @@ public class QuestionBankService {
     public List<QuestionView> listByKpIncludeSecondary(Long courseId, String kpId) {
         return questionBankMapper.selectByKpIncludeSecondary(courseId, kpId)
                 .stream().map(this::toView).toList();
+    }
+
+    /**
+     * 取某课程全部启用题目，按难度、题号升序；供计划生成选题。
+     */
+    public List<QuestionView> listByCourse(Long courseId) {
+        return questionBankMapper.selectList(new LambdaQueryWrapper<QuestionBank>()
+                        .eq(QuestionBank::getCourseId, courseId)
+                        .eq(QuestionBank::getIsActive, 1)
+                        .orderByAsc(QuestionBank::getDifficulty)
+                        .orderByAsc(QuestionBank::getQId))
+                .stream().map(this::toView).toList();
+    }
+
+    /** 取某课程全部启用题目编号；供班级画像按课程过滤作答记录。 */
+    public List<String> listQidsByCourse(Long courseId) {
+        return questionBankMapper.selectList(new LambdaQueryWrapper<QuestionBank>()
+                        .eq(QuestionBank::getCourseId, courseId)
+                        .eq(QuestionBank::getIsActive, 1))
+                .stream().map(QuestionBank::getQId).toList();
+    }
+
+    /**
+     * 按 qId 取题目；不存在抛 40400。
+     * 供 /api/practices 校验题目真实存在，避免脏 qId 落库。
+     */
+    public QuestionBank getById(String qId) {
+        if (qId == null || qId.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "qId 不能为空");
+        }
+        QuestionBank question = questionBankMapper.selectById(qId);
+        if (question == null || (question.getIsActive() != null && question.getIsActive() == 0)) {
+            throw new BizException(ErrorCode.NOT_FOUND, "题目不存在: " + qId);
+        }
+        return question;
     }
 
     /**

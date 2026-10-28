@@ -1,0 +1,243 @@
+package com.zhixue.diagnosis.service;
+
+import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.exception.BizException;
+import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
+import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
+import com.zhixue.diagnosis.dto.PracticeCreateRequest;
+import com.zhixue.diagnosis.dto.PracticeResultView;
+import com.zhixue.diagnosis.entity.PracticeRecord;
+import com.zhixue.diagnosis.entity.RecommendationRecord;
+import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
+import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * 练习作答服务：自主/推荐作答、幂等、推荐采纳回写；
+ * 同时为计划打卡提供 source=PLAN 的内部写入方法。
+ */
+@Service
+public class PracticeService {
+
+    private static final Set<String> SOURCES = Set.of("RECOMMEND", "SELF");
+    private static final Set<String> ERROR_TYPES = Set.of(
+            "CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
+            "CALCULATION_ERROR", "BOUNDARY_ERROR");
+
+    private final PracticeRecordMapper practiceRecordMapper;
+    private final RecommendationRecordMapper recommendationRecordMapper;
+    private final KnowledgePointService knowledgePointService;
+    private final QuestionBankService questionBankService;
+
+    public PracticeService(PracticeRecordMapper practiceRecordMapper,
+                           RecommendationRecordMapper recommendationRecordMapper,
+                           KnowledgePointService knowledgePointService,
+                           QuestionBankService questionBankService) {
+        this.practiceRecordMapper = practiceRecordMapper;
+        this.recommendationRecordMapper = recommendationRecordMapper;
+        this.knowledgePointService = knowledgePointService;
+        this.questionBankService = questionBankService;
+    }
+
+    /**
+     * 提交作答（推荐题/自主练习）。
+     * 幂等：同一 userId + clientToken 返回首次结果，duplicate=true；不返回 40900。
+     */
+    public PracticeResultView submit(PracticeCreateRequest request) {
+        long userId = StpUtil.getLoginIdAsLong();
+        PracticeRecord existing = findByClientToken(userId, request.clientToken());
+        if (existing != null) {
+            return new PracticeResultView(existing.getPracticeId(), true);
+        }
+
+        validateLength(request);
+        KnowledgePoint kp = knowledgePointService.getById(request.kpId());
+        QuestionBank question = questionBankService.getById(request.qId());
+        if (!Objects.equals(question.getCourseId(), kp.getCourseId())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "题目与知识点不属于同一课程");
+        }
+
+        String source = request.source();
+        if (source == null) {
+            source = request.recommendationId() == null ? "SELF" : "RECOMMEND";
+        }
+        if (!SOURCES.contains(source)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "source 仅允许 RECOMMEND/SELF");
+        }
+        if (request.recommendationId() != null && !"RECOMMEND".equals(source)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "带 recommendationId 时 source 必须为 RECOMMEND");
+        }
+
+        String errorType = request.errorType();
+        if (errorType != null && !ERROR_TYPES.contains(errorType)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "errorType 非法: " + errorType);
+        }
+        if (Boolean.TRUE.equals(request.isCorrect())) {
+            errorType = null;
+        }
+
+        RecommendationRecord recommendation = null;
+        if (request.recommendationId() != null) {
+            recommendation = recommendationRecordMapper.selectById(request.recommendationId());
+            if (recommendation == null || !Objects.equals(recommendation.getUserId(), userId)) {
+                throw new BizException(ErrorCode.NOT_FOUND, "推荐记录不存在");
+            }
+            if (!Objects.equals(recommendation.getQId(), request.qId())) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "推荐记录与 qId 不匹配");
+            }
+        }
+
+        PracticeRecord record = new PracticeRecord();
+        record.setUserId(userId);
+        record.setClientToken(request.clientToken());
+        record.setQId(request.qId());
+        record.setKpId(request.kpId());
+        record.setSource(source);
+        record.setIsCorrect(Boolean.TRUE.equals(request.isCorrect()) ? 1 : 0);
+        record.setMyAnswer(request.myAnswer());
+        record.setErrorType(errorType);
+        record.setCostSeconds(request.costSeconds());
+        record.setRecommendationId(request.recommendationId());
+        try {
+            practiceRecordMapper.insert(record);
+        } catch (DuplicateKeyException e) {
+            PracticeRecord winner = findByClientToken(userId, request.clientToken());
+            if (winner != null) {
+                return new PracticeResultView(winner.getPracticeId(), true);
+            }
+            throw e;
+        }
+
+        if (recommendation != null) {
+            recommendationRecordMapper.update(null,
+                    new LambdaUpdateWrapper<RecommendationRecord>()
+                            .eq(RecommendationRecord::getRecommendationId, recommendation.getRecommendationId())
+                            .eq(RecommendationRecord::getUserId, userId)
+                            .set(RecommendationRecord::getIsAdopted, 1));
+        }
+        PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
+        return new PracticeResultView(saved == null ? record.getPracticeId() : saved.getPracticeId(), false);
+    }
+
+    /** 按 userId + clientToken 查首次作答。 */
+    public PracticeRecord findByClientToken(long userId, String clientToken) {
+        if (clientToken == null || clientToken.isBlank()) {
+            return null;
+        }
+        return practiceRecordMapper.selectOne(new LambdaQueryWrapper<PracticeRecord>()
+                .eq(PracticeRecord::getUserId, userId)
+                .eq(PracticeRecord::getClientToken, clientToken)
+                .last("LIMIT 1"));
+    }
+
+    /** 近 N 天已练题目；供计划生成做冷却，避免刚做过的题立刻再排。 */
+    public Set<String> recentPracticedQids(long userId, int days) {
+        LocalDateTime since = LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusDays(days);
+        return practiceRecordMapper.selectList(new LambdaQueryWrapper<PracticeRecord>()
+                        .eq(PracticeRecord::getUserId, userId)
+                        .ge(PracticeRecord::getCreatedAt, since))
+                .stream()
+                .map(PracticeRecord::getQId)
+                .filter(qId -> qId != null && !qId.isBlank())
+                .collect(Collectors.toSet());
+    }
+
+    /** 近阶段错题按知识点计数；供计划生成优先选薄弱点。 */
+    public Map<String, Long> wrongCountByKp(long userId) {
+        List<PracticeRecord> records = practiceRecordMapper.selectList(
+                new LambdaQueryWrapper<PracticeRecord>()
+                        .eq(PracticeRecord::getUserId, userId)
+                        .eq(PracticeRecord::getIsCorrect, 0));
+        Map<String, Long> counts = new HashMap<>();
+        for (PracticeRecord record : records) {
+            if (record.getKpId() != null && !record.getKpId().isBlank()) {
+                counts.merge(record.getKpId(), 1L, Long::sum);
+            }
+        }
+        return counts;
+    }
+
+    /** 计划打卡幂等查询：返回首次 PLAN 作答；不存在返回 null。 */
+    public PlanCompletion findCompletionByToken(long userId, String clientToken) {
+        PracticeRecord record = findByClientToken(userId, clientToken);
+        if (record == null) {
+            return null;
+        }
+        return new PlanCompletion(record.getPracticeId(), record.getQId(),
+                record.getSource(), true);
+    }
+
+    /**
+     * 计划打卡写 practice_record（source=PLAN）。
+     * 打卡不判定对错，is_correct 固定 1；note 存入 my_answer，避免新增列。
+     */
+    public PlanCompletion recordPlanCompletion(long userId, String qId, String kpId,
+                                               String clientToken, String note) {
+        if (note != null && note.length() > 200) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "note 最长 200 字");
+        }
+        PracticeRecord existing = findByClientToken(userId, clientToken);
+        if (existing != null) {
+            if (!Objects.equals(existing.getQId(), qId) || !"PLAN".equals(existing.getSource())) {
+                throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "clientToken 已用于其他作答");
+            }
+            return new PlanCompletion(existing.getPracticeId(), existing.getQId(),
+                    existing.getSource(), true);
+        }
+
+        PracticeRecord record = new PracticeRecord();
+        record.setUserId(userId);
+        record.setClientToken(clientToken);
+        record.setQId(qId);
+        record.setKpId(kpId);
+        record.setSource("PLAN");
+        record.setIsCorrect(1);
+        record.setMyAnswer(note);
+        try {
+            practiceRecordMapper.insert(record);
+        } catch (DuplicateKeyException e) {
+            PracticeRecord winner = findByClientToken(userId, clientToken);
+            if (winner != null && Objects.equals(winner.getQId(), qId)
+                    && "PLAN".equals(winner.getSource())) {
+                return new PlanCompletion(winner.getPracticeId(), winner.getQId(),
+                        winner.getSource(), true);
+            }
+            throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "clientToken 冲突");
+        }
+        PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
+        return new PlanCompletion(saved == null ? record.getPracticeId() : saved.getPracticeId(),
+                qId, "PLAN", false);
+    }
+
+    private void validateLength(PracticeCreateRequest request) {
+        if (request.qId().length() > 20 || request.kpId().length() > 20) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "qId/kpId 最长 20 字");
+        }
+    }
+
+    /**
+     * 打卡写库结果。
+     *
+     * @param practiceId 作答记录 ID
+     * @param qId        题目编号
+     * @param source     来源（PLAN）
+     * @param duplicate  是否幂等命中
+     */
+    public record PlanCompletion(Long practiceId, String qId, String source, boolean duplicate) {
+    }
+}

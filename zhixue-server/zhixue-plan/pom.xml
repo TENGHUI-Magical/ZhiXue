@@ -19,8 +19,34 @@
             <artifactId>zhixue-common</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.zhixue</groupId>
+            <artifactId>zhixue-course</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- 计划打卡写 practice_record：只经 diagnosis 的 PracticeService，不直接查表 -->
+        <dependency>
+            <groupId>com.zhixue</groupId>
+            <artifactId>zhixue-diagnosis</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
+        </dependency>
+        <!-- 取当前登录学生：打卡与计划归属校验 -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot4-starter</artifactId>
+        </dependency>
+        <!-- 契约字段注解：Plan.status 枚举与 openapi 对齐 -->
+        <dependency>
+            <groupId>io.swagger.core.v3</groupId>
+            <artifactId>swagger-annotations</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>
