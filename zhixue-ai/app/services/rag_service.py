@@ -14,6 +14,7 @@ import uuid
 from typing import AsyncIterator
 
 import httpx
+from fastapi.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.schemas import RagExplainRequest
@@ -37,19 +38,33 @@ def _first(text: str | None, limit: int) -> str:
     return clean[:limit]
 
 
-def _prompt(req: RagExplainRequest) -> list[dict]:
+def _prompt(req: RagExplainRequest, hits: list | None = None) -> list[dict]:
     system = (
         "你是数据库原理课程的助教。只做思路点拨，不直接替学生写作业答案。"
         "必须依据给定概念切片讲解，不得编造教材页码或引用。"
         "用中文分 3—4 段，每段不超过 120 字。"
     )
+    context = ""
+    if hits:
+        # 只把检索命中的切片注入 Prompt；阈值已在检索层过滤，避免无关内容污染讲解
+        parts = []
+        budget = 1200
+        for hit in hits[:5]:
+            content = hit.chunk.content[:300]
+            if budget - len(content) <= 0:
+                break
+            parts.append(f"[{hit.chunk.kp_id}] {content}")
+            budget -= len(content)
+        if parts:
+            context = "\n检索切片：\n" + "\n".join(parts)
     user = (
         f"知识点：{req.kpName}（{req.kpId}）\n"
         f"教材页码：{req.textbookPage or '未提供'}\n"
         f"概念切片：{req.conceptText}\n"
         f"常见误区：{req.misconception or '未提供'}\n"
         f"错因标签：{req.errorType or '未提供'}\n"
-        f"学生题干：{req.questionText or '（只讲概念）'}\n"
+        f"学生题干：{req.questionText or '（只讲概念）'}"
+        f"{context}\n"
         "请指出这道题考什么、学生最可能错在哪、下一步怎么自查。"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
@@ -120,22 +135,31 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         "name": req.kpName or req.kpId,
         "ref": f"《数据库系统概论（第6版）》{req.textbookPage or '页码待确认'}",
     }]
+    hits = []
     # 索引有内容时用检索命中的多来源增强；索引为空/失败时保持原有单来源，不影响降级链
     try:
         from app.services import vector_index
-        hits = vector_index.retrieve(
+        # bge 首次加载可能耗时数秒，放到线程池，避免阻塞其他 SSE 流
+        hits = await run_in_threadpool(
+            vector_index.retrieve,
             req.questionText or req.conceptText,
-            top_k=settings.rag_top_k,
-            threshold=settings.rag_score_threshold,
-            kp_id=req.kpId,
-            course_id=req.courseId,
+            settings.rag_top_k,
+            settings.rag_score_threshold,
+            req.kpId,
+            req.courseId,
         )
         if hits:
-            sources = [{
-                "kpId": hit.chunk.kp_id,
-                "name": hit.chunk.kp_name or hit.chunk.kp_id,
-                "ref": f"《数据库系统概论（第6版）》{hit.chunk.ref or '页码待确认'}",
-            } for hit in hits]
+            # 保留当前知识点来源，再追加检索到的其他来源，避免把主来源替换掉
+            seen = {req.kpId}
+            for hit in hits:
+                if hit.chunk.kp_id in seen:
+                    continue
+                seen.add(hit.chunk.kp_id)
+                sources.append({
+                    "kpId": hit.chunk.kp_id,
+                    "name": hit.chunk.kp_name or hit.chunk.kp_id,
+                    "ref": f"《数据库系统概论（第6版）》{hit.chunk.ref or '页码待确认'}",
+                })
     except Exception as exc:  # 检索是增强项，不允许中断讲解
         logger.warning("RAG 检索增强失败，保持单来源：%s", exc)
     blocked, block_tip = compliance_check(req.questionText or "")
@@ -147,7 +171,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         yield _sse("error", {"code": 60004, "message": block_tip, "retryable": False})
         return
 
-    messages = _prompt(req)
+    messages = _prompt(req, hits)
     usage: dict = {}
     if settings.deepseek_api_key:
         # 契约 §6：L1 超时/5xx/限流时重试 1 次，仍失败才降 L2。

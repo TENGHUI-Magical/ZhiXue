@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -26,6 +27,10 @@ try:  # CI 的 requirements-dev 不装 numpy，必须允许无 numpy 运行
     import numpy as _np
 except Exception:  # pragma: no cover - 环境分支
     _np = None
+
+# 无 bge 时字符 n-gram 分数量纲远低于余弦；用比例+下限换算，而不是把调用方阈值直接压成 0.05。
+_HASH_THRESHOLD_RATIO = 0.25
+_HASH_THRESHOLD_FLOOR = 0.08
 
 _MODEL = None
 _MODEL_LOCK = threading.Lock()
@@ -58,16 +63,26 @@ def _clean(text: str) -> str:
 
 def chunk_text(text: str, kp_id: str, size: int | None = None,
                overlap: int | None = None) -> list[Chunk]:
-    """按段落/句子切分，目标 size 字、重叠 overlap 字；不足一段则保留一段。"""
-    size = size or settings.rag_chunk_size
-    overlap = overlap if overlap is not None else settings.rag_chunk_overlap
+    """按段落/句子切分，目标 size 字、重叠 overlap 字；不足一段则保留一段。
+
+    overlap 必须小于 size；配置写反时收敛到 size/10，避免步长退化为 1 造成切片爆炸。
+    """
+    size = int(size or settings.rag_chunk_size)
+    overlap = int(overlap if overlap is not None else settings.rag_chunk_overlap)
+    if size <= 0:
+        size = settings.rag_chunk_size
+    if overlap < 0:
+        overlap = 0
+    if overlap >= size:
+        logger.warning("chunk overlap=%s 不小于 size=%s，已收敛为 size/10", overlap, size)
+        overlap = max(0, size // 10)
     clean = _clean(text)
     if not clean:
         return []
     if len(clean) <= size:
         return [Chunk(f"{kp_id}#1", kp_id, "", None, None, "", clean)]
 
-    # 先按句子边界切，再拼到目标长度；句子过长时硬切
+    # 先按句子边界切，再拼到目标长度；句子过长时硬切（不在这里做重叠，统一在末尾处理）
     pieces = [p.strip() for p in re.split(r"(?<=[。！？!?；;])", clean) if p.strip()]
     if not pieces:
         pieces = [clean]
@@ -81,7 +96,7 @@ def chunk_text(text: str, kp_id: str, size: int | None = None,
             start = 0
             while start < len(piece):
                 chunks.append(piece[start:start + size])
-                start += max(1, size - overlap)
+                start += size
             continue
         if len(buf) + len(piece) <= size:
             buf += piece
@@ -92,12 +107,11 @@ def chunk_text(text: str, kp_id: str, size: int | None = None,
     if buf:
         chunks.append(buf)
 
-    # 简单重叠：把上一段尾部拼到下一段头部，保证召回连续性
+    # 简单重叠：把上一段尾部拼到下一段头部；不截断当前段，否则每段尾部会丢字
     if overlap > 0 and len(chunks) > 1:
         overlapped = [chunks[0]]
         for prev, cur in zip(chunks, chunks[1:]):
-            tail = prev[-overlap:]
-            overlapped.append((tail + cur)[:size])
+            overlapped.append(prev[-overlap:] + cur)
         chunks = overlapped
     return [Chunk(f"{kp_id}#{i + 1}", kp_id, "", None, None, "", content)
             for i, content in enumerate(chunks)]
@@ -135,6 +149,17 @@ def _hash_vector(text: str, dim: int = 256) -> list[float]:
     return [v / norm for v in vector]
 
 
+def _bge_model_present() -> bool:
+    """不导入 sentence_transformers 也能判断模型是否在本机：避免离线环境首次请求卡 10s。"""
+    model = (settings.rag_embed_model or "").strip()
+    if not model:
+        return False
+    if Path(model).expanduser().exists():
+        return True
+    hub_home = Path(os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface")))
+    return (hub_home / "hub" / ("models--" + model.replace("/", "--"))).exists()
+
+
 def _load_model():
     """懒加载 bge；本地没有模型时直接回退，不联网下载、不阻塞启动。"""
     global _MODEL
@@ -142,6 +167,10 @@ def _load_model():
         return _MODEL
     with _MODEL_LOCK:
         if _MODEL is not None:
+            return _MODEL
+        if not _bge_model_present():
+            logger.info("bge 模型不在本机，使用字符 n-gram 向量：%s", settings.rag_embed_model)
+            _MODEL = False
             return _MODEL
         try:
             from sentence_transformers import SentenceTransformer
@@ -176,60 +205,104 @@ class VectorIndex:
     def __init__(self) -> None:
         self._chunks: dict[str, Chunk] = {}
         self._vectors: dict[str, list[float]] = {}
+        self._dim: int | None = None
+        self._lock = threading.RLock()
         self.mode = "hash-bigram"
 
     @property
     def size(self) -> int:
-        return len(self._chunks)
+        with self._lock:
+            return len(self._chunks)
 
     def add(self, chunks: list[Chunk], vectors: list[list[float]], mode: str) -> int:
         if len(chunks) != len(vectors):
             raise ValueError("chunks 与 vectors 数量不一致")
-        for chunk, vector in zip(chunks, vectors):
-            self._chunks[chunk.chunk_id] = chunk
-            self._vectors[chunk.chunk_id] = vector
-        self.mode = mode
-        return len(chunks)
+        with self._lock:
+            # 先做完整校验，再改内存，避免校验失败时留下半套索引
+            if self._chunks and mode != self.mode:
+                raise ValueError(f"索引模式不一致：已有 {self.mode}，本次 {mode}；请清空索引后重建")
+            target_dim = self._dim
+            for vector in vectors:
+                if target_dim is None:
+                    target_dim = len(vector)
+                elif len(vector) != target_dim:
+                    raise ValueError(
+                        f"向量维度不一致：索引 {target_dim}，本次 {len(vector)}；请清空索引后重建")
+            # 同一知识点重复 embed 时先删旧切片，避免旧正文继续被检索/引用
+            kp_ids = {chunk.kp_id for chunk in chunks}
+            for chunk_id, existing in list(self._chunks.items()):
+                if existing.kp_id in kp_ids:
+                    self._chunks.pop(chunk_id, None)
+                    self._vectors.pop(chunk_id, None)
+            for chunk, vector in zip(chunks, vectors):
+                self._chunks[chunk.chunk_id] = chunk
+                self._vectors[chunk.chunk_id] = vector
+            self._dim = target_dim
+            self.mode = mode
+            return len(chunks)
+
+    def _effective_threshold(self, threshold: float) -> float:
+        if self.mode != "hash-bigram":
+            return threshold
+        if threshold <= 0:
+            return 0.0
+        # 保留调用方阈值的相对高低，同时承认字面分数量纲更低
+        return max(_HASH_THRESHOLD_FLOOR, threshold * _HASH_THRESHOLD_RATIO)
 
     def search(self, query: str, top_k: int | None = None,
                threshold: float | None = None, kp_id: str | None = None,
                course_id: int | None = None) -> list[Hit]:
         top_k = top_k or settings.rag_top_k
         threshold = settings.rag_score_threshold if threshold is None else threshold
-        # 无 bge 时字符 n-gram 分数量纲明显更低；用 0.05 兜底阈值，保证离线可用。
-        effective_threshold = min(threshold, 0.05) if self.mode == "hash-bigram" else threshold
-        if not self._chunks or not _clean(query):
+        with self._lock:
+            if not self._chunks:
+                return []
+            effective_threshold = self._effective_threshold(threshold)
+            snapshot = list(self._chunks.items())
+            dim = self._dim
+        if not _clean(query):
             return []
         query_vector, _ = embed_texts([query])
         qv = query_vector[0]
+        if dim is not None and len(qv) != dim:
+            logger.warning("查询向量维度 %s 与索引 %s 不一致，返回空结果", len(qv), dim)
+            return []
         hits: list[Hit] = []
-        for chunk_id, chunk in self._chunks.items():
-            if kp_id and chunk.kp_id != kp_id:
-                continue
-            if course_id is not None and chunk.course_id not in (None, course_id):
-                continue
-            vec_score = max(0.0, _dot(qv, self._vectors[chunk_id]))
-            kw_score = char_bigram_jaccard(query, chunk.content)
-            final = settings.rag_hybrid_vector * vec_score + (1 - settings.rag_hybrid_vector) * kw_score
-            if final >= effective_threshold:
-                hits.append(Hit(chunk, round(final, 4), round(vec_score, 4), round(kw_score, 4)))
+        with self._lock:
+            for chunk_id, chunk in snapshot:
+                if kp_id and chunk.kp_id != kp_id:
+                    continue
+                if course_id is not None and chunk.course_id != course_id:
+                    continue
+                vector = self._vectors.get(chunk_id)
+                if vector is None:  # 已被并发 add 删除
+                    continue
+                vec_score = max(0.0, _dot(qv, vector))
+                kw_score = char_bigram_jaccard(query, chunk.content)
+                final = settings.rag_hybrid_vector * vec_score + (1 - settings.rag_hybrid_vector) * kw_score
+                if final >= effective_threshold:
+                    hits.append(Hit(chunk, round(final, 4), round(vec_score, 4), round(kw_score, 4)))
         hits.sort(key=lambda h: h.score, reverse=True)
         return hits[:top_k]
 
     def save(self, directory: str | Path | None = None) -> Path:
         path = Path(directory or settings.vector_index_dir).resolve()
         path.mkdir(parents=True, exist_ok=True)
-        chunks = list(self._chunks.values())
-        (path / "chunks.json").write_text(
-            json.dumps([chunk.__dict__ for chunk in chunks], ensure_ascii=False),
-            encoding="utf-8",
-        )
-        vectors = [self._vectors[chunk.chunk_id] for chunk in chunks]
+        with self._lock:
+            chunks = list(self._chunks.values())
+            vectors = [self._vectors[chunk.chunk_id] for chunk in chunks]
+            mode = self.mode
+        # 三个文件写临时文件后原子替换，避免崩溃/并发时数量错位
+        _atomic_write_text(path / "chunks.json",
+                           json.dumps([chunk.__dict__ for chunk in chunks], ensure_ascii=False))
         if _np is not None:
-            _np.save(path / "vectors.npy", _np.asarray(vectors, dtype=_np.float32))
+            # numpy 会给非 .npy 后缀自动追加 .npy，临时文件名必须自带后缀
+            tmp = path / "vectors.tmp.npy"
+            _np.save(tmp, _np.asarray(vectors, dtype=_np.float32))
+            os.replace(tmp, path / "vectors.npy")
         else:
-            (path / "vectors.json").write_text(json.dumps(vectors), encoding="utf-8")
-        (path / "meta.json").write_text(json.dumps({"mode": self.mode}), encoding="utf-8")
+            _atomic_write_text(path / "vectors.json", json.dumps(vectors))
+        _atomic_write_text(path / "meta.json", json.dumps({"mode": mode}))
         return path
 
     @classmethod
@@ -248,14 +321,23 @@ class VectorIndex:
                 vectors = json.loads((path / "vectors.json").read_text(encoding="utf-8"))
             else:
                 return index
+            if len(chunks) != len(vectors):
+                raise ValueError(f"切片数 {len(chunks)} 与向量数 {len(vectors)} 不一致")
             meta_file = path / "meta.json"
             mode = "hash-bigram"
             if meta_file.exists():
                 mode = json.loads(meta_file.read_text(encoding="utf-8")).get("mode", mode)
             index.add(chunks, vectors, mode)
         except Exception as exc:
-            logger.warning("向量索引加载失败，按空索引处理：%s", exc)
+            # 不自动删用户数据；保留现场，让运维按日志重建索引
+            logger.error("向量索引加载失败（%s），按空索引启动；请重新 embed 重建：%s", path, exc)
         return index
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def get_index() -> VectorIndex:
