@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.0.7
+  version: 2.0.8
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -815,14 +815,17 @@ components:
       properties:
         courseId: { type: integer, format: int64 }
         clientToken: { type: string, maxLength: 64 }
-        qId: { type: string, nullable: true }
-        kpId: { type: string, nullable: true }
-        imageUrl: { type: string, nullable: true }
-        ocrText: { type: string, nullable: true }
-        correctedText: { type: string, nullable: true }
-        ocrConfidence: { type: number, nullable: true }
-        errorType: { type: string, nullable: true }
-        studentNote: { type: string, nullable: true }
+        qId: { type: string, nullable: true, maxLength: 64 }
+        kpId: { type: string, nullable: true, maxLength: 32 }
+        imageUrl: { type: string, nullable: true, maxLength: 500 }
+        ocrText: { type: string, nullable: true, maxLength: 8000 }
+        correctedText: { type: string, nullable: true, maxLength: 3000 }
+        ocrConfidence: { type: number, nullable: true, minimum: 0, maximum: 1 }
+        errorType:
+          type: string
+          nullable: true
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
+        studentNote: { type: string, nullable: true, maxLength: 500 }
     ErrorRecordResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
@@ -888,12 +891,12 @@ components:
       type: object
       required: [logId, kpId, errorType]
       properties:
-        logId: { type: string, example: EL_101 }
-        kpId: { type: string, example: KP0201 }
+        logId: { type: string, example: EL_101, maxLength: 64 }
+        kpId: { type: string, example: KP0201, maxLength: 32 }
         errorType:
           type: string
           enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
-        questionText: { type: string, nullable: true }
+        questionText: { type: string, nullable: true, maxLength: 2000 }
         forceRefresh: { type: boolean, default: false }
     ExplainLogResponse:
       allOf:
