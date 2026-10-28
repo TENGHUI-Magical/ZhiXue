@@ -1,0 +1,82 @@
+{
+  "_comment": "Baseline for official openapi-diff. Known incompatibilities that are NOT treated as regressions. New diffs NOT listed here should be treated as potential regressions.",
+  "baselineOf": "docs/openapi.yaml",
+  "capturedAt": "2026-10-28",
+  "baselineVersion": "2.0.8",
+  "captureCommit": "934f60f",
+
+  "missingEndpoints": [
+    { "method": "get",  "path": "/api/courses",                              "reason": "功能缺口；P4.2 课程列表" },
+    { "method": "get",  "path": "/api/courses/{courseId}/chapters",         "reason": "功能缺口；P4.2 章节列表" },
+    { "method": "get",  "path": "/api/courses/{courseId}/knowledge-graph",  "reason": "功能缺口；P4.2 知识图谱" },
+    { "method": "post", "path": "/api/practices",                           "reason": "功能缺口；P4.11 作答提交" },
+    { "method": "get",  "path": "/api/portraits/me",                        "reason": "功能缺口；P4.10 学生画像" },
+    { "method": "get",  "path": "/api/portraits/class/{courseId}",          "reason": "功能缺口；P4.10 班级画像" },
+    { "method": "get",  "path": "/api/plans",                               "reason": "功能缺口；P4.11 计划列表" },
+    { "method": "post", "path": "/api/plans/generate",                       "reason": "功能缺口；P4.11 生成周计划" },
+    { "method": "post", "path": "/api/plans/{planId}/checkin",              "reason": "功能缺口；P4.11 打卡" },
+    { "method": "get",  "path": "/api/teacher/reviews",                     "reason": "功能缺口；P5 评阅队列" },
+    { "method": "post", "path": "/api/teacher/reviews/{logPk}",             "reason": "功能缺口；P5 提交评阅" },
+    { "method": "post", "path": "/api/teacher/knowledge-points",            "reason": "功能缺口；P5 新建知识点" },
+    { "method": "put",  "path": "/api/teacher/knowledge-points/{kpId}",      "reason": "功能缺口；P5 更新知识点" },
+    { "method": "get",  "path": "/api/teacher/questions",                   "reason": "功能缺口；P5 题库列表" },
+    { "method": "post", "path": "/api/teacher/questions",                   "reason": "功能缺口；P5 新建题目" },
+    { "method": "post", "path": "/api/teacher/questions/import",            "reason": "功能缺口；P5 Excel 导入" }
+  ],
+
+  "knownChanged": [
+    {
+      "category": "content-type",
+      "scope": "systemic",
+      "paths": ["*"],
+      "reason": "springdoc 默认不声明响应 content-type，生成侧为 */*；冻结契约声明 application/json。已决定不把 openapi-diff 设为全量硬门禁，见 24 §2.4。",
+      "blocker": false
+    },
+    {
+      "category": "operationId",
+      "scope": "all paths",
+      "reason": "冻结契约无 operationId，生成侧为 login/logout/me/getKp/... 等。工具噪声，非语义漂移。",
+      "blocker": false
+    },
+    {
+      "category": "tags",
+      "scope": "all paths",
+      "reason": "生成侧 tags 为 auth-controller/diagnosis-controller 等，冻结侧为 auth/course/error/...。工具噪声，非语义漂移。",
+      "blocker": false
+    },
+    {
+      "category": "error-responses-missing",
+      "paths": [
+        "post /api/auth/login:400",
+        "get /api/auth/me:401",
+        "get /api/course/kp/{kpId}:404",
+        "post /api/error/upload:400",
+        "post /api/error/upload:409",
+        "put /api/error/records/{logId}/confirm:409",
+        "get /api/diagnosis/explain/{explainId}:404"
+      ],
+      "reason": "控制器未声明 @ApiResponse，springdoc 不生成错误响应。计划批次 2-02-P1 补。",
+      "blocker": false
+    },
+    {
+      "category": "error-record-create-constraints",
+      "path": "post /api/error/records",
+      "reason": "批次 2-01 已对齐 openapi 2.0.8 的 maxLength/minLength/default；springdoc 不把 DTO 注解的 @Size/@Schema(defaultValue=) 全部生成到 schema，官方 diff 仍可能报告长度约束差异。自定义比较器不纳入 format/min/max/default。",
+      "blocker": false
+    },
+    {
+      "category": "explain-request-constraints",
+      "path": "post /api/diagnosis/explain",
+      "reason": "同 ErrorRecordCreate。批次 2-01 已对齐。",
+      "blocker": false
+    },
+    {
+      "category": "sse-timeout-property",
+      "path": "post /api/diagnosis/explain",
+      "reason": "SSE 端点（produces=text/event-stream）。自定义比较器跳过 SSE。官方 diff 可能报告 timeout property 差异。",
+      "blocker": false
+    }
+  ],
+
+  "diffStrategy": "仅拦截 baseline 外的新增差异；missing endpoints 不阻断（按 24 §2.4）；changedOperationIds 不阻断；content-type 系统性差异不阻断；真正阻断的是 schema type/enum/required 漂移（由自定义 ContractSchemaComparator 负责）。"
+}
