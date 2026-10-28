@@ -14,7 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * 讲解结果缓存（契约 V2 §6）：key = sha1(kpId + errorType + correctedText)，TTL 7 天。
+ * 讲解结果缓存（契约 V2 §6）：key = sha256(kpId + errorType + correctedText)，TTL 7 天。
  * <p>
  * 只缓存 L1 正常完成、未拦截、有正文的结果；Redis 不可用时跳过缓存直调模型，绝不返回 500。
  */
@@ -37,7 +37,7 @@ public class ExplainCacheService {
     }
 
     /**
-     * 计算契约缓存 key：sha1(kpId + errorType + correctedText)。
+     * 计算契约缓存 key：sha256(kpId + errorType + correctedText)。
      *
      * @param kpId         知识点编号
      * @param errorType    五类错因之一
@@ -46,7 +46,7 @@ public class ExplainCacheService {
      */
     public String key(String kpId, String errorType, String questionText) {
         String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText);
-        return KEY_PREFIX + sha1(raw);
+        return KEY_PREFIX + sha256(raw);
     }
 
     /**
@@ -82,12 +82,12 @@ public class ExplainCacheService {
         }
     }
 
-    private String sha1(String raw) {
+    private String sha256(String raw) {
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(raw.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("JVM 缺少 SHA-1 实现", e);
+            throw new IllegalStateException("JVM 缺少 SHA-256 实现", e);
         }
     }
 

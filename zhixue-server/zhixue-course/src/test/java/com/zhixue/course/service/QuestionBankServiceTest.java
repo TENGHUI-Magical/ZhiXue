@@ -80,4 +80,19 @@ class QuestionBankServiceTest {
         BizException ex = assertThrows(BizException.class, () -> service.getDetail("Q_9999"));
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
     }
+
+    @Test
+    void dirtyOptionsJsonDegradesToEmpty() {
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0202");
+        question.setQuestionType("单选");
+        question.setQuestionText("题干");
+        // 元素不是对象：旧实现会在 toView 强转时抛 ClassCastException
+        question.setOptionsJson("[\"A\",\"B\"]");
+        when(questionBankMapper.selectById("Q_0202")).thenReturn(question);
+
+        QuestionDetailView detail = service.getDetail("Q_0202");
+
+        assertEquals(0, detail.options().size());
+    }
 }

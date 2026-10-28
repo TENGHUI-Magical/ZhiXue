@@ -944,12 +944,12 @@ components:
         qId: { type: string, example: Q_012 }
         kpId: { type: string, example: KP0301 }
         isCorrect: { type: boolean }
-        myAnswer: { type: string, nullable: true }
+        myAnswer: { type: string, nullable: true, maxLength: 20000 }
         errorType:
           type: [string, "null"]
           nullable: true
           enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
-        costSeconds: { type: integer, nullable: true }
+        costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
         source: { type: string, enum: [RECOMMEND, SELF], default: SELF }
         recommendationId: { type: integer, format: int64, nullable: true, description: 来自推荐时传入，服务端置 is_adopted=1 }
         clientToken: { type: string, maxLength: 64 }

@@ -273,7 +273,26 @@ public class RagExplainService {
                     String name = event.event() == null ? "message" : event.event();
                     switch (name) {
                         case "meta" -> {
-                            // meta/source 由 Java 统一发出，丢弃上游同名事件，避免重复
+                            // 上游 meta 携带检索增强来源；转成契约 source 事件，前端按 kpId 去重
+                            Map<String, Object> meta = readMap(event.data());
+                            Object sources = meta.get("sources");
+                            if (sources instanceof List<?> list) {
+                                for (Object item : list) {
+                                    if (!(item instanceof Map<?, ?> source)) {
+                                        continue;
+                                    }
+                                    Object kpIdValue = source.get("kpId");
+                                    String sourceKpId = kpIdValue == null ? null : String.valueOf(kpIdValue);
+                                    if (sourceKpId == null || sourceKpId.isBlank()) {
+                                        continue;
+                                    }
+                                    Map<String, Object> out = new LinkedHashMap<>();
+                                    out.put("kpId", sourceKpId);
+                                    out.put("title", source.get("name"));
+                                    out.put("textbookPage", pageFromRef(source.get("ref")));
+                                    send(emitter, "source", out);
+                                }
+                            }
                         }
                         case "chunk" -> {
                             String text = readContent(event.data());
@@ -389,6 +408,16 @@ public class RagExplainService {
         source.put("textbookPage", kp.getTextbookPage());
         source.put("title", kp.getName());
         send(emitter, "source", source);
+    }
+
+    /** 上游 ref 形如「《数据库系统概论（第6版）》P38」，只取页码部分回给前端。 */
+    private String pageFromRef(Object ref) {
+        if (ref == null) {
+            return null;
+        }
+        String text = String.valueOf(ref);
+        int index = text.lastIndexOf('》');
+        return index >= 0 ? text.substring(index + 1).trim() : text;
     }
 
     private void sendSource(SseEmitter emitter, ExplainCacheService.Source cached) {

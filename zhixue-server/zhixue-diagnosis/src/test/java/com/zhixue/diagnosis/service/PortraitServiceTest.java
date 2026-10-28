@@ -3,7 +3,10 @@ package com.zhixue.diagnosis.service;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.CourseView;
+import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
@@ -134,6 +137,21 @@ class PortraitServiceTest {
             assertEquals(0.333, view.dimensionScores().get("concept"));
             assertEquals(1, view.weakestKps().size());
             assertEquals(2, view.errorDist().get("CONCEPT_CONFUSION"));
+        }
+    }
+
+    @Test
+    void classPortraitRejectsOtherTeacher() {
+        Course course = new Course();
+        course.setCourseId(1L);
+        course.setTeacherId(99L);
+        when(courseService.getActiveById(1L)).thenReturn(course);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                    () -> service.classPortrait(1L));
+            assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
         }
     }
 }

@@ -25,7 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 讲解缓存单测（契约 V2 §6）：sha1 key、7 天 TTL、读损坏/Redis 故障降级。
+ * 讲解缓存单测（契约 V2 §6）：sha256 key、7 天 TTL、读损坏/Redis 故障降级。
  */
 @ExtendWith(MockitoExtension.class)
 class ExplainCacheServiceTest {
@@ -46,8 +46,8 @@ class ExplainCacheServiceTest {
     }
 
     @Test
-    void keyMatchesSha1OfContractFields() throws Exception {
-        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1")
+    void keyMatchesSha256OfContractFields() throws Exception {
+        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                 .digest("KP0201CONCEPT_CONFUSION求闭包".getBytes(StandardCharsets.UTF_8)));
 
         assertThat(service.key("KP0201", "CONCEPT_CONFUSION", "求闭包"))

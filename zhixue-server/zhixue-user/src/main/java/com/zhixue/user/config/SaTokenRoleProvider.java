@@ -30,7 +30,9 @@ public class SaTokenRoleProvider implements StpInterface {
         try {
             Long userId = Long.valueOf(String.valueOf(loginId));
             SysUser user = sysUserMapper.selectById(userId);
-            if (user == null || user.getRole() == null || user.getRole().isBlank()) {
+            // 停用账号即使旧 token 未过期也不应继续拥有角色
+            if (user == null || user.getIsActive() == null || user.getIsActive() != 1
+                    || user.getRole() == null || user.getRole().isBlank()) {
                 return List.of();
             }
             return List.of(user.getRole());

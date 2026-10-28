@@ -2,7 +2,10 @@ package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.CourseView;
+import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
@@ -26,6 +29,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -83,13 +87,21 @@ public class PortraitService {
      */
     public ClassPortraitView classPortrait(Long courseId) {
         StpUtil.checkRole("TEACHER");
-        courseService.getActiveById(courseId);
+        Course course = courseService.getActiveById(courseId);
+        long teacherId = StpUtil.getLoginIdAsLong();
+        if (course.getTeacherId() != null && !Objects.equals(course.getTeacherId(), teacherId)) {
+            throw new BizException(ErrorCode.FORBIDDEN, "无权查看其他教师的课程");
+        }
         List<String> qIds = questionBankService.listQidsByCourse(courseId);
         if (qIds.isEmpty()) {
             return emptyClassPortrait(courseId);
         }
         List<PracticeRecord> records = practiceRecordMapper.selectList(
-                new LambdaQueryWrapper<PracticeRecord>().in(PracticeRecord::getQId, qIds));
+                new LambdaQueryWrapper<PracticeRecord>()
+                        .select(PracticeRecord::getUserId, PracticeRecord::getKpId,
+                                PracticeRecord::getIsCorrect, PracticeRecord::getErrorType,
+                                PracticeRecord::getCreatedAt)
+                        .in(PracticeRecord::getQId, qIds));
         if (records.isEmpty()) {
             return emptyClassPortrait(courseId);
         }
@@ -292,7 +304,15 @@ public class PortraitService {
             return List.of();
         }
         try {
-            return objectMapper.readValue(json, List.class);
+            List<?> raw = objectMapper.readValue(json, List.class);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Object item : raw) {
+                // 维度配置可能混入字符串，逐项过滤，避免后续强转 50000
+                if (item instanceof Map<?, ?> map) {
+                    result.add((Map<String, Object>) map);
+                }
+            }
+            return result;
         } catch (Exception ignored) {
             return List.of();
         }

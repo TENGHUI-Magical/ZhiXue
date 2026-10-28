@@ -192,7 +192,15 @@ public class QuestionBankService {
             return List.of();
         }
         try {
-            return objectMapper.readValue(json, List.class);
+            List<?> raw = objectMapper.readValue(json, List.class);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Object item : raw) {
+                // 元素可能不是对象（如 ["A","B"]），逐项过滤，避免 toView 里 ClassCastException
+                if (item instanceof Map<?, ?> map) {
+                    result.add((Map<String, Object>) map);
+                }
+            }
+            return result;
         } catch (Exception ignored) {
             return List.of();
         }
