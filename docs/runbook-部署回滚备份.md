@@ -11,7 +11,7 @@
 | `REDIS_HOST/PORT/PASSWORD` | Redis | 否 |
 | `DEEPSEEK_API_KEY` | L1 讲解 | 否（无则 L3） |
 | `GLM_API_KEY` | L2 讲解 | 否 |
-| `ZHIXUE_AI_BASE_URL` | AI 服务地址 | 否，默认 `http://127.0.0.1:8000` |
+| `AI_BASE_URL` | AI 服务地址（application.yml 实际读取的变量名） | 否，默认 `http://127.0.0.1:8000` |
 
 密钥只放 `.env`/系统环境变量；禁止提交。
 
@@ -52,7 +52,8 @@ git -C zhixue checkout <上一个稳定 commit>
 ## 5. MySQL 备份/恢复
 
 ```powershell
-# 备份（含建表）
+# 备份（含建表；先建目录）
+New-Item -ItemType Directory -Force backup | Out-Null
 mysqldump -h 127.0.0.1 -u root -p --single-transaction --routines --triggers zhixue > backup\zhixue_20261028.sql
 
 # 恢复（先停 Java，避免写入）
@@ -62,14 +63,14 @@ mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < backup\zh
 
 - 结项前每次批量导入内容后备份一次；保留最近 7 天。
 - RAG 索引备份：复制 `zhixue-ai/data/vector_index/`（`vectors.npy` + `chunks.json` + `meta.json`）。
-- **2026-10-29 实跑**：dump 126,325 字节；导入临时库后 10 张关键表计数全部一致（diff=0）。
+- **2026-10-29 实跑**：dump 126,325 字节，SHA256 `FA7A928BC6195F5215563930BF8C83D6566E5BA8CB7012F443DF8F6E29863BB8`；导入临时库后 10 张关键表计数全部一致（diff=0）。
 - **中文 dump 必带 `--default-character-set=utf8mb4`**：Windows 客户端默认按本地编码解析，漏掉会报 `ERROR at line 161: Unknown command '\n'`（中文字节里的反斜杠被当成命令）。备份与恢复两侧都建议显式指定。
 - 口令可用 `MYSQL_PWD` 环境变量传入，避免 `-p` 交互与明文出现在命令历史。
 
 ## 6. 日志与排障
 
-> 当前没有文件日志配置，Java 日志只到 stdout。启动时必须重定向，否则关掉终端即丢：
-> `java -jar ... > logs\zhixue-YYYYMMDD.log 2>&1`。`logs/` 不进 git。
+> 当前没有文件日志配置，Java 日志只到 stdout。启动时必须重定向，否则关掉终端即丢。`logs/` 默认不存在，必须先建目录：
+> `New-Item -ItemType Directory -Force logs | Out-Null; java -jar ... > logs\zhixue-YYYYMMDD.log 2>&1`。`logs/` 不进 git。
 
 | 现象 | 先看 |
 | --- | --- |
@@ -80,7 +81,7 @@ mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < backup\zh
 | 40900 | 重复提交/打卡/评阅，刷新列表 |
 | 教师页 40300 | 当前账号不是 TEACHER |
 
-- **2026-10-29 断网 L3 实跑**：AI 8000 关闭时 health `ai=DEGRADED`，`POST /api/diagnosis/explain` 依次返回 `meta→source→degraded(L3, "AI 服务不可用")→delta×4→done`，181ms，日志无 ERROR。
+- **2026-10-29 断网 L3 实跑**：AI 8000 关闭时 health `ai=DEGRADED`，`POST /api/diagnosis/explain` 依次返回 `meta→source→degraded(L3, "AI 服务不可用")→delta×4→done`，181ms，日志无 ERROR；日志 9,305 字节 / 9,146 字符，SHA256 `355EF4902A5DA40C1588CFA4541E3C025142C5F9A029E0062F40C3EF09363422`。
 
 ## 7. 生产待补（P1）
 

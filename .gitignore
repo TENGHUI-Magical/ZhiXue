@@ -56,6 +56,7 @@ zhixue-server/sql/seed-dev-users.local.sql
 # ============ 运行时数据 ============
 data/
 logs/
+backup/
 *.log
 upload/
 ai-log/
