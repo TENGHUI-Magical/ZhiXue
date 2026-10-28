@@ -62,8 +62,14 @@ mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < backup\zh
 
 - 结项前每次批量导入内容后备份一次；保留最近 7 天。
 - RAG 索引备份：复制 `zhixue-ai/data/vector_index/`（`vectors.npy` + `chunks.json` + `meta.json`）。
+- **2026-10-29 实跑**：dump 126,325 字节；导入临时库后 10 张关键表计数全部一致（diff=0）。
+- **中文 dump 必带 `--default-character-set=utf8mb4`**：Windows 客户端默认按本地编码解析，漏掉会报 `ERROR at line 161: Unknown command '\n'`（中文字节里的反斜杠被当成命令）。备份与恢复两侧都建议显式指定。
+- 口令可用 `MYSQL_PWD` 环境变量传入，避免 `-p` 交互与明文出现在命令历史。
 
 ## 6. 日志与排障
+
+> 当前没有文件日志配置，Java 日志只到 stdout。启动时必须重定向，否则关掉终端即丢：
+> `java -jar ... > logs\zhixue-YYYYMMDD.log 2>&1`。`logs/` 不进 git。
 
 | 现象 | 先看 |
 | --- | --- |
@@ -73,6 +79,8 @@ mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < backup\zh
 | 检索空 | 是否先调 `/api/rag/embed`；阈值 0.35；索引目录 |
 | 40900 | 重复提交/打卡/评阅，刷新列表 |
 | 教师页 40300 | 当前账号不是 TEACHER |
+
+- **2026-10-29 断网 L3 实跑**：AI 8000 关闭时 health `ai=DEGRADED`，`POST /api/diagnosis/explain` 依次返回 `meta→source→degraded(L3, "AI 服务不可用")→delta×4→done`，181ms，日志无 ERROR。
 
 ## 7. 生产待补（P1）
 
