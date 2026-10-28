@@ -242,7 +242,7 @@ const load = async () => {
   try {
     const [data, courses] = await Promise.all([getPortrait(), listCourses().catch(() => [])]);
     portrait.value = data;
-    const course = courses[0];
+    const course = (courses ?? [])[0];
     dimensionDefs.value = course?.dimensionConfig?.length
       ? course.dimensionConfig
       : Object.keys(data?.dimensionScores ?? {}).map((key) => ({ key, name: key }));

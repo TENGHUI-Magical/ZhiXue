@@ -59,6 +59,7 @@ const loading = ref(false);
 const isDev = import.meta.env.DEV;
 
 const submit = async () => {
+  if (loading.value) return;
   if (!username.value || !password.value) {
     ElMessage.warning("请输入账号和密码");
     return;
@@ -87,6 +88,8 @@ const submit = async () => {
       );
     }
     await router.replace(data.role === "TEACHER" ? "/teacher/reviews" : "/diagnosis");
+  } catch (e) {
+    ElMessage.error((e as Error).message || "登录失败");
   } finally {
     loading.value = false;
   }

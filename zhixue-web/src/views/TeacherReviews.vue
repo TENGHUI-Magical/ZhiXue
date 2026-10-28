@@ -196,6 +196,11 @@ const load = async () => {
     const data = await listReviews({ page: page.value, size: size.value });
     records.value = data.records ?? [];
     total.value = data.total ?? 0;
+    // 评阅掉最后一页最后一条后，当前页会变空；自动退回上一页，避免分页器被空态一起卸载
+    if (records.value.length === 0 && page.value > 1) {
+      page.value -= 1;
+      await load();
+    }
   } catch (e) {
     error.value = (e as Error).message || "评阅队列加载失败";
   } finally {

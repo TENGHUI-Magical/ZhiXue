@@ -5,7 +5,7 @@
     size="560px"
     destroy-on-close
     class="practice-drawer"
-    @closed="reset"
+    @closed="onClosed"
   >
     <PageState :loading="loading" :error="error" retry-text="重新加载" @retry="load">
       <template v-if="detail">
@@ -162,6 +162,11 @@ const combinedAnswer = computed(() => {
 });
 
 const reset = () => {
+  loadSeq += 1;
+  clearFields();
+};
+
+const clearFields = () => {
   loading.value = false;
   answerLoading.value = false;
   submitting.value = false;
@@ -172,21 +177,45 @@ const reset = () => {
   selectedOptions.value = [];
   myAnswer.value = "";
   revealed.value = false;
+  submitToken = "";
+  submitTokenKey = "";
+};
+
+let loadSeq = 0;
+let submitToken = "";
+let submitTokenKey = "";
+
+const onClosed = () => {
+  // 关闭动画结束时可能已经切到下一题，只有确实关闭才清空
+  if (!visible.value) reset();
+};
+
+const tokenForCurrentQuestion = () => {
+  const key = `${props.qId}:${props.recommendationId ?? ""}`;
+  if (submitTokenKey !== key || !submitToken) {
+    submitTokenKey = key;
+    submitToken = newClientToken();
+  }
+  return submitToken;
 };
 
 const load = async () => {
-  reset();
+  const seq = ++loadSeq;
+  clearFields();
   if (!props.qId) {
     error.value = "缺少题目编号";
     return;
   }
   loading.value = true;
   try {
-    detail.value = await getQuestionDetail(props.qId);
+    const data = await getQuestionDetail(props.qId);
+    if (seq !== loadSeq) return; // 快速切题时丢弃旧响应
+    detail.value = data;
   } catch (e) {
+    if (seq !== loadSeq) return;
     error.value = (e as Error).message || "题目加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 };
 
@@ -204,7 +233,7 @@ const reveal = async () => {
 };
 
 const submit = async (isCorrect: boolean) => {
-  if (!detail.value) return;
+  if (!detail.value || submitting.value) return;
   const kpId = detail.value.kpId || props.kpId;
   if (!kpId) {
     ElMessage.error("题目缺少知识点归属，无法提交");
@@ -220,8 +249,10 @@ const submit = async (isCorrect: boolean) => {
       errorType: null,
       source: props.recommendationId != null ? "RECOMMEND" : "SELF",
       recommendationId: props.recommendationId,
-      clientToken: newClientToken()
+      // 同一题复用 token：超时/连点重试不会写出两条作答
+      clientToken: tokenForCurrentQuestion()
     });
+    submitToken = "";
     ElMessage.success(result.duplicate ? "已提交过，返回首次结果" : "已记录作答");
     emit("completed", { isCorrect, practiceId: result.practiceId });
     visible.value = false;

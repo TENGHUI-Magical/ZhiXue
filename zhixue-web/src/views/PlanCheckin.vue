@@ -214,15 +214,21 @@ const layerLabel = (layer?: string) => {
   return layer || "推荐";
 };
 
+let planReqSeq = 0;
+
 const loadPlans = async () => {
+  const seq = ++planReqSeq;
   loading.value = true;
   error.value = "";
   try {
-    plans.value = await listPlans(weekStart.value, weekEnd.value);
+    const data = await listPlans(weekStart.value, weekEnd.value);
+    if (seq !== planReqSeq) return; // 快速切周时丢弃旧响应
+    plans.value = data;
   } catch (e) {
+    if (seq !== planReqSeq) return;
     error.value = (e as Error).message || "计划加载失败";
   } finally {
-    loading.value = false;
+    if (seq === planReqSeq) loading.value = false;
   }
 };
 

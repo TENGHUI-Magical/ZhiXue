@@ -10,8 +10,17 @@ import json
 import statistics
 import sys
 import time
+from pathlib import Path
 
 from playwright.async_api import async_playwright
+
+
+def _repo_path(path_str: str) -> Path:
+    # CLI 传入的文件路径只许落在仓库内，防止把结果写到任意位置
+    p = Path(path_str).resolve()
+    if not p.is_relative_to(Path(__file__).resolve().parents[2]):
+        raise SystemExit(f"路径必须在 zhixue-web 仓库内：{p}")
+    return p
 
 # 网络档：延迟单位 ms，吞吐单位 字节/秒
 PROFILES = {
@@ -182,7 +191,7 @@ async def main():
     if "ready_p75_reduction" in result:
         print(f"能用 p75 降幅：{result['ready_p75_reduction'] * 100:.1f}%")
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as fh:
+        with open(_repo_path(args.out), "w", encoding="utf-8") as fh:
             json.dump(result, fh, ensure_ascii=False, indent=1)
 
 

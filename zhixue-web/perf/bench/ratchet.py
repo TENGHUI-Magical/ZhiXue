@@ -11,10 +11,19 @@ check 时超过上限（加容差）就以退出码 1 失败；更低且带 --up
 import argparse
 import json
 import sys
+from pathlib import Path
+
+
+def _repo_path(path_str: str) -> Path:
+    # CLI 传入的文件路径只许落在仓库内，防止读写任意位置
+    p = Path(path_str).resolve()
+    if not p.is_relative_to(Path(__file__).resolve().parents[2]):
+        raise SystemExit(f"路径必须在 zhixue-web 仓库内：{p}")
+    return p
 
 
 def read_value(result_path, version, metric):
-    with open(result_path, encoding="utf-8") as fh:
+    with open(_repo_path(result_path), encoding="utf-8") as fh:
         data = json.load(fh)
     s = data["results"][version]["summary"]
     return s[metric]["p75"], data["results"][version]["url"]
@@ -40,7 +49,7 @@ def main():
     key = f"{label}::{args.metric}_p75"
 
     try:
-        with open(args.ceilings, encoding="utf-8") as fh:
+        with open(_repo_path(args.ceilings), encoding="utf-8") as fh:
             ceilings = json.load(fh)
     except FileNotFoundError:
         ceilings = {}
@@ -62,7 +71,7 @@ def main():
             ceilings[key] = value
             print(f"  上限下调到 {value}")
 
-    with open(args.ceilings, "w", encoding="utf-8") as fh:
+    with open(_repo_path(args.ceilings), "w", encoding="utf-8") as fh:
         json.dump(ceilings, fh, ensure_ascii=False, indent=1)
 
 
