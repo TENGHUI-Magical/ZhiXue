@@ -2,33 +2,52 @@
   "_comment": "Baseline for official openapi-diff. Known incompatibilities that are NOT treated as regressions. New diffs NOT listed here should be treated as potential regressions.",
   "baselineOf": "docs/openapi.yaml",
   "capturedAt": "2026-10-28",
-  "baselineVersion": "2.0.9",
-  "captureCommit": "9760890",
-
+  "baselineVersion": "2.1.0",
+  "captureCommit": "dfa0d5b",
   "missingEndpoints": [
-    { "method": "get",  "path": "/api/courses",                              "reason": "功能缺口；P4.2 课程列表" },
-    { "method": "get",  "path": "/api/courses/{courseId}/chapters",         "reason": "功能缺口；P4.2 章节列表" },
-    { "method": "get",  "path": "/api/courses/{courseId}/knowledge-graph",  "reason": "功能缺口；P4.2 知识图谱" },
-    { "method": "post", "path": "/api/practices",                           "reason": "功能缺口；P4.11 作答提交" },
-    { "method": "get",  "path": "/api/portraits/me",                        "reason": "功能缺口；P4.10 学生画像" },
-    { "method": "get",  "path": "/api/portraits/class/{courseId}",          "reason": "功能缺口；P4.10 班级画像" },
-    { "method": "get",  "path": "/api/plans",                               "reason": "功能缺口；P4.11 计划列表" },
-    { "method": "post", "path": "/api/plans/generate",                       "reason": "功能缺口；P4.11 生成周计划" },
-    { "method": "post", "path": "/api/plans/{planId}/checkin",              "reason": "功能缺口；P4.11 打卡" },
-    { "method": "get",  "path": "/api/teacher/reviews",                     "reason": "功能缺口；P5 评阅队列" },
-    { "method": "post", "path": "/api/teacher/reviews/{logPk}",             "reason": "功能缺口；P5 提交评阅" },
-    { "method": "post", "path": "/api/teacher/knowledge-points",            "reason": "功能缺口；P5 新建知识点" },
-    { "method": "put",  "path": "/api/teacher/knowledge-points/{kpId}",      "reason": "功能缺口；P5 更新知识点" },
-    { "method": "get",  "path": "/api/teacher/questions",                   "reason": "功能缺口；P5 题库列表" },
-    { "method": "post", "path": "/api/teacher/questions",                   "reason": "功能缺口；P5 新建题目" },
-    { "method": "post", "path": "/api/teacher/questions/import",            "reason": "功能缺口；P5 Excel 导入" }
+    {
+      "method": "get",
+      "path": "/api/teacher/reviews",
+      "reason": "功能缺口；P5 评阅队列"
+    },
+    {
+      "method": "post",
+      "path": "/api/teacher/reviews/{logPk}",
+      "reason": "功能缺口；P5 提交评阅"
+    },
+    {
+      "method": "post",
+      "path": "/api/teacher/knowledge-points",
+      "reason": "功能缺口；P5 新建知识点"
+    },
+    {
+      "method": "put",
+      "path": "/api/teacher/knowledge-points/{kpId}",
+      "reason": "功能缺口；P5 更新知识点"
+    },
+    {
+      "method": "get",
+      "path": "/api/teacher/questions",
+      "reason": "功能缺口；P5 题库列表"
+    },
+    {
+      "method": "post",
+      "path": "/api/teacher/questions",
+      "reason": "功能缺口；P5 新建题目"
+    },
+    {
+      "method": "post",
+      "path": "/api/teacher/questions/import",
+      "reason": "功能缺口；P5 Excel 导入"
+    }
   ],
-
   "knownChanged": [
     {
       "category": "content-type",
       "scope": "systemic",
-      "paths": ["*"],
+      "paths": [
+        "*"
+      ],
       "reason": "springdoc 默认不声明响应 content-type，生成侧为 */*；冻结契约声明 application/json。已决定不把 openapi-diff 设为全量硬门禁，见 24 §2.4。",
       "blocker": false
     },
@@ -69,6 +88,5 @@
       "blocker": false
     }
   ],
-
   "diffStrategy": "仅拦截 baseline 外的新增差异；missing endpoints 不阻断（按 24 §2.4）；changedOperationIds 不阻断；content-type 系统性差异不阻断；error-responses 已在 2.0.9 按实现修正（200+code），不再是 baseline 项。真正阻断的是 schema type/enum/required 漂移（由自定义 ContractSchemaComparator 负责）。"
 }
