@@ -25,8 +25,8 @@
           />
         </el-select>
         <el-select v-model="status" clearable placeholder="按状态筛选" class="filter">
-          <el-option label="草稿 DRAFT" value="DRAFT" />
-          <el-option label="已确认 CONFIRMED" value="CONFIRMED" />
+          <el-option label="草稿" value="DRAFT" />
+          <el-option label="已确认" value="CONFIRMED" />
         </el-select>
         <el-button type="primary" @click="search">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
@@ -68,7 +68,7 @@
           <el-table-column label="状态" width="100">
             <template #default="{ row }">
               <el-tag :type="row.status === 'CONFIRMED' ? 'success' : 'info'" size="small">
-                {{ row.status || "—" }}
+                {{ statusLabel(row.status) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -104,7 +104,7 @@
           <div class="mobile-head">
             <span class="mobile-id">{{ row.logId }}</span>
             <el-tag :type="row.status === 'CONFIRMED' ? 'success' : 'info'" size="small">
-              {{ row.status || "—" }}
+              {{ statusLabel(row.status) }}
             </el-tag>
           </div>
           <div class="mobile-kp">{{ row.kpId || "—" }} {{ row.kpName || "" }}</div>
@@ -179,6 +179,8 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? value;
+const statusLabel = (value?: string) =>
+  value === "CONFIRMED" ? "已确认" : value === "DRAFT" ? "草稿" : value || "—";
 
 const load = async () => {
   loading.value = true;

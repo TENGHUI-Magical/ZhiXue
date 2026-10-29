@@ -2,6 +2,9 @@
   <router-view v-if="$route.path === '/login'" />
 
   <el-container v-else class="layout">
+    <div class="app-wall" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i>
+    </div>
     <el-aside width="232px" class="aside">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true">智</span>
@@ -15,7 +18,7 @@
       </el-menu>
     </el-aside>
 
-    <el-container>
+    <el-container class="content" direction="vertical">
       <el-header class="header">
         <span class="header-title">
           <el-button
@@ -32,6 +35,7 @@
           <span class="title">{{ $route.meta.title }}</span>
         </span>
         <span class="user">
+          <ThemeSwitcher />
           <el-tag
             v-if="userRole"
             size="small"
@@ -75,6 +79,7 @@ import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, Radar, Stethoscope } from "@lucide/vue";
 import { api } from "./api/request";
+import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 
 const router = useRouter();
 const route = useRoute();

@@ -139,7 +139,7 @@ const submit = async () => {
   font-size: 18px;
   letter-spacing: -0.02em;
 }
-.login-brand span {
+.login-brand div span {
   display: block;
   margin-top: 2px;
   color: var(--app-text-muted);

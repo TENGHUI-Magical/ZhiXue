@@ -39,7 +39,7 @@
               markerHeight="6"
               orient="auto-start-reverse"
             >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="#cbd5e1" />
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--app-border-strong)" />
             </marker>
           </defs>
           <line
@@ -49,7 +49,7 @@
             :y1="edge.y1"
             :x2="edge.x2"
             :y2="edge.y2"
-            stroke="#cbd5e1"
+            stroke="var(--app-border-strong)"
             stroke-width="1.2"
             marker-end="url(#kg-arrow)"
           />
@@ -256,10 +256,10 @@ onMounted(load);
   display: inline-block;
 }
 .dot.weak {
-  background: #d92d20;
+  background: var(--app-danger);
 }
 .dot.normal {
-  background: #3b5bdb;
+  background: var(--app-primary);
 }
 .graph-card {
   overflow: hidden;
@@ -281,22 +281,22 @@ onMounted(load);
   stroke-width: 3;
 }
 .node-circle {
-  fill: #3b5bdb;
-  stroke: #ffffff;
+  fill: var(--app-primary);
+  stroke: var(--app-surface);
   stroke-width: 2;
   transition: fill 0.2s ease;
 }
 .node-circle.weak {
-  fill: #d92d20;
+  fill: var(--app-danger);
 }
 .graph-node:hover .node-circle {
   fill: var(--app-primary-strong);
 }
 .graph-node:hover .node-circle.weak {
-  fill: #b42318;
+  fill: color-mix(in srgb, var(--app-danger) 82%, black);
 }
 .node-id {
-  fill: #ffffff;
+  fill: var(--app-accent-contrast);
   font-size: 9px;
   font-weight: 600;
   pointer-events: none;
