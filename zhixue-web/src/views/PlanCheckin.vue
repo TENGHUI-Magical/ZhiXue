@@ -8,6 +8,13 @@
       </div>
       <div class="week-actions">
         <el-button text @click="shiftWeek(-1)">上一周</el-button>
+        <el-button
+          text
+          :aria-current="isCurrentWeek ? 'true' : undefined"
+          @click="goCurrentWeek"
+        >
+          本周
+        </el-button>
         <span class="week-title">{{ weekStart }} 至 {{ weekEnd }}</span>
         <el-button text @click="shiftWeek(1)">下一周</el-button>
       </div>
@@ -170,6 +177,9 @@ const activeRecommendationId = ref<number | null>(null);
 
 const weekStart = computed(() => formatDate(weekStartDate.value));
 const weekEnd = computed(() => formatDate(addDays(weekStartDate.value, 6)));
+const isCurrentWeek = computed(
+  () => formatDate(weekStartDate.value) === formatDate(mondayOf(new Date()))
+);
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -315,6 +325,11 @@ const onPracticeCompleted = async () => {
 
 const shiftWeek = (offset: number) => {
   weekStartDate.value = addDays(weekStartDate.value, offset * 7);
+  loadPlans();
+};
+
+const goCurrentWeek = () => {
+  weekStartDate.value = mondayOf(new Date());
   loadPlans();
 };
 
