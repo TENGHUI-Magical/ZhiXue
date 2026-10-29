@@ -242,20 +242,25 @@ const advice = computed(() => {
   return names;
 });
 
+let loadSeq = 0;
+
 const load = async () => {
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = "";
   try {
     const [data, courses] = await Promise.all([getPortrait(), listCourses().catch(() => [])]);
+    if (seq !== loadSeq) return; // 连点刷新时丢弃旧响应
     portrait.value = data;
     const course = (courses ?? [])[0];
     dimensionDefs.value = course?.dimensionConfig?.length
       ? course.dimensionConfig
       : Object.keys(data?.dimensionScores ?? {}).map((key) => ({ key, name: key }));
   } catch (e) {
+    if (seq !== loadSeq) return;
     error.value = (e as Error).message || "画像加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 };
 

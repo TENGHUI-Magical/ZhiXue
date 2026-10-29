@@ -190,11 +190,15 @@ const canSubmit = computed(() => score.value != null && comment.value.trim().len
 const sourceText = (row: ReviewItem) =>
   (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
 
+let loadSeq = 0;
+
 const load = async () => {
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = "";
   try {
     const data = await listReviews({ page: page.value, size: size.value });
+    if (seq !== loadSeq) return; // 快速翻页时丢弃旧响应
     records.value = data.records ?? [];
     total.value = data.total ?? 0;
     // 评阅掉最后一页最后一条后，当前页会变空；自动退回上一页，避免分页器被空态一起卸载
@@ -203,9 +207,10 @@ const load = async () => {
       await load();
     }
   } catch (e) {
+    if (seq !== loadSeq) return;
     error.value = (e as Error).message || "评阅队列加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 };
 

@@ -183,7 +183,10 @@ const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? value;
 const statusLabel = (value?: string) =>
   value === "CONFIRMED" ? "已确认" : value === "DRAFT" ? "草稿" : value || "—";
 
+let loadSeq = 0;
+
 const load = async () => {
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = "";
   try {
@@ -193,12 +196,14 @@ const load = async () => {
       kpId: kpId.value || undefined,
       status: status.value || undefined
     });
+    if (seq !== loadSeq) return; // 快速筛选/翻页时丢弃旧响应
     records.value = result.records ?? [];
     total.value = result.total ?? 0;
   } catch (e) {
+    if (seq !== loadSeq) return;
     error.value = (e as Error).message || "错题列表加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 };
 

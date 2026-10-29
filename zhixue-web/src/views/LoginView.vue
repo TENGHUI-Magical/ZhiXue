@@ -62,14 +62,15 @@ const isDev = import.meta.env.DEV;
 
 const submit = async () => {
   if (loading.value) return;
-  if (!username.value || !password.value) {
+  const account = username.value.trim();
+  if (!account || !password.value) {
     ElMessage.warning("请输入账号和密码");
     return;
   }
   loading.value = true;
   try {
     const data = await api.post<LoginResult>("/api/auth/login", {
-      username: username.value,
+      username: account,
       password: password.value
     });
     localStorage.setItem("satoken", data.token);

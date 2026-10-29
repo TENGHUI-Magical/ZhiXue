@@ -10,8 +10,8 @@ export interface ThemeOption {
 }
 
 export const THEMES: ThemeOption[] = [
-  { key: "glass", label: "液态玻璃", description: "默认；浅色磨砂与发丝边", accent: "#0071e3", surface: "#e8eaf0" },
-  { key: "glass-dark", label: "玻璃·夜", description: "深色磨砂，适合演示与夜间", accent: "#0a84ff", surface: "#050609" },
+  { key: "glass", label: "液态玻璃", description: "默认；冷雾蓝灰与发丝边", accent: "#2563eb", surface: "#d7e0ec" },
+  { key: "glass-dark", label: "玻璃·夜", description: "石墨蓝黑，适合演示与夜间", accent: "#4d8dff", surface: "#080d17" },
   { key: "academic", label: "学术蓝", description: "答辩与教师端经典", accent: "#3b5bdb", surface: "#f4f6fb" },
   { key: "ink", label: "墨夜", description: "旧版暗色", accent: "#38bdf8", surface: "#0b1220" },
   { key: "paper", label: "护眼米", description: "暖纸底色，适合阅读投屏", accent: "#2f7d5d", surface: "#f4f1e8" },
