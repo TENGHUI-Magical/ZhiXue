@@ -6,14 +6,15 @@
 
 ```
 zhixue-ai/
-├── requirements.txt   依赖清单（PaddleOCR 按平台单独安装）
+├── requirements.txt   核心依赖（RAG/LLM；不含 OCR）
+├── requirements-ocr.txt  OCR 依赖（RapidOCR，单独安装）
 ├── .env.example       环境变量样例（复制为 .env 后填真实密钥，勿提交仓库）
 └── app/
     ├── main.py        入口：三路由挂载 + /health 心跳
     ├── config.py      pydantic-settings 环境变量配置
     ├── schemas.py     Pydantic 模型（与接口契约文档一一对应）
     └── routers/
-        ├── ocr.py     /api/ocr   PaddleOCR 任务表轮询（契约 2.2 节）
+        ├── ocr.py     /api/ocr   RapidOCR 识别（PaddleOCR 模型的 ONNX 版；契约 2.2 节）
         ├── rag.py     /api/rag   检索/Embedding（契约 2.4 节来源追溯）
         └── llm.py     /api/llm   多模型网关 + 合规拦截器（任务 58A）
 ```
@@ -22,7 +23,8 @@ zhixue-ai/
 
 ```bash
 cd zhixue-ai
-pip install -r requirements.txt        # PaddleOCR 按平台提示安装
+pip install -r requirements.txt        # 核心依赖；OCR 另装 requirements-ocr.txt
+pip install -r requirements-ocr.txt    # 需要 OCR 时
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 # 验证：GET http://localhost:8000/health
 # 说明：默认只绑定本机回环（与下方"不对浏览器/外网暴露"口径一致）；
@@ -33,9 +35,9 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 Java 不直接调用大模型。diagnosis 模块经 HTTP 网关（`zhixue.ai.base-url` = localhost:8000）调用本服务三路由；本服务不对外网暴露端口（部署方案 1 节拓扑）。
 
-## TODO 清单
+## 状态（2026-10-29）
 
-- OCR：接 PaddleOCR 真实识别 + 业务库任务表（P0）
-- RAG：numpy VectorIndex 检索 + bge-small-zh Embedding（P0/P1）
-- LLM：DeepSeek/GLM 双通道 + 超时降级（P0）
-- 合规拦截词表扩展 + Prompt 注入防御（P0 任务 58A）
+- OCR：RapidOCR 已接；真图识别率待 P0-4 验收
+- RAG：numpy VectorIndex + 混合检索已接；bge 模型未落地，当前走 hash-bigram
+- LLM：DeepSeek/GLM 双通道 + L1—L4 降级已完成
+- 合规拦截：4 条词表已接；Prompt 注入/灰区二分类待做

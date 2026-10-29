@@ -40,6 +40,34 @@ def test_overlap_not_smaller_than_size_is_clamped():
     assert all(len(chunk.content) <= 110 for chunk in chunks)
 
 
+def test_bm25_counts_ignore_punctuation_and_case():
+    assert vector_index._bigram_counts("关系，模型") == vector_index._bigram_counts("关系模型")
+    assert vector_index._bigram_counts("SQL 查询") == vector_index._bigram_counts("sql查询")
+    assert vector_index._bigram_counts("") == {}
+
+
+def test_bm25_keyword_score_is_bounded_and_lexically_monotonic():
+    chunk = vector_index.Chunk("KP0203#1", "KP0203", "候选码", 1, None, "", "候选码是唯一标识元组的属性集")
+    index = vector_index.VectorIndex()
+    index.add([chunk], [vector_index._hash_vector(chunk.content)], "hash-bigram")
+    exact = index.search(chunk.content, top_k=3, threshold=0.0)[0]
+    assert exact.keyword_score == 1.0
+    assert 0 <= exact.score <= 1
+    unrelated = index.search("今天天气不错", top_k=3, threshold=0.0)[0]
+    assert unrelated.keyword_score == 0
+
+
+def test_bm25_ranks_lexical_match_first(tmp_path, monkeypatch):
+    _prepare(tmp_path, monkeypatch)
+    vector_index.embed_document("KP0203", "候选码是能唯一标识元组且真子集不能唯一标识的属性集。",
+                                "候选码", course_id=1)
+    vector_index.embed_document("KP0304", "连接查询把两个表按连接条件组合成结果表。",
+                                "连接查询", course_id=1)
+    hits = vector_index.retrieve("候选码的真子集不能唯一标识元组", top_k=2, threshold=0.0)
+    assert hits[0].chunk.kp_id == "KP0203"
+    assert hits[0].keyword_score > 0
+
+
 def test_char_bigram_jaccard_is_deterministic():
     assert vector_index.char_bigram_jaccard("候选码是唯一标识", "候选码是唯一标识") == 1.0
     assert vector_index.char_bigram_jaccard("候选码", "完全无关") == 0.0

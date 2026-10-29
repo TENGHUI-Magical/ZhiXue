@@ -4,6 +4,7 @@ rapidocr-onnxruntime==1.4.4
 pillow>=10.0,<12.0
 numpy>=1.26,<3.0
 
-# 可选（默认不装，装前按官方安装表复核；装完执行 tools/smoke_ocr.py）：
+# 可选（默认不装，装前按官方安装表复核；装完可自检）：
+# python -c "from rapidocr_onnxruntime import RapidOCR; RapidOCR(); print('RapidOCR OK')"
 # paddlepaddle==3.3.1
 # paddleocr==3.7.0
