@@ -18,31 +18,31 @@ const router = createRouter({
       path: '/diagnosis',
       name: 'diagnosis',
       component: () => import('../views/DiagnosisWorkbench.vue'),
-      meta: { title: '错题诊断工作台' }
+      meta: { title: '错题诊断工作台', roles: ['STUDENT'] }
     },
     {
       path: '/error-book',
       name: 'error-book',
       component: () => import('../views/ErrorBook.vue'),
-      meta: { title: '我的错题本' }
+      meta: { title: '我的错题本', roles: ['STUDENT'] }
     },
     {
       path: '/portrait',
       name: 'portrait',
       component: () => import('../views/PortraitDashboard.vue'),
-      meta: { title: '学情画像看板' }
+      meta: { title: '学情画像看板', roles: ['STUDENT'] }
     },
     {
       path: '/plan',
       name: 'plan',
       component: () => import('../views/PlanCheckin.vue'),
-      meta: { title: '周计划与打卡' }
+      meta: { title: '周计划与打卡', roles: ['STUDENT'] }
     },
     {
       path: '/knowledge-graph',
       name: 'knowledge-graph',
       component: () => import('../views/KnowledgeGraph.vue'),
-      meta: { title: '课程知识图谱' }
+      meta: { title: '课程知识图谱', roles: ['STUDENT'] }
     },
     {
       path: '/profile',
@@ -76,8 +76,12 @@ router.beforeEach((to) => {
   if (to.path === '/login' && token) {
     return currentRole() === 'TEACHER' ? '/teacher/reviews' : '/diagnosis'
   }
-  if (to.meta.roles && !to.meta.roles.includes(currentRole())) {
-    return '/diagnosis'
+  const role = currentRole()
+  // 本地有 token 但用户缓存缺失时先放行，App 会回查 /api/auth/me 再补角色；
+  // 否则会在角色未知时与 /diagnosis 互相重定向。
+  if (!role) return true
+  if (to.meta.roles && !to.meta.roles.includes(role)) {
+    return role === 'TEACHER' ? '/teacher/reviews' : '/diagnosis'
   }
   return true
 })

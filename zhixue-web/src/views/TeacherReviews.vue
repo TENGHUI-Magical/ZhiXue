@@ -31,9 +31,6 @@
       empty-text="当前没有待评阅的讲解。学生生成讲解后将进入评阅队列。"
       @retry="load"
     >
-      <template #empty-action>
-        <el-button type="primary" plain @click="load">刷新队列</el-button>
-      </template>
 
       <el-card class="table-card desktop-only">
         <el-table :data="records" row-key="logPk" stripe>

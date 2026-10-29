@@ -29,6 +29,7 @@
             <PanelLeftClose v-else :size="16" aria-hidden="true" />
           </button>
         </div>
+        <div class="menu-caption">{{ userRole === "TEACHER" ? "教学" : "学习" }}</div>
         <el-menu :default-active="$route.path" router class="menu">
           <el-menu-item
             v-for="item in menus"
@@ -104,6 +105,7 @@
           <span class="brand-mark" aria-hidden="true">智</span>
           <span class="brand-text">智学领航</span>
         </div>
+        <div class="menu-caption">{{ userRole === "TEACHER" ? "教学" : "学习" }}</div>
         <el-menu
           :default-active="$route.path"
           router
@@ -164,11 +166,12 @@ const baseMenus = [
   { path: "/knowledge-graph", label: "课程知识图谱", icon: Network }
 ];
 
-const menus = computed(() =>
-  userRole.value === "TEACHER"
-    ? [...baseMenus, { path: "/teacher/reviews", label: "教师评阅", icon: ClipboardCheck }]
-    : baseMenus
-);
+/** 教师端只展示已实现的教学入口；学生页面不再混进教师导航。 */
+const teacherMenus = [
+  { path: "/teacher/reviews", label: "教师评阅", icon: ClipboardCheck }
+];
+
+const menus = computed(() => (userRole.value === "TEACHER" ? teacherMenus : baseMenus));
 
 const roleLabel = computed(() => {
   if (userRole.value === "TEACHER") return "教师";
@@ -355,6 +358,13 @@ onBeforeUnmount(() => {
 .aside.is-collapsed .side-toggle {
   margin-left: 0;
 }
+.menu-caption {
+  padding: 2px 10px 8px;
+  color: var(--app-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+}
 .menu {
   border-right: none;
   background: transparent;
@@ -372,6 +382,9 @@ onBeforeUnmount(() => {
 }
 .aside.is-collapsed .menu {
   padding: 0;
+}
+.aside.is-collapsed .menu-caption {
+  display: none;
 }
 .aside.is-collapsed .menu-icon {
   margin-right: 0;
