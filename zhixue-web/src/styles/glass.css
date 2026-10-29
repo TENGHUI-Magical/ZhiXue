@@ -206,6 +206,10 @@ html[data-theme="glass-dark"] .main::-webkit-scrollbar {
 }
 
 @media (max-width: 768px) {
+  /* 抽屉 teleport 到 body，scoped 的 :deep(.el-drawer) 失效；这里用全局兜底 */
+  .el-drawer {
+    max-width: 92vw !important;
+  }
   html[data-theme="glass"] .layout,
   html[data-theme="glass-dark"] .layout {
     padding: 0;
