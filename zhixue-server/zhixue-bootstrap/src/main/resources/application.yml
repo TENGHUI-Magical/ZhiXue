@@ -53,3 +53,5 @@ zhixue:
     max-image-bytes: ${OCR_MAX_IMAGE_BYTES:5242880}  # 5MB（契约 §4）
     timeout-seconds: ${OCR_TIMEOUT_SECONDS:60}      # OCR 整体超时（契约 §3），区别于 SSE 首字节 10s
     reclaim-interval-ms: ${OCR_RECLAIM_INTERVAL_MS:60000} # 超时任务回收器扫描间隔
+    image-retention-days: ${OCR_IMAGE_RETENTION_DAYS:30}  # 上传图片保留天数（契约 §4 周清理口径）
+    cleanup-cron: ${OCR_CLEANUP_CRON:0 0 3 ? * SUN}       # 过期图片清理 cron（Asia/Shanghai）

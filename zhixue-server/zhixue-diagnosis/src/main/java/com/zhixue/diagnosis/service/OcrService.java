@@ -24,12 +24,17 @@ import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -84,6 +89,10 @@ public class OcrService {
 
     @Value("${zhixue.ocr.save-dir:./data/upload}")
     private String saveDir;
+
+    /** 上传图片保留天数：识别结果已落 result_json，图片到期由周任务删除（契约 §4） */
+    @Value("${zhixue.ocr.image-retention-days:30}")
+    private int imageRetentionDays;
 
     public OcrService(OcrTaskMapper ocrTaskMapper, AiClientProperties aiClientProperties,
                       ObjectMapper objectMapper) {
@@ -187,6 +196,57 @@ public class OcrService {
         if (reclaimed > 0) {
             log.warn("OCR 回收器标记 {} 个超时任务为 FAILED", reclaimed);
         }
+    }
+
+    /**
+     * 过期图片周清理（契约 §4：识别结果已落 result_json，图片到期即删，防止磁盘无界增长）。
+     * 每周日 03:00（Asia/Shanghai）执行；覆盖回收器竞态残留、落盘后未入库的孤儿文件。
+     */
+    @Scheduled(cron = "${zhixue.ocr.cleanup-cron:0 0 3 ? * SUN}", zone = "Asia/Shanghai")
+    public void cleanupExpiredImages() {
+        Path root = Paths.get(saveDir).toAbsolutePath().normalize();
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try {
+            // 下界 1 天：防止误配 0/负数导致 cutoff=now，把 save-dir 下所有图片一次清空
+            int retentionDays = Math.max(1, imageRetentionDays);
+            int deleted = purgeExpiredImages(root,
+                    Instant.now().minus(Duration.ofDays(retentionDays)));
+            if (deleted > 0) {
+                log.info("OCR 过期图片清理完成：删除 {} 个文件（超过 {} 天）", deleted, retentionDays);
+            }
+        } catch (Exception e) {
+            log.warn("OCR 过期图片清理失败：{}", e.toString());
+        }
+    }
+
+    /** 删除 lastModified 早于 cutoff 的文件，并顺带清掉腾空的子目录；返回删除文件数。 */
+    static int purgeExpiredImages(Path root, Instant cutoff) throws IOException {
+        int[] deleted = {0};
+        Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                if (attrs.isRegularFile() && attrs.lastModifiedTime().toInstant().isBefore(cutoff)) {
+                    Files.deleteIfExists(file);
+                    deleted[0]++;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+                if (!dir.equals(root)) {
+                    try (var entries = Files.list(dir)) {
+                        if (entries.findAny().isEmpty()) {
+                            Files.deleteIfExists(dir);
+                        }
+                    }
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return deleted[0];
     }
 
     /** 查询任务状态；任务不存在或不属于当前用户均按 40400 处理，避免泄露任务存在性。 */

@@ -28,6 +28,10 @@ import java.util.Set;
  * <p>
  * 分数归一到契约的 0—1 标度：score = min(1, cos / mapping.score-scale)，
  * 决策阈值读 application.yml 的 mapping.*，代码不写死数字。
+ * <p>
+ * 章先知：调用方传 chapterId 时只在该章候选内排序。60 题离线评测
+ * （zhixue/tools/eval_mapping_offline.py）top-1 73.3%→76.7%、top-3 81.7%→88.3%；
+ * 代价是章内无把握时转 FAILED 让用户手选，而不是跨章硬猜。
  */
 @Service
 public class KpMappingService {
@@ -72,6 +76,15 @@ public class KpMappingService {
         List<KpMatchProfile> profiles = knowledgePointService.listMatchProfiles(request.getCourseId());
         if (profiles.isEmpty() || request.getText().trim().length() < 5) {
             return new MapResult("FAILED", null, List.of(), false);
+        }
+        // 章先知：只在章内排序；章号配错（该章无知识点）时回退全量，避免整单 FAILED
+        if (request.getChapterId() != null) {
+            List<KpMatchProfile> scoped = profiles.stream()
+                    .filter(profile -> request.getChapterId().equals(profile.chapterId()))
+                    .toList();
+            if (!scoped.isEmpty()) {
+                profiles = scoped;
+            }
         }
 
         List<Map<String, Integer>> docTermCounts = new ArrayList<>(profiles.size());

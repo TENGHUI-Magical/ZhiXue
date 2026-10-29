@@ -67,4 +67,32 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <build>
+        <plugins>
+            <!-- 本机机器级 JAVA_HOME 可能是 JDK 17；在 validate 阶段直接报错，
+                 避免在 test 阶段才出现难以理解的 class file version 65/61。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-jdk-21</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[21,22)</version>
+                                    <message>JDK 21 is required (project targets Java 21). Set JAVA_HOME=D:\jdk-21.0.13.0.3, or run ..\scripts\mvn21.ps1 from zhixue-server. Current java.home: ${java.home}</message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

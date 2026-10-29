@@ -126,7 +126,8 @@ public class KnowledgePointService {
         Map<String, List<KpKeyword>> byKp = keywords.stream()
                 .collect(Collectors.groupingBy(KpKeyword::getKpId));
         return kps.stream()
-                .map(kp -> new KpMatchProfile(kp.getKpId(), kp.getName(), kp.getConceptText(),
+                .map(kp -> new KpMatchProfile(kp.getKpId(), kp.getName(), kp.getChapterId(),
+                        kp.getConceptText(),
                         byKp.getOrDefault(kp.getKpId(), Collections.emptyList())))
                 .toList();
     }

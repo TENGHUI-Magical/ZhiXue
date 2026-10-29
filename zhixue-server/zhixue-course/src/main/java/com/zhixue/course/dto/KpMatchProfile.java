@@ -10,8 +10,10 @@ import java.util.List;
  *
  * @param kpId       知识点编号
  * @param name       知识点名称
+ * @param chapterId  所属章节 ID；映射传 chapterId 时只在该章候选内排序
  * @param conceptText 概念切片（300—500 字），映射的主语料
  * @param keywords   关键词（含权重），用于前端解释命中原因
  */
-public record KpMatchProfile(String kpId, String name, String conceptText, List<KpKeyword> keywords) {
+public record KpMatchProfile(String kpId, String name, Long chapterId,
+                             String conceptText, List<KpKeyword> keywords) {
 }

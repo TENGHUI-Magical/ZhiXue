@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -633,9 +634,10 @@ public class RagExplainService {
         }
     }
 
+    /** UUID 后缀保证同一秒内并发讲解不撞号（explain_id 无唯一键，靠生成侧避免歧义） */
     private String nextExplainId() {
         return "EX_" + LocalDateTime.now().format(ID_FORMAT) + "_"
-                + Integer.toHexString((int) (System.nanoTime() & 0xffff));
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 
     private void dispose(Disposable disposable) {
