@@ -45,6 +45,12 @@ const router = createRouter({
       meta: { title: '课程知识图谱' }
     },
     {
+      path: '/profile',
+      name: 'profile',
+      component: () => import('../views/ProfileView.vue'),
+      meta: { title: '个人中心' }
+    },
+    {
       path: '/teacher/reviews',
       name: 'teacher-reviews',
       component: () => import('../views/TeacherReviews.vue'),
