@@ -45,8 +45,17 @@
             :closable="false"
             show-icon
             class="ocr-alert"
-            :title="`识别置信度低于 ${LOW_CONFIDENCE_THRESHOLD}，请核对题干并确认知识点后再分析`"
+            title="识别置信度低于 75%，请核对题干；确认无误后可继续分析"
           />
+          <el-button
+            v-if="lowConfidence"
+            class="ack-btn"
+            link
+            type="primary"
+            @click="acknowledgeLowConfidence"
+          >
+            我已核对识别结果，继续
+          </el-button>
           <el-alert
             v-if="ocrError"
             type="error"
@@ -132,7 +141,7 @@
 
           <div v-if="sources.length" class="sources">
             <div class="label">教材依据</div>
-            <div v-for="source in sources" :key="source.kpId" class="source-item">
+            <div v-for="source in sources" :key="sourceKey(source)" class="source-item">
               《数据库系统概论（第6版）》{{ source.textbookPage || "页码待定" }} ·
               {{ source.title || source.kpId }}
             </div>
@@ -249,6 +258,9 @@ let pollTimer: number | null = null;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 let controller: AbortController | null = null;
+/** 本轮流是否收到 done；连接提前结束且无 done 时不能把半截内容当完成 */
+let doneSeen = false;
+let authExpired = false;
 
 const stopPolling = () => {
   if (pollTimer !== null) {
@@ -317,6 +329,8 @@ const handleUpload = async (options: UploadRequestOptions) => {
 };
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
+const sourceKey = (source: SourceRef) =>
+  `${source.kpId}|${source.textbookPage ?? ""}|${source.title ?? ""}`;
 const layerLabel = (layer: string) => LAYER_LABELS[layer] ?? layer;
 const degradeLabel = computed(() =>
   degradeLevel.value ? `降级 ${degradeLevel.value}` : "已降级"
@@ -332,6 +346,8 @@ const resetExplainState = () => {
   latencyMs.value = 0;
   questions.value = [];
   errorMsg.value = "";
+  doneSeen = false;
+  authExpired = false;
 };
 
 const analyze = async () => {
@@ -373,7 +389,7 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
       break;
     case "source": {
       const source = payload as unknown as SourceRef;
-      if (source.kpId && !sources.value.some((item) => item.kpId === source.kpId)) {
+      if (source.kpId && !sources.value.some((item) => sourceKey(item) === sourceKey(source))) {
         sources.value.push(source);
       }
       break;
@@ -386,6 +402,7 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
       degradeLevel.value = String(payload.level ?? "");
       break;
     case "done":
+      doneSeen = true;
       explainId.value = String(payload.explainId ?? explainId.value);
       latencyMs.value = Number(payload.latencyMs ?? 0);
       void loadRecommend();
@@ -396,6 +413,8 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
         blocked.value = true;
         explainText.value = "";
       }
+      explainId.value = "";
+      latencyMs.value = 0;
       errorMsg.value = String(payload.message ?? "讲解失败");
       break;
     default:
@@ -407,6 +426,7 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
 const redirectIfUnauthorized = (raw: unknown) => {
   const body = raw as { code?: number } | null;
   if (body?.code === 40100) {
+    authExpired = true;
     localStorage.removeItem("satoken");
     window.location.assign("/login");
     return true;
@@ -436,8 +456,20 @@ const startExplain = async () => {
       controller.signal,
       redirectIfUnauthorized
     );
+    // 连接正常结束却没有 done：不能把半截讲解当成完整结果
+    if (!doneSeen && !blocked.value && !errorMsg.value && !authExpired) {
+      explainText.value = "";
+      sources.value = [];
+      explainId.value = "";
+      latencyMs.value = 0;
+      errorMsg.value = "讲解生成中断，请重试";
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return;
+    explainText.value = "";
+    sources.value = [];
+    explainId.value = "";
+    latencyMs.value = 0;
     errorMsg.value = error instanceof Error ? error.message : "讲解失败，请稍后重试";
   } finally {
     explaining.value = false;
@@ -483,20 +515,30 @@ const loadRecommend = async () => {
   }
 };
 
-// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录
+// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录；
+// 若讲解仍在流式输出，旧内容已失效，一并中止，避免半截旧讲解留在新记录上
 watch([questionText, selectedKpId, errorType], () => {
   logId.value = "";
   draftLogId.value = "";
+  if (explaining.value) {
+    controller?.abort();
+    controller = null;
+    explaining.value = false;
+    resetExplainState();
+  }
 });
-// 低置信门禁（契约 §4）：只有用户手动修改（输入题干 / 重选知识点 / 换错因）才算完成人工核对；
-// OCR 回填题干属于程序写入，不能顺带解除门禁，否则警告会被本 watcher 一闪而过地清掉
-watch([selectedKpId, errorType], () => {
-  lowConfidence.value = false;
-});
+// 低置信门禁（契约 §4）：只认“手动改题干”或“显式点我已核对”，
+// 不能靠改错因/重选知识点绕过；否则用户没看 OCR 文本也能继续。
 
 /** 用户在题干框手动输入 / 粘贴：视为完成人工核对，解除低置信禁止 */
 const onManualInput = () => {
   lowConfidence.value = false;
+};
+
+/** 低置信度不要求改写题干；显式确认“已核对”即可继续，符合契约人工核对要求 */
+const acknowledgeLowConfidence = () => {
+  lowConfidence.value = false;
+  ocrError.value = "";
 };
 
 onBeforeUnmount(() => {
@@ -611,6 +653,9 @@ onBeforeUnmount(() => {
 }
 .ocr-alert {
   margin-bottom: 10px;
+}
+.ack-btn {
+  margin: -2px 0 10px;
 }
 .error-type {
   margin-top: 12px;
