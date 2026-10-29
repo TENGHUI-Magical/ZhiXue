@@ -1,39 +1,83 @@
 <template>
-  <el-dropdown trigger="click" @command="select">
-    <button type="button" class="theme-trigger" :aria-label="`切换主题，当前 ${current.label}`">
+  <div ref="rootEl" class="theme-switch">
+    <button
+      type="button"
+      class="theme-trigger"
+      :aria-expanded="open"
+      :aria-label="`切换主题，当前 ${current.label}`"
+      @click="open = !open"
+    >
       <span class="swatch" aria-hidden="true" :style="{ background: current.accent }" />
       <span class="label">{{ current.label }}</span>
-      <ChevronDown class="caret" :size="14" aria-hidden="true" />
+      <svg class="caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
     </button>
-    <template #dropdown>
-      <el-dropdown-menu class="theme-menu">
-        <el-dropdown-item v-for="theme in THEMES" :key="theme.key" :command="theme.key">
-          <span class="swatch" aria-hidden="true" :style="{ background: theme.accent }" />
-          <span class="menu-label">
-            <strong>{{ theme.label }}</strong>
-            <small>{{ theme.description }}</small>
-          </span>
-        </el-dropdown-item>
-      </el-dropdown-menu>
-    </template>
-  </el-dropdown>
+    <div v-if="open" class="theme-menu" role="listbox" aria-label="选择主题">
+      <button
+        v-for="theme in THEMES"
+        :key="theme.key"
+        type="button"
+        role="option"
+        class="theme-option"
+        :aria-selected="theme.key === active"
+        @click="select(theme.key)"
+      >
+        <span class="swatch" aria-hidden="true" :style="{ background: theme.accent }" />
+        <span class="menu-label">
+          <strong>{{ theme.label }}</strong>
+          <small>{{ theme.description }}</small>
+        </span>
+      </button>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { ChevronDown } from "@lucide/vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { applyTheme, getStoredTheme, THEMES, type ThemeKey } from "../composables/useTheme";
 
+// 原生下拉而非 el-dropdown：体积棘轮（perf/bench/ceilings.json）不允许上调，
+// 头部组件必须零新增 Element 依赖
 const active = ref<ThemeKey>(getStoredTheme());
+const open = ref(false);
+const rootEl = ref<HTMLElement | null>(null);
 const current = computed(() => THEMES.find((theme) => theme.key === active.value) ?? THEMES[0]);
 
 const select = (key: ThemeKey) => {
   active.value = key;
   applyTheme(key);
+  open.value = false;
 };
+
+const onDocClick = (event: MouseEvent) => {
+  if (open.value && rootEl.value && !rootEl.value.contains(event.target as Node)) {
+    open.value = false;
+  }
+};
+
+const onKeydown = (event: KeyboardEvent) => {
+  if (event.key === "Escape" && open.value) {
+    open.value = false;
+  }
+};
+
+onMounted(() => {
+  document.addEventListener("click", onDocClick);
+  document.addEventListener("keydown", onKeydown);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", onDocClick);
+  document.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <style scoped>
+.theme-switch {
+  position: relative;
+}
 .theme-trigger {
   display: inline-flex;
   align-items: center;
@@ -46,7 +90,6 @@ const select = (key: ThemeKey) => {
   color: var(--app-text-secondary);
   font-size: 13px;
   cursor: pointer;
-  transition: border-color 0.16s ease, color 0.16s ease, background-color 0.2s ease;
 }
 .theme-trigger:hover {
   border-color: var(--app-primary);
@@ -67,19 +110,62 @@ const select = (key: ThemeKey) => {
   flex: none;
   opacity: 0.7;
 }
-.theme-menu :deep(.el-dropdown-menu__item) {
+.theme-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 210px;
+  padding: 6px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  box-shadow: var(--app-shadow-lg);
+}
+.theme-option {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.theme-option:hover {
+  background: var(--app-surface-muted);
+}
+.theme-option:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: -2px;
 }
 .menu-label {
   display: flex;
   flex-direction: column;
   line-height: 1.3;
 }
+.menu-label strong {
+  font-weight: 600;
+}
 .menu-label small {
   color: var(--app-text-muted);
   font-size: 11px;
+}
+@media (max-width: 768px) {
+  .theme-trigger .label,
+  .theme-trigger .caret {
+    display: none;
+  }
+  .theme-trigger {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
 }
 </style>

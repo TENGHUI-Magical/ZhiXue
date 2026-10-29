@@ -51,7 +51,8 @@
             :rows="4"
             maxlength="3000"
             show-word-limit
-            placeholder="粘贴或手动输入题目。OCR 上传通道将在下一步接入，当前先走手动录入。"
+            placeholder="粘贴或手动输入题目，也可先上传错题图片自动识别。"
+            @input="onManualInput"
           />
           <el-form-item label="错因类型" class="error-type">
             <el-select v-model="errorType" class="full-select" placeholder="选择五类标准错因">
@@ -147,6 +148,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@element-plus/icons-vue";
+import { ApiError } from "../api/request";
 import {
   DEFAULT_COURSE_ID,
   LOW_CONFIDENCE_THRESHOLD,
@@ -207,6 +209,8 @@ const degradeLevel = ref("");
 const blocked = ref(false);
 const explainId = ref("");
 const logId = ref("");
+/** 本轮讲解对应的 DRAFT 记录：confirm 失败重试时复用，不重复建草稿 */
+const draftLogId = ref("");
 const latencyMs = ref(0);
 const questions = ref<Recommendation[]>([]);
 const errorMsg = ref("");
@@ -215,6 +219,9 @@ const parsing = ref(false);
 const lowConfidence = ref(false);
 const ocrError = ref("");
 let pollTimer: number | null = null;
+
+/** 与后端 zhixue.ocr.max-image-bytes（5MB）对齐，超限时上传前直接拦截 */
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
 let controller: AbortController | null = null;
 
@@ -254,17 +261,29 @@ const pollTask = (taskId: string) => {
     } catch {
       stopPolling();
       parsing.value = false;
+      ocrError.value = "识别状态查询失败，请手动录入题干";
     }
   }, 2000);
 };
 
 const handleUpload = async (options: UploadRequestOptions) => {
   stopPolling();
-  parsing.value = true;
+  parsing.value = false;
   lowConfidence.value = false;
   ocrError.value = "";
+  // 拖拽上传不受 accept 限制，浏览器不会替我们过滤文件，先做与后端一致的预校验
+  const file: File = options.file;
+  if (file.size > MAX_UPLOAD_BYTES) {
+    ocrError.value = "图片超过 5MB 上限，请压缩后重试";
+    return;
+  }
+  if (file.type && file.type !== "image/jpeg" && file.type !== "image/png") {
+    ocrError.value = "仅支持 JPG/PNG 图片";
+    return;
+  }
+  parsing.value = true;
   try {
-    const data = await uploadOcrImage(options.file);
+    const data = await uploadOcrImage(file);
     pollTask(data.taskId);
   } catch {
     parsing.value = false;
@@ -301,6 +320,7 @@ const analyze = async () => {
   explaining.value = false;
   resetExplainState();
   logId.value = "";
+  draftLogId.value = "";
   mapResult.value = null;
   selectedKpId.value = "";
   matching.value = true;
@@ -399,22 +419,30 @@ const startExplain = async () => {
   }
 };
 
-/** 创建并确认错题记录：讲解必须基于 CONFIRMED 记录（契约前置） */
+/** 创建并确认错题记录：讲解必须基于 CONFIRMED 记录（契约前置）。
+ *  create 成功但 confirm 失败时复用同一 DRAFT 重试确认，避免每次失败都多落一条孤儿草稿；
+ *  confirm 返回 40900 视为上次确认已生效（响应丢失），直接复用该记录。 */
 const ensureRecord = async (): Promise<string> => {
   if (logId.value) return logId.value;
-  const created = await createErrorRecord({
-    courseId: DEFAULT_COURSE_ID,
-    clientToken: newClientToken(),
+  if (!draftLogId.value) {
+    const created = await createErrorRecord({
+      courseId: DEFAULT_COURSE_ID,
+      clientToken: newClientToken(),
+      kpId: selectedKpId.value,
+      errorType: errorType.value,
+      correctedText: questionText.value
+    });
+    draftLogId.value = created.logId;
+  }
+  const confirmed = await confirmErrorRecord(draftLogId.value, {
     kpId: selectedKpId.value,
     errorType: errorType.value,
     correctedText: questionText.value
+  }).catch((error: unknown) => {
+    if (error instanceof ApiError && error.code === 40900) return null;
+    throw error;
   });
-  const confirmed = await confirmErrorRecord(created.logId, {
-    kpId: selectedKpId.value,
-    errorType: errorType.value,
-    correctedText: questionText.value
-  });
-  logId.value = confirmed.logId;
+  logId.value = confirmed ? confirmed.logId : draftLogId.value;
   return logId.value;
 };
 
@@ -430,12 +458,21 @@ const loadRecommend = async () => {
   }
 };
 
-// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录；
-// 低置信门禁（契约 §4）：编辑题干或重新选择知识点即视为完成人工核对，解除禁止
+// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录
 watch([questionText, selectedKpId, errorType], () => {
   logId.value = "";
+  draftLogId.value = "";
+});
+// 低置信门禁（契约 §4）：只有用户手动修改（输入题干 / 重选知识点 / 换错因）才算完成人工核对；
+// OCR 回填题干属于程序写入，不能顺带解除门禁，否则警告会被本 watcher 一闪而过地清掉
+watch([selectedKpId, errorType], () => {
   lowConfidence.value = false;
 });
+
+/** 用户在题干框手动输入 / 粘贴：视为完成人工核对，解除低置信禁止 */
+const onManualInput = () => {
+  lowConfidence.value = false;
+};
 
 onBeforeUnmount(() => {
   controller?.abort();
@@ -527,9 +564,6 @@ onBeforeUnmount(() => {
   }
 }
 .ocr-alert {
-  margin-bottom: 10px;
-}
-.ocr-confirm {
   margin-bottom: 10px;
 }
 .error-type {
