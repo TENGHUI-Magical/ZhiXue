@@ -21,34 +21,43 @@ cp .env.example .env
 #    注意：Spring 不自动读 .env，启动后端时需显式传入 DB_PASSWORD
 
 # 1. 基础设施（MySQL 8 + Redis 7，只绑定 127.0.0.1）
+#    Docker 可选；没有 Docker 时用本机 MySQL 8 + Redis 7（3306/6379），SQL 导入见 docs/08
 docker compose up -d
 docker compose ps
 
 # 1.5 本地开发账号（仅本地；口令不进入仓库）
 #     生成随机口令并写入已 gitignore 的本地 SQL，终端会打印一次口令
+pip install bcrypt
 python tools/gen_dev_users.py
 mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.local.sql
 
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
-#    Windows PowerShell: $env:DB_PASSWORD="你的口令"
-#    bash: export DB_PASSWORD='你的口令'
-#    注意：spring-boot:run 会作用到父 POM 并报"找不到主类"，统一用打包运行：
-mvn -B -ntp package
+#    Windows 推荐（自动固定 JDK 21，规避 JAVA_HOME 不是 21）：..\scripts\mvn21.ps1 -B -ntp package
+#    bash：JAVA_HOME=/path/to/jdk-21 mvn -B -ntp package
+#    Windows PowerShell 口令：$env:DB_PASSWORD="你的口令"
+#    bash：export DB_PASSWORD='你的口令'
+#    注意：spring-boot:run 会作用到父 POM 并报"找不到主类"，统一用打包运行。
+#    已构建后启动：
 java -jar zhixue-bootstrap/target/zhixue-bootstrap-*.jar
 
 # 3. AI 服务（Python 3.12，建议先建 venv）
 cd zhixue-ai
 pip install -r requirements.txt
+#    说明：requirements.txt 含 sentence-transformers（会带 torch，约 2GB）；无 bge 模型时检索自动走 hash-bigram
 #    需要 OCR 时再装（与上表配套，勿单独升级）：
 #    pip install -r requirements-ocr.txt
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # 4. 前端（Node 20+）
 cd zhixue-web
-npm install
+npm ci
 npm run dev
 ```
+
+> Windows PowerShell 注意：不支持 `mysql ... < file`（`<` 是保留运算符）；改用 `Get-Content ... -Raw | & mysql ...`，并先设 `$env:MYSQL_PWD`。本机 `mysql.exe` 不在 PATH，完整路径与命令见 `docs/08-新人上手.md`。
+>
+> Maven 自检：`mvn -v` 应显示 `Java version: 21`；显示 17 就用 `..\scripts\mvn21.ps1`。若 `settings.xml` 的 `localRepository` 指向 `D:\MAVEN\...` 且该路径不可写，改用默认 `~/.m2` 或 `mvn -s`。
 
 启动顺序不能乱：后端要连库，前端要连后端。等日志出现 `Started ServerApplication` 再发请求。
 

@@ -19,8 +19,7 @@
 
 ```powershell
 cd zhixue\zhixue-server
-$env:JAVA_HOME='D:\jdk-21.0.13.0.3'
-mvn -B -ntp clean package
+..\scripts\mvn21.ps1 -B -ntp clean package
 cd ..\zhixue-web
 npm ci
 npm run build
@@ -52,14 +51,20 @@ git -C zhixue checkout <上一个稳定 commit>
 ## 5. MySQL 备份/恢复
 
 ```powershell
+$mysql = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
+$mysqldump = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqldump.exe"
+$env:MYSQL_PWD = '<本地DB密码>'
+
 # 备份（含建表；先建目录）
 New-Item -ItemType Directory -Force backup | Out-Null
-mysqldump -h 127.0.0.1 -u root -p --single-transaction --routines --triggers zhixue > backup\zhixue_20261028.sql
+& $mysqldump -h 127.0.0.1 -u root --single-transaction --routines --triggers zhixue > backup\zhixue_20261028.sql
 
 # 恢复（先停 Java，避免写入）
-mysql -h 127.0.0.1 -u root -p -e "DROP DATABASE IF EXISTS zhixue; CREATE DATABASE zhixue DEFAULT CHARSET utf8mb4;"
-mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < backup\zhixue_20261028.sql
+& $mysql -h 127.0.0.1 -u root -e "DROP DATABASE IF EXISTS zhixue; CREATE DATABASE zhixue DEFAULT CHARSET utf8mb4;"
+Get-Content backup\zhixue_20261028.sql -Raw | & $mysql -h 127.0.0.1 -u root --default-character-set=utf8mb4 zhixue
 ```
+
+> PowerShell 不支持 `mysql ... < file`（`<` 是保留运算符）；恢复用 `Get-Content -Raw | & $mysql`。cmd.exe 可直接用 `<`。
 
 - 结项前每次批量导入内容后备份一次；保留最近 7 天。
 - RAG 索引备份：复制 `zhixue-ai/data/vector_index/`（`vectors.npy` + `chunks.json` + `meta.json`）。

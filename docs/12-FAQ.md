@@ -4,7 +4,7 @@
 A：在 `zhixue` 根目录没有 `pom.xml`；先 `cd zhixue-server`。
 
 **Q2：`class file version 65/61`？**
-A：JDK 不是 21；设 `$env:JAVA_HOME='D:\jdk-21.0.13.0.3'`。
+A：JDK 不是 21；不要直接 `mvn`，在 `zhixue-server` 下用 `..\scripts\mvn21.ps1 -B -ntp verify`（pom 的 enforcer 会在 validate 阶段提前拦截）。
 
 **Q3：Java 起来了但前端全 40100？**
 A：token 过期或未登录；清 `satoken/zhixue_user` 后重新登录。
