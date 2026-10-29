@@ -2,12 +2,13 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <div class="eyebrow">KNOWLEDGE MAP</div>
         <h2>课程知识图谱</h2>
-        <p class="sub">节点是按先修关系连接的知识点；红色表示当前画像里的薄弱点。</p>
+        <p class="sub">节点按先修关系连接；红色标记当前画像中的薄弱知识点。</p>
       </div>
       <div class="legend">
-        <span class="dot weak" /> 薄弱
-        <span class="dot normal" /> 正常
+        <span class="dot weak" /> 薄弱知识点
+        <span class="dot normal" /> 掌握正常
       </div>
     </div>
 
@@ -15,11 +16,11 @@
       :loading="loading"
       :error="error"
       :empty="!loading && !error && nodes.length === 0"
-      empty-text="课程暂无知识点图谱"
+      empty-text="课程暂无知识点图谱数据。"
       @retry="load"
     >
       <template #empty-action>
-        <el-button type="primary" @click="router.push('/diagnosis')">去诊断工作台</el-button>
+        <el-button type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
       </template>
 
       <el-card class="graph-card">
@@ -77,12 +78,11 @@
           </g>
         </svg>
         <div class="graph-note">
-          点击节点查看知识点详情；当前共 {{ nodes.length }} 个节点、{{ edges.length }} 条先修边。
-          完整名称见下方节点列表。
+          点击节点查看详情；共 {{ nodes.length }} 个知识点、{{ edges.length }} 条先修关系。
         </div>
       </el-card>
 
-      <el-card header="节点列表（无障碍替代）" class="list-card">
+      <el-card header="知识点清单" class="list-card">
         <div class="node-list">
           <el-tag
             v-for="node in nodes"
@@ -107,7 +107,7 @@
         <h3 class="kp-title">{{ detail.kpId }} {{ detail.name }}</h3>
         <div class="kp-meta">
           <el-tag size="small">{{ detail.dimensionKey || "未分维度" }}</el-tag>
-          <el-tag size="small" type="info">{{ detail.textbookPage || "页码待补" }}</el-tag>
+          <el-tag size="small" type="info">{{ detail.textbookPage || "页码待定" }}</el-tag>
         </div>
         <p class="kp-text">{{ detail.conceptText || "暂无概念切片" }}</p>
         <p v-if="detail.misconception" class="kp-text muted">
@@ -237,10 +237,16 @@ onMounted(load);
 .page-head h2 {
   margin: 0;
 }
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--app-text-muted);
+}
 .sub {
   margin: 6px 0 0;
-  color: var(--app-text-muted);
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
 }
 .legend {
   display: flex;

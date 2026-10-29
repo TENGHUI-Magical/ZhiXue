@@ -5,12 +5,12 @@
         <span class="brand-mark" aria-hidden="true">智</span>
         <div>
           <strong>智学领航</strong>
-          <span>数据库课程学情诊断</span>
+          <span>《数据库系统概论》课程学情诊断</span>
         </div>
       </div>
       <el-form label-position="top" @submit.prevent="submit">
         <el-form-item label="账号（学号 / 工号）">
-          <el-input v-model="username" autocomplete="username" placeholder="请输入账号" />
+          <el-input v-model="username" autocomplete="username" placeholder="请输入学号或工号" />
         </el-form-item>
         <el-form-item label="密码">
           <el-input
@@ -26,8 +26,10 @@
           登录
         </el-button>
       </el-form>
+      <p class="login-notice">账号由课程教师统一分配，如无法登录请联系课程管理员。</p>
       <div v-if="isDev" class="login-hint">本地开发种子账号见 zhixue-server/README.md</div>
     </el-card>
+    <p class="login-foot">智学领航 · 校级大学生创新创业训练计划项目 GSD2026225</p>
   </div>
 </template>
 
@@ -149,9 +151,25 @@ const submit = async () => {
   width: 100%;
   height: 40px;
 }
+.login-notice {
+  margin: 14px 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--app-text-muted);
+  text-align: center;
+}
 .login-hint {
-  margin-top: 14px;
-  font-size: 12px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--app-text-muted);
+  text-align: center;
+}
+.login-foot {
+  position: relative;
+  z-index: 1;
+  margin: 18px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
   color: var(--app-text-muted);
   text-align: center;
 }

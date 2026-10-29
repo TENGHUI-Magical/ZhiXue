@@ -2,15 +2,16 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">STUDENT INSIGHT</div>
+        <div class="eyebrow">LEARNING ANALYTICS</div>
         <h2>学情画像</h2>
         <p class="sub">
-          数据来自最近一次画像快照<span v-if="portrait?.statDate"> · {{ portrait.statDate }}</span>；没有快照时先完成一次练习。
+          基于最近一次画像快照<span v-if="portrait?.statDate">（{{ portrait.statDate }}）</span>汇总练习与已确认错题数据。
         </p>
       </div>
       <div class="head-actions">
-        <span class="sample-chip">样本 {{ portrait?.totalPractice ?? 0 }} 次</span>
-        <el-button type="primary" @click="router.push('/diagnosis')">去练习</el-button>
+        <span class="sample-chip">样本量 {{ portrait?.totalPractice ?? 0 }}</span>
+        <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button type="primary" @click="router.push('/diagnosis')">进入诊断</el-button>
       </div>
     </div>
 
@@ -18,11 +19,11 @@
       :loading="loading"
       :error="error"
       :empty="!loading && !error && !portrait"
-      empty-text="还没有画像数据，先完成一次错题诊断或练习"
+      empty-text="暂无画像数据，完成一次错题诊断后自动生成。"
       @retry="load"
     >
       <template #empty-action>
-        <el-button type="primary" @click="router.push('/diagnosis')">去诊断工作台</el-button>
+        <el-button type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
       </template>
 
       <div class="dash">
@@ -31,7 +32,7 @@
             <div class="card-head"><span>掌握概况</span><span class="card-sub">最近快照</span></div>
           </template>
           <div class="rings">
-            <svg viewBox="0 0 128 128" role="img" :aria-label="`综合掌握 ${masteryPct}%，正确率 ${accuracyPct}%，样本 ${portrait?.totalPractice ?? 0} 次`">
+            <svg viewBox="0 0 128 128" role="img" :aria-label="`综合掌握 ${masteryPct}%，作答正确率 ${accuracyPct}%，样本充分度 ${samplePct}%`">
               <circle class="ring-track" cx="64" cy="64" r="53" stroke-width="9" />
               <circle class="ring ring-mastery" cx="64" cy="64" r="53" stroke-width="9"
                 :style="{ strokeDasharray: 333, strokeDashoffset: 333 * (1 - masteryPct / 100) }" />
@@ -45,34 +46,41 @@
             <div class="ring-legend">
               <div class="rl"><i class="dot mastery"></i>综合掌握<b>{{ masteryPct }}%</b></div>
               <div class="rl"><i class="dot accuracy"></i>作答正确率<b>{{ accuracyPct }}%</b></div>
-              <div class="rl"><i class="dot sample"></i>样本达成<b>{{ samplePct }}%</b></div>
-              <div class="rl muted"><i class="dot track"></i>样本 {{ portrait?.totalPractice ?? 0 }} 次训练事件</div>
+              <div class="rl"><i class="dot sample"></i>样本充分度<b>{{ samplePct }}%</b></div>
+              <div class="rl muted"><i class="dot track"></i>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</div>
             </div>
           </div>
-          <div class="ring-note">综合掌握为五维均值；正确率按训练事件（练习 + 已确认错题）估算，不等同考试成绩。</div>
+          <div class="ring-note">综合掌握取五维均值；作答正确率按练习与已确认错题估算，不等同考试成绩。</div>
         </el-card>
 
-        <div class="c8 stats">
-          <el-card class="stat" shadow="never">
-            <div class="stat-k">累计训练事件</div>
-            <div class="stat-v">{{ portrait?.totalPractice ?? 0 }}<small>次</small></div>
-            <div class="stat-d">练习 + 已确认错题</div>
-          </el-card>
-          <el-card class="stat" shadow="never">
-            <div class="stat-k">累计错误</div>
-            <div class="stat-v">{{ portrait?.totalError ?? 0 }}<small>次</small></div>
-            <div class="stat-d">含未确认草稿以外的记录</div>
-          </el-card>
-          <el-card class="stat" shadow="never">
-            <div class="stat-k">统计日期</div>
-            <div class="stat-v small">{{ portrait?.statDate || "—" }}</div>
-            <div class="stat-d">快照按日聚合</div>
-          </el-card>
-        </div>
+        <el-card class="c8 kpi-card" shadow="never">
+          <div class="kpi-grid">
+            <div class="kpi">
+              <span class="kpi-k">训练样本</span>
+              <b class="kpi-v">{{ portrait?.totalPractice ?? 0 }}<small>次</small></b>
+              <span class="kpi-d">练习与已确认错题合计</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-k">已确认错误</span>
+              <b class="kpi-v">{{ portrait?.totalError ?? 0 }}<small>条</small></b>
+              <span class="kpi-d">来自错题记录，不含草稿</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-k">薄弱知识点</span>
+              <b class="kpi-v">{{ weakest.length }}<small>项</small></b>
+              <span class="kpi-d">进入薄弱项排名的知识点</span>
+            </div>
+            <div class="kpi">
+              <span class="kpi-k">快照日期</span>
+              <b class="kpi-v date">{{ portrait?.statDate || "—" }}</b>
+              <span class="kpi-d">画像按自然日聚合</span>
+            </div>
+          </div>
+        </el-card>
 
         <el-card class="c7" shadow="never">
           <template #header>
-            <div class="card-head"><span>能力维度</span><span class="card-sub">相对本班均值</span></div>
+            <div class="card-head"><span>能力维度</span><span class="card-sub">五维掌握度</span></div>
           </template>
           <div v-if="dimensionRows.length" class="cap">
             <div v-for="row in dimensionRows" :key="row.key" class="cap-row" :class="row.level">
@@ -82,7 +90,7 @@
             </div>
           </div>
           <el-empty v-else description="暂无维度配置" :image-size="64" />
-          <div v-if="hasEmptyDimension" class="chart-note">灰色维度暂无样本，显示为 0，不代表能力为 0。</div>
+          <div v-if="hasEmptyDimension" class="chart-note">灰色维度暂无样本，按 0 展示，不代表能力缺失。</div>
           <table class="sr-only">
             <caption>五维能力分数</caption>
             <tbody>
@@ -96,15 +104,15 @@
 
         <el-card class="c5" shadow="never">
           <template #header>
-            <div class="card-head"><span>薄弱知识点</span><span class="card-sub">TOP {{ weakest.length || 0 }}</span></div>
+            <div class="card-head"><span>薄弱知识点</span><span class="card-sub">前 {{ weakest.length || 0 }} 项</span></div>
           </template>
           <div v-if="weakest.length" class="weak-list">
             <div v-for="item in weakest" :key="item.kpId" class="weak-item">
               <div class="weak-head">
                 <span class="weak-name">{{ item.kpId }} {{ item.name || "" }}</span>
                 <span class="weak-right">
-                  <span class="weak-meta">样本 {{ item.sampleCount ?? 0 }} 次</span>
-                  <span class="weak-pct">{{ Math.round((item.mastery ?? 0) * 100) }}%</span>
+                  <span class="weak-meta">作答 {{ item.sampleCount ?? 0 }} 次</span>
+                  <span class="weak-pct">掌握度 {{ Math.round((item.mastery ?? 0) * 100) }}%</span>
                 </span>
               </div>
               <div class="weak-track">
@@ -112,14 +120,14 @@
               </div>
             </div>
           </div>
-          <el-empty v-else description="每个知识点至少 3 次练习才进入薄弱排名" :image-size="56">
-            <el-button link type="primary" @click="router.push('/diagnosis')">去完成一次练习</el-button>
+          <el-empty v-else description="知识点累计作答不少于 3 次后进入薄弱项排名。" :image-size="56">
+            <el-button link type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
           </el-empty>
         </el-card>
 
         <el-card class="c7" shadow="never">
           <template #header>
-            <div class="card-head"><span>错因分布</span><span class="card-sub">5 类标准错因</span></div>
+            <div class="card-head"><span>错因分布</span><span class="card-sub">按已确认错题归类</span></div>
           </template>
           <div v-if="errorRows.length" class="cap">
             <div v-for="row in errorRows" :key="row.key" class="cap-row error-row">
@@ -136,18 +144,18 @@
             <div class="card-head"><span>下一步建议</span><span class="card-sub">依据画像</span></div>
           </template>
           <p v-if="advice.length" class="advice">
-            失分集中在<b>「{{ advice[0] }}」</b><template v-if="advice[1]">与<b>「{{ advice[1] }}」</b></template>。
-            建议按下面的顺序补，不用一次做完。
+            薄弱环节集中在<b>「{{ advice[0] }}」</b><template v-if="advice[1]">与<b>「{{ advice[1] }}」</b></template>。
+            建议按以下顺序补齐，可分批完成。
           </p>
-          <p v-else class="advice">样本还不足，先完成一次诊断或练习，系统再给出路径。</p>
+          <p v-else class="advice">当前样本不足以生成建议，请先完成一次诊断或练习。</p>
           <div v-if="advice.length" class="steps">
-            <div class="step"><i>1</i><span>诊断 2 题：{{ advice[0] }}</span></div>
-            <div v-if="advice[1]" class="step"><i>2</i><span>回看 1 题：{{ advice[1] }}</span></div>
-            <div class="step"><i>{{ advice[1] ? 3 : 2 }}</i><span>回到错题本复盘 3 题</span></div>
+            <div class="step"><i>1</i><span>专项诊断 2 题：{{ advice[0] }}</span></div>
+            <div v-if="advice[1]" class="step"><i>2</i><span>错题回看 1 题：{{ advice[1] }}</span></div>
+            <div class="step"><i>{{ advice[1] ? 3 : 2 }}</i><span>错题本复盘 3 题</span></div>
           </div>
           <div class="advice-foot">
-            <span>依据 {{ portrait?.totalPractice ?? 0 }} 次作答 · {{ portrait?.totalError ?? 0 }} 条错误</span>
-            <el-button v-if="advice.length" link type="primary" @click="router.push('/diagnosis')">去诊断 →</el-button>
+            <span>数据口径：{{ portrait?.totalPractice ?? 0 }} 次训练样本 · {{ portrait?.totalError ?? 0 }} 条已确认错误</span>
+            <el-button v-if="advice.length" link type="primary" @click="router.push('/diagnosis')">查看诊断 →</el-button>
           </div>
         </el-card>
       </div>
@@ -383,36 +391,60 @@ onMounted(load);
   line-height: 1.6;
   color: var(--app-text-muted);
 }
-.stats {
+.kpi-card :deep(.el-card__body) {
+  height: 100%;
+  display: flex;
+}
+.kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  width: 100%;
 }
-.stat :deep(.el-card__body) {
-  padding: 16px;
+.kpi {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 22px;
+  border-left: 0.5px solid var(--app-border);
+  border-top: 0.5px solid var(--app-border);
+  min-width: 0;
 }
-.stat-k {
+.kpi:nth-child(1),
+.kpi:nth-child(2) {
+  border-top: none;
+}
+.kpi:nth-child(odd) {
+  border-left: none;
+  padding-left: 4px;
+}
+.kpi-k {
   font-size: 11.5px;
+  font-weight: 500;
   color: var(--app-text-secondary);
 }
-.stat-v {
-  margin-top: 6px;
-  font-size: 30px;
+.kpi-v {
+  font-size: 32px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  line-height: 1.1;
+  line-height: 1.05;
+  color: var(--app-text);
   font-variant-numeric: tabular-nums;
 }
-.stat-v small {
+.kpi-v small {
+  margin-left: 3px;
   font-size: 12px;
   font-weight: 500;
   color: var(--app-text-muted);
-  margin-left: 2px;
 }
-.stat-v.small { font-size: 20px; }
-.stat-d {
-  margin-top: 8px;
+.kpi-v.date {
+  font-size: 21px;
+  letter-spacing: -0.01em;
+}
+.kpi-d {
   font-size: 10.5px;
+  line-height: 1.5;
   color: var(--app-text-muted);
 }
 .cap {
@@ -577,13 +609,19 @@ onMounted(load);
 
 @media (max-width: 1080px) {
   .c4, .c5, .c7, .c8 { grid-column: span 12; }
-  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 720px) {
   .page-head { flex-direction: column; align-items: flex-start; }
   .dash { grid-template-columns: 1fr; }
   .c4, .c5, .c7, .c8 { grid-column: span 1; }
-  .stats { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: 1fr; }
+  .kpi {
+    border-left: none;
+    border-top: 0.5px solid var(--app-border);
+    padding: 12px 4px;
+  }
+  .kpi:nth-child(2) { border-top: 0.5px solid var(--app-border); }
+  .kpi:first-child { border-top: none; }
   .rings { flex-direction: column; align-items: flex-start; }
   .ring-legend { width: 100%; }
 }

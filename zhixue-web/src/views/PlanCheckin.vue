@@ -2,12 +2,13 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <div class="eyebrow">WEEKLY PLAN</div>
         <h2>周计划与打卡</h2>
-        <p class="sub">先做题，再查看答案；每天的计划完成后点“打卡”。</p>
+        <p class="sub">按周生成练习计划，完成后逐题打卡；历史进度自动保留。</p>
       </div>
       <div class="week-actions">
         <el-button text @click="shiftWeek(-1)">上一周</el-button>
-        <span class="week-title">{{ weekStart }} ~ {{ weekEnd }}</span>
+        <span class="week-title">{{ weekStart }} 至 {{ weekEnd }}</span>
         <el-button text @click="shiftWeek(1)">下一周</el-button>
       </div>
     </div>
@@ -26,21 +27,24 @@
       <template #header>
         <div class="card-head">
           <span>本周打卡清单</span>
-          <el-button
-            type="primary"
-            :loading="generating"
-            :disabled="plans.length > 0"
-            @click="generate"
-          >
-            {{ plans.length ? "本周已生成" : "生成本周计划" }}
-          </el-button>
+          <span class="head-right">
+            <el-tag v-if="plans.length" type="success" size="small">计划已生成</el-tag>
+            <el-button
+              v-else
+              type="primary"
+              :loading="generating"
+              @click="generate"
+            >
+              生成本周计划
+            </el-button>
+          </span>
         </div>
       </template>
       <PageState
         :loading="loading"
         :error="error"
         :empty="!loading && !error && plans.length === 0"
-        empty-text="本周还没有计划，先点击“生成本周计划”"
+        empty-text="本周尚未生成练习计划。"
         @retry="loadPlans"
       >
         <template #empty-action>
@@ -90,19 +94,19 @@
     <el-card class="section-card">
       <template #header>
         <div class="card-head">
-          <span>三层练习推荐（举一反三）</span>
-          <span class="head-hint">来自最近一次已确认错题</span>
+          <span>分层练习推荐</span>
+          <span class="head-hint">依据最近一次已确认错题</span>
         </div>
       </template>
       <PageState
         :loading="recLoading"
         :error="recError"
         :empty="!recLoading && !recError && recommendations.length === 0"
-        empty-text="先完成一次错题诊断并确认，系统会按巩固/变式/进阶推荐 3 题"
+        empty-text="完成一次错题诊断并确认后，系统按巩固、变式、进阶推荐练习。"
         @retry="loadRecommendations"
       >
         <template #empty-action>
-          <el-button type="primary" @click="router.push('/diagnosis')">去诊断工作台</el-button>
+          <el-button type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
         </template>
 
         <div class="rec-grid">
@@ -189,8 +193,10 @@ function mondayOf(date: Date) {
 }
 
 function planDateLabel(value?: string) {
-  if (!value) return "—";
-  const date = new Date(`${value}T00:00:00`);
+  if (!value) return "日期待定";
+  const raw = String(value).slice(0, 10);
+  const date = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "日期待定";
   const names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${names[date.getDay()]}`;
 }
@@ -333,21 +339,28 @@ onMounted(() => {
 .page-head h2 {
   margin: 0;
 }
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--app-text-muted);
+}
 .sub {
   margin: 6px 0 0;
-  color: var(--app-text-muted);
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
 }
 .week-actions {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: var(--app-text-muted);
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
 }
 .week-title {
-  min-width: 150px;
+  min-width: 180px;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 .action-alert {
   margin-bottom: 12px;
@@ -361,19 +374,22 @@ onMounted(() => {
   justify-content: space-between;
   gap: 12px;
 }
+.head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .head-hint {
   color: var(--app-text-muted);
   font-size: 12px;
 }
 .day-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 .day-card {
-  flex: 0 1 calc(25% - 9px);
-  min-width: 230px;
+  min-width: 0;
 }
 .day-head {
   display: flex;
@@ -451,6 +467,11 @@ onMounted(() => {
   color: var(--app-text-muted);
   font-size: 12px;
 }
+@media (max-width: 1080px) {
+  .day-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 @media (max-width: 768px) {
   .week-actions {
     width: 100%;
@@ -458,6 +479,9 @@ onMounted(() => {
   }
   .week-title {
     min-width: 0;
+  }
+  .day-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

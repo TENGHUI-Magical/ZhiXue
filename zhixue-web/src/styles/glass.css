@@ -22,52 +22,52 @@ html[data-theme="glass-dark"] .app-wall {
   position: absolute;
   display: block;
   border-radius: 50%;
-  filter: blur(58px);
-  opacity: 0.92;
+  filter: blur(72px);
+  opacity: 0.78;
 }
 .app-wall i:nth-child(1) {
-  width: 66vw; height: 66vw; left: -10vw; top: -18vw;
-  background: radial-gradient(circle, var(--app-wall-1), transparent 66%);
+  width: 66vw; height: 66vw; left: -12vw; top: -20vw;
+  background: radial-gradient(circle, var(--app-wall-1), transparent 64%);
 }
 .app-wall i:nth-child(2) {
-  width: 58vw; height: 58vw; right: -8vw; top: -10vw;
-  background: radial-gradient(circle, var(--app-wall-2), transparent 66%);
+  width: 56vw; height: 56vw; right: -10vw; top: -12vw;
+  background: radial-gradient(circle, var(--app-wall-2), transparent 64%);
 }
 .app-wall i:nth-child(3) {
-  width: 64vw; height: 48vw; left: 14vw; bottom: -22vw;
-  background: radial-gradient(circle, var(--app-wall-4), transparent 68%);
+  width: 64vw; height: 48vw; left: 14vw; bottom: -24vw;
+  background: radial-gradient(circle, var(--app-wall-4), transparent 66%);
 }
 .app-wall i:nth-child(4) {
-  width: 48vw; height: 48vw; right: 2vw; bottom: -12vw;
-  background: radial-gradient(circle, var(--app-wall-3), transparent 68%);
+  width: 46vw; height: 46vw; right: 2vw; bottom: -14vw;
+  background: radial-gradient(circle, var(--app-wall-3), transparent 66%);
 }
 .app-wall i:nth-child(5) {
-  width: 34vw; height: 80vh; left: -10vw; top: 16vh;
-  filter: blur(70px); opacity: 0.55;
-  background: radial-gradient(circle, var(--app-wall-1), transparent 70%);
+  width: 34vw; height: 80vh; left: -12vw; top: 16vh;
+  filter: blur(84px); opacity: 0.42;
+  background: radial-gradient(circle, var(--app-wall-2), transparent 70%);
 }
 .app-wall::before {
   content: "";
   position: absolute; inset: 0;
   background:
-    radial-gradient(80% 60% at 22% 8%, rgba(255, 255, 255, 0.28), transparent 55%),
-    radial-gradient(120% 90% at 50% 0%, transparent 40%, rgba(0, 0, 0, 0.05));
+    radial-gradient(80% 60% at 22% 6%, rgba(255, 255, 255, 0.2), transparent 55%),
+    radial-gradient(120% 90% at 50% 0%, transparent 38%, rgba(16, 24, 40, 0.09));
 }
 .app-wall::after {
   content: "";
   position: absolute; inset: 0;
-  opacity: 0.12;
+  opacity: 0.09;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.42'/%3E%3C/svg%3E");
 }
 html[data-theme="glass-dark"] .app-wall::after {
-  opacity: 0.06;
+  opacity: 0.05;
   mix-blend-mode: soft-light;
 }
 html[data-theme="glass-dark"] .app-wall::before {
   background:
-    radial-gradient(80% 60% at 22% 8%, rgba(255, 255, 255, 0.08), transparent 55%),
-    radial-gradient(120% 90% at 50% 0%, transparent 40%, rgba(0, 0, 0, 0.2));
+    radial-gradient(80% 60% at 22% 6%, rgba(148, 180, 255, 0.1), transparent 55%),
+    radial-gradient(120% 90% at 50% 0%, transparent 36%, rgba(0, 0, 0, 0.3));
 }
 
 /* ---------- 壳层：窗口 + 玻璃功能层 ---------- */
@@ -97,11 +97,17 @@ html[data-theme="glass-dark"] .aside {
   padding: 16px 12px 12px;
   border: 0.5px solid var(--app-glass-edge);
   border-radius: 22px;
-  background: var(--app-glass);
-  -webkit-backdrop-filter: blur(30px) saturate(165%) brightness(1.03);
-  backdrop-filter: blur(30px) saturate(165%) brightness(1.03);
+  background:
+    linear-gradient(180deg, var(--app-window-hi), transparent 42%),
+    var(--app-glass);
+  -webkit-backdrop-filter: blur(32px) saturate(150%) brightness(1.02);
+  backdrop-filter: blur(32px) saturate(150%) brightness(1.02);
   box-shadow: var(--app-shell-shadow), inset 0 1px 0 var(--app-glass-hi),
-    inset 1px 0 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 var(--app-glass-lo);
+    inset 1px 0 0 var(--app-glass-hi), inset 0 -1px 0 var(--app-glass-lo);
+}
+html[data-theme="glass-dark"] .aside {
+  box-shadow: var(--app-shell-shadow), inset 0 1px 0 var(--app-glass-hi),
+    inset 0 -1px 0 var(--app-glass-lo);
 }
 
 html[data-theme="glass"] .brand-mark,
@@ -110,8 +116,13 @@ html[data-theme="glass-dark"] .brand-mark {
   height: 30px;
   border-radius: 9px;
   font-size: 15px;
-  background: linear-gradient(180deg, #3d9bff, #0071e3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 2px 6px rgba(0, 113, 227, 0.28);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--app-primary) 82%, white),
+    var(--app-primary-strong)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 2px 8px color-mix(in srgb, var(--app-primary) 30%, transparent);
 }
 html[data-theme="glass"] .brand-text,
 html[data-theme="glass-dark"] .brand-text {
@@ -154,9 +165,11 @@ html[data-theme="glass-dark"] .content {
   min-width: 0;
   border-radius: 22px;
   overflow: hidden;
-  background: var(--app-window);
-  -webkit-backdrop-filter: blur(34px) saturate(170%);
-  backdrop-filter: blur(34px) saturate(170%);
+  background:
+    radial-gradient(120% 60% at 50% 0%, var(--app-window-hi), transparent 58%),
+    var(--app-window);
+  -webkit-backdrop-filter: blur(36px) saturate(150%);
+  backdrop-filter: blur(36px) saturate(150%);
   box-shadow: var(--app-shell-shadow), 0 0 0 0.5px var(--app-glass-edge);
 }
 
@@ -271,16 +284,17 @@ html[data-theme="glass-dark"] .theme-trigger:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--app-primary) 38%, transparent);
   outline-offset: 2px;
 }
-html[data-theme="glass"] .el-button--primary:not(.is-plain),
-html[data-theme="glass-dark"] .el-button--primary:not(.is-plain) {
+html[data-theme="glass"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text),
+html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   border-color: transparent;
-  background: var(--app-primary);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-primary) 88%, white), var(--app-primary));
   color: #fff;
-  box-shadow: 0 1px 2px rgba(0, 113, 227, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--app-primary) 32%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
-html[data-theme="glass"] .el-button--primary:not(.is-plain):hover,
-html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):hover {
-  background: var(--app-primary-strong);
+html[data-theme="glass"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
+html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover {
+  background: linear-gradient(180deg, var(--app-primary), var(--app-primary-strong));
   border-color: transparent;
 }
 html[data-theme="glass"] .el-button.is-text,
@@ -293,7 +307,12 @@ html[data-theme="glass-dark"] .el-button.is-link {
   height: auto;
   padding: 0;
   background: transparent;
+  color: var(--app-primary);
   box-shadow: none;
+}
+html[data-theme="glass"] .el-button.is-link:hover,
+html[data-theme="glass-dark"] .el-button.is-link:hover {
+  color: var(--app-primary-strong);
 }
 
 /* 输入 / 选择 / 文本域 */
@@ -465,33 +484,67 @@ html[data-theme="glass-dark"] .login-page {
   place-items: center;
   min-height: 100vh;
   background:
-    radial-gradient(60vw 50vw at 18% 10%, var(--app-wall-1), transparent 65%),
-    radial-gradient(50vw 45vw at 88% 8%, var(--app-wall-2), transparent 65%),
-    radial-gradient(60vw 45vw at 70% 100%, var(--app-wall-4), transparent 68%),
-    var(--app-wall-base);
+    radial-gradient(54vw 46vw at 8% -8%, #6f97c8, transparent 62%),
+    radial-gradient(44vw 40vw at 94% -2%, #8fa6cf, transparent 62%),
+    radial-gradient(60vw 46vw at 62% 106%, #8fbfb5, transparent 66%),
+    linear-gradient(165deg, #c8d6e8 0%, #e6ecf3 52%, #d5e2e2 100%);
+}
+html[data-theme="glass-dark"] .login-page {
+  background:
+    radial-gradient(58vw 46vw at 10% -4%, var(--app-wall-1), transparent 62%),
+    radial-gradient(46vw 40vw at 92% 2%, var(--app-wall-2), transparent 64%),
+    radial-gradient(64vw 46vw at 64% 104%, var(--app-wall-4), transparent 66%),
+    linear-gradient(180deg, #0a101b, var(--app-wall-base));
 }
 html[data-theme="glass"] .login-page::before,
 html[data-theme="glass-dark"] .login-page::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.3);
+  background: radial-gradient(90% 70% at 50% 38%, transparent 36%, rgba(16, 24, 40, 0.16));
   pointer-events: none;
 }
 html[data-theme="glass-dark"] .login-page::before {
-  background: rgba(0, 0, 0, 0.18);
+  background: radial-gradient(90% 70% at 50% 34%, transparent 34%, rgba(0, 0, 0, 0.42));
+}
+html[data-theme="glass"] .login-page::after,
+html[data-theme="glass-dark"] .login-page::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 560px;
+  height: 480px;
+  transform: translate(-24%, -52%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.24), transparent 66%);
+  filter: blur(46px);
+  pointer-events: none;
+}
+html[data-theme="glass-dark"] .login-page::after {
+  background: radial-gradient(circle, rgba(77, 141, 255, 0.2), transparent 66%);
 }
 html[data-theme="glass"] .login-card,
 html[data-theme="glass-dark"] .login-card {
   position: relative;
   z-index: 1;
-  width: min(380px, 90vw);
+  width: min(384px, 90vw);
   border: 0.5px solid var(--app-glass-edge);
   border-radius: 22px;
-  background: var(--app-glass-2);
-  -webkit-backdrop-filter: blur(30px) saturate(165%);
-  backdrop-filter: blur(30px) saturate(165%);
+  background:
+    linear-gradient(180deg, var(--app-window-hi), transparent 46%),
+    var(--app-glass-2);
+  -webkit-backdrop-filter: blur(32px) saturate(150%);
+  backdrop-filter: blur(32px) saturate(150%);
   box-shadow: var(--app-shell-shadow), inset 0 1px 0 var(--app-glass-hi);
+}
+html[data-theme="glass"] .login-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.64));
+  box-shadow: 0 2px 6px rgba(16, 24, 40, 0.06), 0 30px 70px -30px rgba(16, 24, 40, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+html[data-theme="glass-dark"] .login-card {
+  background: linear-gradient(180deg, rgba(38, 49, 68, 0.84), rgba(20, 29, 44, 0.72));
 }
 html[data-theme="glass"] .login-btn,
 html[data-theme="glass-dark"] .login-btn {

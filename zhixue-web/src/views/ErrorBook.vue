@@ -2,10 +2,11 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <div class="eyebrow">ERROR BOOK</div>
         <h2>我的错题本</h2>
-        <p class="sub">按知识点和状态筛选；点“去练习”先独立做一遍，再查看答案。</p>
+        <p class="sub">按知识点与状态筛选错题；建议先独立作答，再查看解析。</p>
       </div>
-      <el-button type="primary" plain @click="router.push('/diagnosis')">去诊断工作台</el-button>
+      <el-button type="primary" plain @click="router.push('/diagnosis')">录入错题</el-button>
     </div>
 
     <el-card class="filter-card">
@@ -14,7 +15,7 @@
           v-model="kpId"
           clearable
           filterable
-          placeholder="按知识点筛选"
+          placeholder="全部知识点"
           class="filter"
         >
           <el-option
@@ -24,7 +25,7 @@
             :value="item.kpId"
           />
         </el-select>
-        <el-select v-model="status" clearable placeholder="按状态筛选" class="filter">
+        <el-select v-model="status" clearable placeholder="全部状态" class="filter">
           <el-option label="草稿" value="DRAFT" />
           <el-option label="已确认" value="CONFIRMED" />
         </el-select>
@@ -37,11 +38,11 @@
       :loading="loading"
       :error="error"
       :empty="!loading && !error && records.length === 0"
-      empty-text="暂无错题记录，去「错题诊断工作台」收录第一道吧"
+      empty-text="暂无错题记录，完成一次诊断后自动归档。"
       @retry="load"
     >
       <template #empty-action>
-        <el-button type="primary" @click="router.push('/diagnosis')">去诊断工作台</el-button>
+        <el-button type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
       </template>
 
       <el-card class="table-card desktop-only">
@@ -60,7 +61,7 @@
               <span v-else>—</span>
             </template>
           </el-table-column>
-          <el-table-column label="题目（校正后）" min-width="200" show-overflow-tooltip>
+          <el-table-column label="题干（校正后）" min-width="200" show-overflow-tooltip>
             <template #default="{ row }">
               {{ row.correctedText || row.ocrText || "（未校正）" }}
             </template>
@@ -81,7 +82,7 @@
                 :disabled="!row.qId || !row.kpId"
                 @click="openPractice(row as ErrorRecordItem)"
               >
-                去练习
+                开始练习
               </el-button>
             </template>
           </el-table-column>
@@ -119,7 +120,7 @@
               :disabled="!row.qId || !row.kpId"
               @click="openPractice(row)"
             >
-              去练习
+              开始练习
             </el-button>
           </div>
         </el-card>
@@ -260,10 +261,16 @@ onMounted(() => {
 .page-head h2 {
   margin: 0;
 }
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--app-text-muted);
+}
 .sub {
   margin: 6px 0 0;
-  color: var(--app-text-muted);
-  font-size: 13px;
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
 }
 .filter-card {
   margin-bottom: 16px;

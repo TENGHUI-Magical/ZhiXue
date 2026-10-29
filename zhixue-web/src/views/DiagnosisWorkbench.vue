@@ -1,6 +1,13 @@
 <template>
   <div class="page">
-    <h2 class="page-title">错题诊断工作台</h2>
+    <div class="page-head">
+      <div>
+        <div class="eyebrow">DIAGNOSIS</div>
+        <h2>错题诊断工作台</h2>
+        <p class="sub">上传或录入错题，匹配知识点后生成启发式讲解与分层练习。</p>
+      </div>
+      <el-button @click="router.push('/error-book')">查看错题本</el-button>
+    </div>
 
     <el-alert
       v-if="errorMsg"
@@ -14,7 +21,10 @@
 
     <el-row :gutter="16" class="workspace-row">
       <el-col :xs="24" :sm="24" :md="12" :lg="12">
-        <el-card header="① 录入题干">
+        <el-card>
+          <template #header>
+            <div class="card-head"><span>01 · 题目录入</span><span class="card-sub">图片识别或手动输入</span></div>
+          </template>
           <el-upload
             class="ocr-upload"
             drag
@@ -23,11 +33,11 @@
             :http-request="handleUpload"
           >
             <UploadIcon class="upload-icon" />
-            <div class="upload-title">拖拽错题图片，或点击上传</div>
-            <div class="upload-sub">JPG/PNG，≤5MB；识别失败可直接手动输入</div>
+            <div class="upload-title">上传错题图片</div>
+            <div class="upload-sub">JPG / PNG，单张不超过 5MB；识别结果可手动校正</div>
           </el-upload>
           <div v-if="parsing" class="ocr-status">
-            <span class="ocr-dot" />识别中…（2 秒轮询）
+            <span class="ocr-dot" />正在识别，请稍候…
           </div>
           <el-alert
             v-if="lowConfidence"
@@ -35,7 +45,7 @@
             :closable="false"
             show-icon
             class="ocr-alert"
-            :title="`识别置信度低于 ${LOW_CONFIDENCE_THRESHOLD}：请核对并修正题干（或重新选择知识点）后再分析`"
+            :title="`识别置信度低于 ${LOW_CONFIDENCE_THRESHOLD}，请核对题干并确认知识点后再分析`"
           />
           <el-alert
             v-if="ocrError"
@@ -51,11 +61,11 @@
             :rows="4"
             maxlength="3000"
             show-word-limit
-            placeholder="粘贴或手动输入题目，也可先上传错题图片自动识别。"
+            placeholder="粘贴或手动输入题干，也可先上传图片自动识别。"
             @input="onManualInput"
           />
-          <el-form-item label="错因类型" class="error-type">
-            <el-select v-model="errorType" class="full-select" placeholder="选择五类标准错因">
+          <el-form-item label="错因分类" class="error-type">
+            <el-select v-model="errorType" class="full-select" placeholder="选择错因分类">
               <el-option
                 v-for="item in ERROR_TYPES"
                 :key="item.value"
@@ -66,15 +76,14 @@
           </el-form-item>
           <div class="actions">
             <el-button type="primary" :loading="matching" :disabled="lowConfidence" @click="analyze">
-              分析知识点
+              匹配知识点
             </el-button>
             <el-tag v-if="mapResult" :type="decisionType">{{ decisionLabel }}</el-tag>
-            <span class="hint">映射返回 AUTO / CONFIRM / FAILED</span>
           </div>
 
           <el-skeleton v-if="matching" :rows="3" animated class="skeleton" />
           <div v-else-if="candidates.length" class="match-list">
-            <div class="label">匹配到的知识点（请确认）</div>
+            <div class="label">候选知识点（请选择确认）</div>
             <el-radio-group v-model="selectedKpId">
               <el-radio
                 v-for="item in candidates"
@@ -87,20 +96,23 @@
               </el-radio>
             </el-radio-group>
           </div>
-          <el-empty v-else description="输入题干后点击分析" :image-size="72" />
+          <el-empty v-else description="录入题干后开始知识点匹配" :image-size="72" />
         </el-card>
       </el-col>
 
       <el-col :xs="24" :sm="24" :md="12" :lg="12">
-        <el-card header="② 启发式讲解">
+        <el-card>
+          <template #header>
+            <div class="card-head"><span>02 · 启发式讲解</span><span class="card-sub">基于教材知识切片</span></div>
+          </template>
           <div class="actions">
             <el-button
-              type="success"
+              type="primary"
               :loading="explaining"
               :disabled="!selectedKpId"
               @click="startExplain"
             >
-              生成讲解
+              生成启发式讲解
             </el-button>
             <el-tag v-if="degraded" type="warning">{{ degradeLabel }}</el-tag>
             <el-tag v-if="blocked" type="danger">学术诚信拦截</el-tag>
@@ -108,26 +120,37 @@
 
           <el-skeleton v-if="explaining && !explainText" :rows="4" animated class="skeleton" />
           <div v-else-if="explainText" class="explain-text">{{ explainText }}</div>
-          <el-empty v-else description="确认知识点后生成讲解" :image-size="72" />
+          <div v-else class="explain-empty">
+            <p class="empty-title">确认知识点后可生成讲解</p>
+            <div class="guide">
+              <span><i>1</i>录入或上传题干</span>
+              <span><i>2</i>确认匹配知识点</span>
+              <span><i>3</i>生成讲解并查看教材依据</span>
+            </div>
+            <p class="empty-note">讲解将引用教材知识点切片，并标注来源页码。</p>
+          </div>
 
           <div v-if="sources.length" class="sources">
-            <div class="label">引用来源</div>
+            <div class="label">教材依据</div>
             <div v-for="source in sources" :key="source.kpId" class="source-item">
-              《数据库系统概论（第6版）》{{ source.textbookPage || "页码待确认" }} ·
+              《数据库系统概论（第6版）》{{ source.textbookPage || "页码待定" }} ·
               {{ source.title || source.kpId }}
             </div>
           </div>
           <div v-if="explainId" class="meta-line">
-            explainId：{{ explainId }} · 耗时 {{ latencyMs }} ms
+            讲解编号 {{ explainId }} · 生成耗时 {{ (latencyMs / 1000).toFixed(1) }} 秒
           </div>
         </el-card>
       </el-col>
     </el-row>
 
-    <el-card header="③ 三层推荐（巩固 / 变式 / 进阶）" class="recommend-card">
+    <el-card class="recommend-card">
+      <template #header>
+        <div class="card-head"><span>03 · 分层练习推荐</span><span class="card-sub">巩固 / 变式 / 进阶</span></div>
+      </template>
       <el-empty
         v-if="!questions.length"
-        description="讲解完成后自动推荐 3 题"
+        description="完成讲解后，系统按巩固、变式、进阶推荐练习。"
         :image-size="72"
       />
       <div v-else>
@@ -146,6 +169,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@element-plus/icons-vue";
 import { ApiError } from "../api/request";
@@ -180,6 +204,7 @@ const LAYER_LABELS: Record<string, string> = {
   ADVANCE: "进阶挑战"
 };
 
+const router = useRouter();
 const questionText = ref("");
 const errorType = ref("CONCEPT_CONFUSION");
 const matching = ref(false);
@@ -189,8 +214,8 @@ const selectedKpId = ref("");
 const candidates = computed(() => mapResult.value?.candidates.slice(0, 3) ?? []);
 const decisionLabel = computed(() => {
   const decision = mapResult.value?.decision;
-  if (decision === "AUTO") return "自动接受";
-  if (decision === "CONFIRM") return "需人工确认";
+  if (decision === "AUTO") return "自动匹配";
+  if (decision === "CONFIRM") return "待人工确认";
   if (decision === "FAILED") return "未匹配";
   return "";
 });
@@ -507,10 +532,31 @@ onBeforeUnmount(() => {
     transform: none;
   }
 }
-.page-title {
-  margin: 0 0 clamp(12px, 1.6vw, 18px);
-  font-size: clamp(1.15rem, 0.9vw + 0.85rem, 1.5rem);
-  letter-spacing: -0.01em;
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--app-text-muted);
+}
+.page-head h2 {
+  margin: 6px 0 3px;
+  font-size: 26px;
+  letter-spacing: -0.012em;
+}
+.page-head .sub {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: 12.5px;
+}
+.card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.card-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--app-text-muted);
 }
 .error-bar {
   margin-bottom: 12px;
@@ -579,10 +625,6 @@ onBeforeUnmount(() => {
   gap: 12px;
   margin-top: 12px;
 }
-.hint {
-  font-size: clamp(11px, 0.3vw + 10px, 12px);
-  color: var(--app-text-muted);
-}
 .label {
   font-size: clamp(11px, 0.3vw + 10px, 12px);
   color: var(--app-text-muted);
@@ -612,6 +654,50 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   min-height: 80px;
+}
+.explain-empty {
+  margin-top: 10px;
+  padding: 20px 4px 8px;
+  text-align: center;
+}
+.empty-title {
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: var(--app-text-muted);
+}
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-width: 280px;
+  margin: 0 auto;
+  text-align: left;
+}
+.guide span {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+.guide i {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--app-surface-muted);
+  color: var(--app-primary);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+.empty-note {
+  margin: 18px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--app-text-muted);
 }
 .sources {
   margin-top: 16px;
@@ -659,9 +745,6 @@ onBeforeUnmount(() => {
   }
   .actions > .el-button {
     flex: 1 1 auto;
-  }
-  .actions .hint {
-    flex-basis: 100%;
   }
   .q-text {
     font-size: 14px;

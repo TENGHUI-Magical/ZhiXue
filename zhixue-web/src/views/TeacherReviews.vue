@@ -2,8 +2,9 @@
   <div class="page">
     <div class="page-head">
       <div>
+        <div class="eyebrow">ACADEMIC REVIEW</div>
         <h2>教师评阅</h2>
-        <p class="sub">抽评 AI 讲解，1—5 分；同一讲解只能评一次，重复提交会被拦截。</p>
+        <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>
     </div>
 
@@ -26,7 +27,7 @@
       :loading="loading"
       :error="error"
       :empty="!loading && !error && records.length === 0"
-      empty-text="当前没有待评阅的讲解；学生生成讲解后会进入队列"
+      empty-text="当前没有待评阅的讲解。学生生成讲解后将进入评阅队列。"
       @retry="load"
     >
       <template #empty-action>
@@ -107,7 +108,7 @@
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="评阅讲解" size="520px" class="review-drawer" @closed="resetForm">
+    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" @closed="resetForm">
       <template v-if="selected">
         <div class="review-meta">
           <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
@@ -144,7 +145,7 @@
           :rows="4"
           maxlength="500"
           show-word-limit
-          placeholder="写下评语：讲解是否准确、是否贴合错因、下一步建议"
+          placeholder="填写评语：讲解准确性、错因贴合度与后续建议"
         />
         <div class="drawer-actions">
           <el-button @click="drawerVisible = false">取消</el-button>
