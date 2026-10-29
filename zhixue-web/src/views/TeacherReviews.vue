@@ -6,6 +6,7 @@
         <h2>教师评阅</h2>
         <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>
+      <el-button :loading="loading" @click="load">刷新队列</el-button>
     </div>
 
     <div class="stat-row">
@@ -261,7 +262,7 @@ onMounted(load);
 
 <style scoped>
 .page {
-  max-width: 1240px;
+  max-width: var(--app-page-max);
 }
 .stat-row {
   display: grid;

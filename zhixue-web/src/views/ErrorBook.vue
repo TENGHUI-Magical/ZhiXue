@@ -6,7 +6,7 @@
         <h2>我的错题本</h2>
         <p class="sub">按知识点与状态筛选错题；建议先独立作答，再查看解析。</p>
       </div>
-      <el-button type="primary" plain @click="router.push('/diagnosis')">录入错题</el-button>
+      <el-button type="primary" @click="router.push('/diagnosis')">录入错题</el-button>
     </div>
 
     <el-card class="filter-card">
@@ -29,7 +29,7 @@
           <el-option label="草稿" value="DRAFT" />
           <el-option label="已确认" value="CONFIRMED" />
         </el-select>
-        <el-button type="primary" @click="search">查询</el-button>
+        <el-button @click="search">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
       </div>
     </el-card>
@@ -254,7 +254,7 @@ onMounted(() => {
 
 <style scoped>
 .page {
-  max-width: 1240px;
+  max-width: var(--app-page-max);
 }
 .page-head {
   display: flex;

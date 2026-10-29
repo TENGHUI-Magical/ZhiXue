@@ -242,6 +242,7 @@ html[data-theme="glass-dark"] {
   --app-dur-slow: 260ms;
   --app-dur-page: 320ms;
   --app-nav-width: 232px;
+  --app-page-max: 1320px;
 }
 
 /* Element Plus 映射：变量在使用处解析，跟随 html 上的主题 */
@@ -345,7 +346,7 @@ a {
 
 /* ========== 现代轻盈：全局页面与 Element Plus 轻覆盖 ========== */
 .page {
-  max-width: 1240px;
+  max-width: var(--app-page-max);
   margin: 0 auto;
 }
 

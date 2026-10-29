@@ -6,15 +6,39 @@
       <div class="app-wall" aria-hidden="true">
         <i></i><i></i><i></i><i></i><i></i>
       </div>
-      <el-aside width="232px" class="aside">
+      <el-aside
+        width="232px"
+        class="aside"
+        :class="{ 'is-collapsed': navCollapsed }"
+        aria-label="主导航"
+      >
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true">智</span>
-          <span class="brand-text">智学领航</span>
+          <div class="brand-id">
+            <span class="brand-mark" aria-hidden="true">智</span>
+            <span class="brand-text">智学领航</span>
+          </div>
+          <button
+            type="button"
+            class="side-toggle"
+            :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
+            :aria-expanded="!navCollapsed"
+            :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
+            @click="toggleNav"
+          >
+            <PanelLeftOpen v-if="navCollapsed" :size="16" aria-hidden="true" />
+            <PanelLeftClose v-else :size="16" aria-hidden="true" />
+          </button>
         </div>
         <el-menu :default-active="$route.path" router class="menu">
-          <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
+          <el-menu-item
+            v-for="item in menus"
+            :key="item.path"
+            :index="item.path"
+            :title="navCollapsed ? item.label : undefined"
+            :aria-label="navCollapsed ? item.label : undefined"
+          >
             <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
-            {{ item.label }}
+            <span class="menu-label">{{ item.label }}</span>
           </el-menu-item>
         </el-menu>
       </el-aside>
@@ -88,7 +112,7 @@
         >
           <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
             <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
-            {{ item.label }}
+            <span class="menu-label">{{ item.label }}</span>
           </el-menu-item>
         </el-menu>
       </el-drawer>
@@ -99,7 +123,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, Radar, Stethoscope } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
@@ -113,6 +137,24 @@ const userRole = ref("");
 const navOpen = ref(false);
 const userMenuOpen = ref(false);
 const userRoot = ref<HTMLElement | null>(null);
+const NAV_STORAGE_KEY = "zhixue-nav-collapsed";
+const readNavCollapsed = () => {
+  try {
+    return localStorage.getItem(NAV_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+const navCollapsed = ref(readNavCollapsed());
+
+const toggleNav = () => {
+  navCollapsed.value = !navCollapsed.value;
+  try {
+    localStorage.setItem(NAV_STORAGE_KEY, navCollapsed.value ? "1" : "0");
+  } catch {
+    // 隐私模式下只对当前会话生效
+  }
+};
 
 const baseMenus = [
   { path: "/diagnosis", label: "错题诊断工作台", icon: Stethoscope },
@@ -230,12 +272,56 @@ onBeforeUnmount(() => {
   background: var(--app-sidebar);
   border-right: 1px solid var(--app-border);
   padding: 14px 10px;
+  overflow: hidden;
+  transition: width 220ms var(--app-ease-standard),
+    flex-basis 220ms var(--app-ease-standard), padding 220ms var(--app-ease-standard);
+}
+.aside.is-collapsed {
+  width: 72px !important;
+  flex: 0 0 72px !important;
+  padding: 14px 8px !important;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 6px 10px 18px;
+}
+.brand-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.side-toggle {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0.5px solid var(--app-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--app-surface) 72%, transparent);
+  color: var(--app-text-secondary);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  cursor: pointer;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    color var(--app-dur-fast) var(--app-ease-standard);
+}
+.side-toggle:hover {
+  background: var(--app-surface);
+  border-color: var(--app-border-strong);
+  color: var(--app-text);
+}
+.side-toggle:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.side-toggle svg {
+  display: block;
 }
 .brand-mark {
   width: 34px;
@@ -256,6 +342,18 @@ onBeforeUnmount(() => {
   font-size: 18px;
   font-weight: 700;
   letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+.aside.is-collapsed .brand {
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 14px;
+}
+.aside.is-collapsed .brand-text {
+  display: none;
+}
+.aside.is-collapsed .side-toggle {
+  margin-left: 0;
 }
 .menu {
   border-right: none;
@@ -265,6 +363,25 @@ onBeforeUnmount(() => {
 .menu-icon {
   margin-right: 10px;
   flex: none;
+}
+.menu-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aside.is-collapsed .menu {
+  padding: 0;
+}
+.aside.is-collapsed .menu-icon {
+  margin-right: 0;
+}
+.aside.is-collapsed .menu-label {
+  display: none;
+}
+.aside.is-collapsed :deep(.el-menu-item) {
+  justify-content: center;
+  padding: 0 !important;
 }
 :deep(.el-menu-item) {
   height: 42px;
@@ -291,7 +408,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   height: 56px;
-  padding: 0 24px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-header);
   backdrop-filter: blur(12px);
@@ -450,7 +567,7 @@ onBeforeUnmount(() => {
 }
 .main {
   background: var(--app-bg);
-  padding: 24px;
+  padding: 20px;
   overflow-y: auto;
 }
 .drawer-logo {

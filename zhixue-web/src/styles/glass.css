@@ -84,8 +84,8 @@ html[data-theme="glass-dark"] .layout {
   z-index: 1;
   height: 100vh;
   height: 100dvh;
-  padding: 14px;
-  gap: 14px;
+  padding: 12px;
+  gap: 12px;
   background: transparent;
 }
 
@@ -158,6 +158,12 @@ html[data-theme="glass-dark"] .menu .el-menu-item.is-active {
   background: rgba(255, 255, 255, 0.09);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
 }
+html[data-theme="glass"] .aside.is-collapsed .menu .el-menu-item.is-active,
+html[data-theme="glass-dark"] .aside.is-collapsed .menu .el-menu-item.is-active {
+  background: var(--app-primary-soft);
+  color: var(--app-primary);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--app-primary) 22%, transparent);
+}
 
 html[data-theme="glass"] .content,
 html[data-theme="glass-dark"] .content {
@@ -192,7 +198,7 @@ html[data-theme="glass-dark"] .title {
 html[data-theme="glass"] .main,
 html[data-theme="glass-dark"] .main {
   background: transparent;
-  padding: 22px;
+  padding: 18px;
 }
 html[data-theme="glass"] .main::-webkit-scrollbar,
 html[data-theme="glass-dark"] .main::-webkit-scrollbar {
@@ -216,7 +222,7 @@ html[data-theme="glass-dark"] .main::-webkit-scrollbar {
   }
   html[data-theme="glass"] .main,
   html[data-theme="glass-dark"] .main {
-    padding: 14px;
+    padding: 12px;
   }
   html[data-theme="glass"] .header,
   html[data-theme="glass-dark"] .header {
@@ -250,16 +256,37 @@ html[data-theme="glass-dark"] .el-card.is-hover-shadow:hover {
   box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-card-hi);
 }
 
-/* 按钮：胶囊 + 轻内高光；不覆盖 EP 的语义变体与 plain */
+/* 按钮：统一 10px 圆角、34px 高度；主 / 次 / 文字 / 链接四层 */
 html[data-theme="glass"] .el-button,
 html[data-theme="glass-dark"] .el-button {
-  height: 32px;
+  height: 34px;
   padding: 0 14px;
-  border-radius: 999px;
-  font-size: 12.5px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 500;
   transition: background-color 160ms var(--app-ease-standard), border-color 160ms,
-    transform 160ms;
+    color 160ms, box-shadow 160ms, transform 160ms;
+}
+html[data-theme="glass"] .el-button--small,
+html[data-theme="glass-dark"] .el-button--small {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 12px;
+}
+html[data-theme="glass"] .el-button--large,
+html[data-theme="glass-dark"] .el-button--large {
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 11px;
+  font-size: 14px;
+}
+html[data-theme="glass"] .el-button.is-circle,
+html[data-theme="glass-dark"] .el-button.is-circle {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
 }
 html[data-theme="glass"] .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-text):not(.is-link):not(.is-plain),
 html[data-theme="glass-dark"] .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-text):not(.is-link):not(.is-plain) {
@@ -271,11 +298,15 @@ html[data-theme="glass-dark"] .el-button:not(.el-button--primary):not(.el-button
 html[data-theme="glass"] .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-text):not(.is-link):not(.is-plain):hover,
 html[data-theme="glass-dark"] .el-button:not(.el-button--primary):not(.el-button--success):not(.el-button--warning):not(.el-button--danger):not(.el-button--info):not(.is-text):not(.is-link):not(.is-plain):hover {
   background: var(--app-surface);
-  border-color: var(--app-border-strong);
+  border-color: color-mix(in srgb, var(--app-primary) 24%, var(--app-border-strong));
 }
-html[data-theme="glass"] .el-button:active,
-html[data-theme="glass-dark"] .el-button:active {
-  transform: scale(0.98);
+html[data-theme="glass"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover,
+html[data-theme="glass-dark"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
+  transform: translateY(-1px);
+}
+html[data-theme="glass"] .el-button:not(.is-disabled):not(.is-link):active,
+html[data-theme="glass-dark"] .el-button:not(.is-disabled):not(.is-link):active {
+  transform: translateY(0) scale(0.985);
 }
 html[data-theme="glass"] .el-button:focus-visible,
 html[data-theme="glass-dark"] .el-button:focus-visible,
@@ -296,11 +327,37 @@ html[data-theme="glass"] .el-button--primary:not(.is-plain):not(.is-link):not(.i
 html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover {
   background: linear-gradient(180deg, var(--app-primary), var(--app-primary-strong));
   border-color: transparent;
+  box-shadow: 0 5px 16px -6px color-mix(in srgb, var(--app-primary) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+html[data-theme="glass"] .el-button--primary.is-plain,
+html[data-theme="glass-dark"] .el-button--primary.is-plain {
+  border-color: color-mix(in srgb, var(--app-primary) 28%, var(--app-border));
+  background: var(--app-primary-soft);
+  color: var(--app-primary);
+}
+html[data-theme="glass"] .el-button--primary.is-plain:hover,
+html[data-theme="glass-dark"] .el-button--primary.is-plain:hover {
+  border-color: color-mix(in srgb, var(--app-primary) 42%, var(--app-border));
+  background: color-mix(in srgb, var(--app-primary) 15%, var(--app-surface));
+}
+html[data-theme="glass"] .el-button.is-disabled,
+html[data-theme="glass-dark"] .el-button.is-disabled {
+  opacity: 0.5;
+  transform: none !important;
+  box-shadow: none;
 }
 html[data-theme="glass"] .el-button.is-text,
 html[data-theme="glass-dark"] .el-button.is-text {
+  height: auto;
+  padding: 0 8px;
+  border-radius: 8px;
   background: transparent;
   box-shadow: none;
+}
+html[data-theme="glass"] .el-button.is-text:hover,
+html[data-theme="glass-dark"] .el-button.is-text:hover {
+  background: color-mix(in srgb, var(--app-text) 5%, transparent);
 }
 html[data-theme="glass"] .el-button.is-link,
 html[data-theme="glass-dark"] .el-button.is-link {
@@ -313,6 +370,26 @@ html[data-theme="glass-dark"] .el-button.is-link {
 html[data-theme="glass"] .el-button.is-link:hover,
 html[data-theme="glass-dark"] .el-button.is-link:hover {
   color: var(--app-primary-strong);
+}
+html[data-theme="glass"] .el-button.is-link.el-button--danger,
+html[data-theme="glass-dark"] .el-button.is-link.el-button--danger {
+  color: var(--app-danger);
+}
+html[data-theme="glass"] .el-button.is-link.el-button--success,
+html[data-theme="glass-dark"] .el-button.is-link.el-button--success {
+  color: var(--app-success);
+}
+html[data-theme="glass"] .el-button.is-link.el-button--warning,
+html[data-theme="glass-dark"] .el-button.is-link.el-button--warning {
+  color: var(--app-warning);
+}
+html[data-theme="glass"] .el-button.is-link.el-button--info,
+html[data-theme="glass-dark"] .el-button.is-link.el-button--info {
+  color: var(--app-info);
+}
+html[data-theme="glass"] .el-button [class*="el-icon"] + span,
+html[data-theme="glass-dark"] .el-button [class*="el-icon"] + span {
+  margin-left: 6px;
 }
 
 /* 输入 / 选择 / 文本域 */

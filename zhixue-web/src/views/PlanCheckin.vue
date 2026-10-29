@@ -341,7 +341,7 @@ onMounted(() => {
 
 <style scoped>
 .page {
-  max-width: 1240px;
+  max-width: var(--app-page-max);
 }
 .page-head {
   display: flex;

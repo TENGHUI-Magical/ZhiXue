@@ -6,7 +6,6 @@
         <h2>个人中心</h2>
         <p class="sub">账号身份与登录信息来自统一认证，仅供本人查看。</p>
       </div>
-      <el-button @click="goHome">返回工作台</el-button>
     </div>
 
     <PageState :loading="loading" :error="error" :empty="false" @retry="load">

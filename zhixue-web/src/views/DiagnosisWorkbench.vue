@@ -112,20 +112,25 @@
       <el-col :xs="24" :sm="24" :md="12" :lg="12">
         <el-card>
           <template #header>
-            <div class="card-head"><span>02 · 启发式讲解</span><span class="card-sub">基于教材知识切片</span></div>
+            <div class="card-head card-head-actions">
+              <span class="card-title">
+                <span>02 · 启发式讲解</span>
+                <span class="card-sub">基于教材知识切片</span>
+              </span>
+              <span class="head-actions">
+                <el-tag v-if="degraded" type="warning">{{ degradeLabel }}</el-tag>
+                <el-tag v-if="blocked" type="danger">学术诚信拦截</el-tag>
+                <el-button
+                  type="primary"
+                  :loading="explaining"
+                  :disabled="!selectedKpId"
+                  @click="startExplain"
+                >
+                  生成启发式讲解
+                </el-button>
+              </span>
+            </div>
           </template>
-          <div class="actions">
-            <el-button
-              type="primary"
-              :loading="explaining"
-              :disabled="!selectedKpId"
-              @click="startExplain"
-            >
-              生成启发式讲解
-            </el-button>
-            <el-tag v-if="degraded" type="warning">{{ degradeLabel }}</el-tag>
-            <el-tag v-if="blocked" type="danger">学术诚信拦截</el-tag>
-          </div>
 
           <el-skeleton v-if="explaining && !explainText" :rows="4" animated class="skeleton" />
           <div v-else-if="explainText" class="explain-text">{{ explainText }}</div>
@@ -550,7 +555,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .page {
   width: 100%;
-  max-width: 1280px;
+  max-width: var(--app-page-max);
   margin: 0 auto;
 }
 .page :deep(.el-card) {
@@ -594,6 +599,24 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: baseline;
   gap: 8px;
+}
+.card-head-actions {
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .card-sub {
   font-size: 11px;
