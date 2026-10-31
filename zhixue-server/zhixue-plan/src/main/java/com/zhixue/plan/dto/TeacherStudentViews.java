@@ -1,5 +1,7 @@
 package com.zhixue.plan.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -25,11 +27,13 @@ public final class TeacherStudentViews {
     public record PracticeItem(Long practiceId, String qId, String questionText,
                                String kpId, String kpName, Boolean isCorrect, String myAnswer,
                                String correctAnswer, Integer costSeconds, String errorType,
-                               String source, String createdAt) {
+                               @Schema(allowableValues = {"PLAN", "SELF", "RECOMMEND"}) String source,
+                               String createdAt) {
     }
 
     public record ErrorItem(String logId, String qId, String kpId, String kpName,
-                            String status, String errorType, Double ocrConfidence, String createdAt) {
+                            @Schema(allowableValues = {"DRAFT", "CONFIRMED"}) String status,
+                            String errorType, Double ocrConfidence, String createdAt) {
     }
 
     public record KpMastery(String kpId, String name, Double mastery, int sampleCount, int errorCount) {

@@ -3,6 +3,8 @@ package com.zhixue.plan.controller;
 import com.zhixue.common.api.ApiResponse;
 import com.zhixue.plan.dto.TeacherStudentViews;
 import com.zhixue.plan.service.TeacherStudentService;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,6 +32,7 @@ public class TeacherStudentController {
             @RequestParam long courseId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
+            @Parameter(schema = @Schema(allowableValues = {"lastActiveDesc", "masteryAsc", "practiceDesc"}))
             @RequestParam(defaultValue = "lastActiveDesc") String sort) {
         return ApiResponse.ok(teacherStudentService.page(courseId, page, size, sort));
     }

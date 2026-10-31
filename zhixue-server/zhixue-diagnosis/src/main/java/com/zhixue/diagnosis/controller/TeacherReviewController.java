@@ -4,6 +4,8 @@ import com.zhixue.common.api.ApiResponse;
 import com.zhixue.diagnosis.dto.ReviewPageView;
 import com.zhixue.diagnosis.dto.ReviewSubmitRequest;
 import com.zhixue.diagnosis.service.TeacherReviewService;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +36,7 @@ public class TeacherReviewController {
     public ApiResponse<ReviewPageView> queue(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
+            @Parameter(schema = @Schema(allowableValues = {"PENDING", "REVIEWED", "ALL"}))
             @RequestParam(defaultValue = "PENDING") String status,
             @RequestParam(required = false) String kpId,
             @RequestParam(required = false)

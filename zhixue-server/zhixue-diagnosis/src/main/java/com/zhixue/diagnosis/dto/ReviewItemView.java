@@ -1,5 +1,7 @@
 package com.zhixue.diagnosis.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 import java.util.List;
 
 /**
@@ -13,7 +15,8 @@ public record ReviewItemView(Long logPk, String explainId, String userName, Stri
                              List<SourceRef> sources, String createdAt,
                              String questionText, String questionType, List<OptionRef> options,
                              String correctAnswer, String analysisText, String studentNote,
-                             long waitingSeconds, String reviewStatus) {
+                             long waitingSeconds,
+                             @Schema(allowableValues = {"PENDING", "REVIEWED"}) String reviewStatus) {
 
     public record SourceRef(String kpId, String textbookPage, String title) {
     }

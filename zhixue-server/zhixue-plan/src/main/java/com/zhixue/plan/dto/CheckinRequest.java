@@ -1,5 +1,6 @@
 package com.zhixue.plan.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -28,6 +29,8 @@ public record CheckinRequest(
         @Min(value = 0, message = "costSeconds 不能为负")
         @Max(value = 86400, message = "costSeconds 不能超过 86400") Integer costSeconds,
 
+        @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
+                "CALCULATION_ERROR", "BOUNDARY_ERROR"}, nullable = true)
         String errorType,
 
         @Size(max = 200, message = "note 最长 200 字") String note) {
