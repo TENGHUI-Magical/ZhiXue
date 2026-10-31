@@ -125,7 +125,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope, Users } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
@@ -168,7 +168,8 @@ const baseMenus = [
 
 /** 教师端只展示已实现的教学入口；学生页面不再混进教师导航。 */
 const teacherMenus = [
-  { path: "/teacher/reviews", label: "教师评阅", icon: ClipboardCheck }
+  { path: "/teacher/reviews", label: "教师评阅", icon: ClipboardCheck },
+  { path: "/teacher/class", label: "班级学情", icon: Users }
 ];
 
 const menus = computed(() => (userRole.value === "TEACHER" ? teacherMenus : baseMenus));

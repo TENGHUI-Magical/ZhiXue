@@ -55,6 +55,12 @@ const router = createRouter({
       name: 'teacher-reviews',
       component: () => import('../views/TeacherReviews.vue'),
       meta: { title: '教师评阅', roles: ['TEACHER'] }
+    },
+    {
+      path: '/teacher/class',
+      name: 'teacher-class',
+      component: () => import('../views/TeacherClass.vue'),
+      meta: { title: '班级学情', roles: ['TEACHER'] }
     }
   ]
 })

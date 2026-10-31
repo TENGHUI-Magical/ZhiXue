@@ -511,6 +511,61 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EmptyResponse' }
+  /api/teacher/students:
+    get:
+      tags: [teacher]
+      summary: 课程学生列表（教师，聚合；C12）
+      parameters:
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [lastActiveDesc, masteryAsc, practiceDesc], default: lastActiveDesc }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeacherStudentPageResponse' }
+  /api/teacher/students/{userId}/learning-records:
+    get:
+      tags: [teacher]
+      summary: 单个学生学习记录详情（教师；C12）
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StudentLearningRecordResponse' }
   /api/teacher/knowledge-points:
     post:
       tags: [teacher]
@@ -1143,6 +1198,91 @@ components:
         studentNote: { type: string, nullable: true, description: 学生笔记/错因说明（非“学生原答”，数据模型无该字段） }
         waitingSeconds: { type: integer, description: 提交至今等待秒数 }
         reviewStatus: { type: string, enum: [PENDING, REVIEWED] }
+    TeacherStudentPageResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                page: { type: integer }
+                size: { type: integer }
+                total: { type: integer }
+                records:
+                  type: array
+                  items: { $ref: '#/components/schemas/TeacherStudentItem' }
+    TeacherStudentItem:
+      type: object
+      properties:
+        userId: { type: integer, format: int64 }
+        displayName: { type: string, description: 脱敏，如“张*” }
+        practiceCount: { type: integer }
+        correctRate: { type: number, nullable: true, description: 样本<3 时为 null }
+        avgCostSeconds: { type: integer, nullable: true }
+        avgMastery: { type: number, nullable: true }
+        errorCount: { type: integer }
+        planDone: { type: integer }
+        planTotal: { type: integer }
+        lastActiveAt: { type: string, nullable: true }
+    StudentLearningRecordResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                summary: { $ref: '#/components/schemas/TeacherStudentItem' }
+                practices:
+                  type: object
+                  properties:
+                    page: { type: integer }
+                    size: { type: integer }
+                    total: { type: integer }
+                    records:
+                      type: array
+                      items: { $ref: '#/components/schemas/StudentPracticeItem' }
+                errors:
+                  type: array
+                  items: { $ref: '#/components/schemas/StudentErrorItem' }
+                kpMastery:
+                  type: array
+                  items: { $ref: '#/components/schemas/StudentKpMastery' }
+    StudentPracticeItem:
+      type: object
+      properties:
+        practiceId: { type: integer, format: int64 }
+        qId: { type: string }
+        questionText: { type: string, nullable: true }
+        kpId: { type: string }
+        kpName: { type: string, nullable: true }
+        isCorrect: { type: boolean, nullable: true }
+        myAnswer: { type: string, nullable: true }
+        correctAnswer: { type: string, nullable: true }
+        costSeconds: { type: integer, nullable: true }
+        errorType: { type: string, nullable: true }
+        source: { type: string, enum: [PLAN, SELF, RECOMMEND] }
+        createdAt: { type: string }
+    StudentErrorItem:
+      type: object
+      properties:
+        logId: { type: string }
+        qId: { type: string, nullable: true }
+        kpId: { type: string }
+        kpName: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, CONFIRMED] }
+        errorType: { type: string, nullable: true }
+        ocrConfidence: { type: number, nullable: true }
+        createdAt: { type: string }
+    StudentKpMastery:
+      type: object
+      properties:
+        kpId: { type: string }
+        name: { type: string, nullable: true }
+        mastery: { type: number }
+        sampleCount: { type: integer }
+        errorCount: { type: integer }
     QuestionPageResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
