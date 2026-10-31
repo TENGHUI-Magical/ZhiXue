@@ -1,11 +1,12 @@
 // 诊断域 API 层（契约 §6.3：页面禁止直写 URL，一律经本文件调用）。
 import { api } from "./request";
+import { DEFAULT_COURSE_ID } from "../constants/course";
 
 /** 契约 §4：OCR 置信度低于该阈值必须人工核对，禁止直接确认 */
 export const LOW_CONFIDENCE_THRESHOLD = 0.75;
 
-/** 单课程 MVP 的默认课程 ID；多课程时由页面/路由显式传入 */
-export const DEFAULT_COURSE_ID = 1;
+/** 兼容旧引用：课程 ID 单一事实源在 constants/course.ts */
+export { DEFAULT_COURSE_ID };
 
 export interface MapCandidate {
   kpId: string;

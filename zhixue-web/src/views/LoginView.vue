@@ -35,7 +35,7 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { api } from "../api/request";
 
 /** openapi LoginResult：token + userId + username + role 平铺 */
@@ -55,10 +55,22 @@ interface MeUser {
 }
 
 const router = useRouter();
+const route = useRoute();
 const username = ref("");
 const password = ref("");
 const loading = ref(false);
 const isDev = import.meta.env.DEV;
+
+/** 登录后回跳：仅接受站内相对路径，防止开放重定向；否则回角色首页。 */
+const resolveRedirect = (role: string) => {
+  const raw = route.query.redirect;
+  const target = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof target === "string" && target.startsWith("/") && !target.startsWith("//")
+      && !target.startsWith("/login")) {
+    return target;
+  }
+  return role === "TEACHER" ? "/teacher/reviews" : "/today";
+};
 
 const submit = async () => {
   if (loading.value) return;
@@ -90,7 +102,7 @@ const submit = async () => {
         })
       );
     }
-    await router.replace(data.role === "TEACHER" ? "/teacher/reviews" : "/diagnosis");
+    await router.replace(resolveRedirect(data.role));
   } catch (e) {
     ElMessage.error((e as Error).message || "登录失败");
   } finally {

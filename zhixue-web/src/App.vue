@@ -125,7 +125,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ClipboardCheck, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope, Users } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope, Users } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
@@ -159,6 +159,7 @@ const toggleNav = () => {
 };
 
 const baseMenus = [
+  { path: "/today", label: "今日工作台", icon: LayoutDashboard },
   { path: "/diagnosis", label: "错题诊断工作台", icon: Stethoscope },
   { path: "/error-book", label: "我的错题本", icon: BookOpen },
   { path: "/portrait", label: "学情画像看板", icon: Radar },

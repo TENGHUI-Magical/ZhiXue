@@ -42,6 +42,16 @@ request.interceptors.request.use((config) => {
   return config
 })
 
+// 401 统一处理：清 token、保留当前站内地址、跳登录一次（避免各处复制）
+function redirectToLogin(message: string) {
+  localStorage.removeItem('satoken')
+  ElMessage.warning(message)
+  if (window.location.pathname.startsWith('/login')) return
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  const redirect = current.startsWith('/') ? current : ''
+  window.location.assign(redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login')
+}
+
 // 响应拦截只处理 HTTP/网络层错误，业务 code 交给 unwrap 统一判定，避免两处逻辑漂移
 request.interceptors.response.use(
   (response) => response,
@@ -53,11 +63,7 @@ request.interceptors.response.use(
       (error.code === 'ECONNABORTED' ? '请求超时，请稍后重试' : '网络异常，请检查服务是否已启动')
 
     if (code === 40100) {
-      localStorage.removeItem('satoken')
-      ElMessage.warning(message)
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.assign('/login')
-      }
+      redirectToLogin(message)
     } else {
       ElMessage.error(message)
     }
@@ -73,11 +79,7 @@ async function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promi
     return body as unknown as T
   }
   if (body.code === 40100) {
-    localStorage.removeItem('satoken')
-    ElMessage.warning(body.message || '登录已过期，请重新登录')
-    if (!window.location.pathname.startsWith('/login')) {
-      window.location.assign('/login')
-    }
+    redirectToLogin(body.message || '登录已过期，请重新登录')
   }
   if (body.code !== 0) {
     throw new ApiError(body.code, body.message || '请求失败')

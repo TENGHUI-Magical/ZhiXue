@@ -6,13 +6,19 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/diagnosis'
+      redirect: () => (currentRole() === 'TEACHER' ? '/teacher/reviews' : '/today')
     },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
       meta: { title: '登录' }
+    },
+    {
+      path: '/today',
+      name: 'today',
+      component: () => import('../views/TodayDashboard.vue'),
+      meta: { title: '今日工作台', roles: ['STUDENT'] }
     },
     {
       path: '/diagnosis',
@@ -61,6 +67,22 @@ const router = createRouter({
       name: 'teacher-class',
       component: () => import('../views/TeacherClass.vue'),
       meta: { title: '班级学情', roles: ['TEACHER'] }
+    },
+    {
+      path: '/403',
+      name: 'forbidden',
+      component: () => import('../views/ForbiddenView.vue'),
+      meta: { title: '无权访问' }
+    },
+    {
+      path: '/404',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue'),
+      meta: { title: '页面不存在' }
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/404'
     }
   ]
 })
@@ -77,17 +99,20 @@ const currentRole = () => {
 router.beforeEach((to) => {
   const token = localStorage.getItem('satoken')
   if (to.path !== '/login' && !token) {
-    return '/login'
+    // 保留原始站内地址，登录后回跳（仅相对路径，防开放重定向）
+    return to.fullPath && to.fullPath !== '/'
+      ? { path: '/login', query: { redirect: to.fullPath } }
+      : '/login'
   }
   if (to.path === '/login' && token) {
-    return currentRole() === 'TEACHER' ? '/teacher/reviews' : '/diagnosis'
+    return currentRole() === 'TEACHER' ? '/teacher/reviews' : '/today'
   }
   const role = currentRole()
   // 本地有 token 但用户缓存缺失时先放行，App 会回查 /api/auth/me 再补角色；
-  // 否则会在角色未知时与 /diagnosis 互相重定向。
+  // 否则会在角色未知时与默认首页互相重定向。
   if (!role) return true
   if (to.meta.roles && !to.meta.roles.includes(role)) {
-    return role === 'TEACHER' ? '/teacher/reviews' : '/diagnosis'
+    return role === 'TEACHER' ? '/teacher/reviews' : '/today'
   }
   return true
 })
