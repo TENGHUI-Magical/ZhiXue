@@ -18,6 +18,7 @@ import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import com.zhixue.plan.dto.TeacherStudentViews;
+import com.zhixue.plan.dto.UserPlanAgg;
 import com.zhixue.plan.mapper.StudyPlanMapper;
 import com.zhixue.user.service.UserQueryService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -174,6 +175,31 @@ class TeacherStudentServiceTest {
             assertEquals(2, result.total());
             assertEquals(1, result.records().size());
             assertEquals(2L, result.records().get(0).userId());
+        }
+    }
+
+    @Test
+    void pageMapsPlanDoneAndTotalInContractOrder() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
+        List<String> qIds = List.of("Q_1");
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+                agg(2L, 4, 2, 2, 45.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0))).thenReturn(List.of(
+                kp(2L, "KP01", 4, 2.0, 2)));
+        UserPlanAgg plan = new UserPlanAgg();
+        plan.setUserId(2L);
+        plan.setPlanTotal(7);
+        plan.setPlanDone(2);
+        when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of(plan));
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            TeacherStudentViews.Page result = service.page(1L, 1, 20, "lastActiveDesc");
+            // 契约字段顺序：planDone=2、planTotal=7；曾因 int[] 顺序写反而返回 7/2
+            assertEquals(2, result.records().get(0).planDone());
+            assertEquals(7, result.records().get(0).planTotal());
         }
     }
 
