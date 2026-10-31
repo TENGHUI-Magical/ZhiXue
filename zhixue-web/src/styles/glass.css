@@ -459,6 +459,28 @@ html[data-theme="glass-dark"] .el-tag {
   font-weight: 600;
   border-color: transparent;
 }
+/* 对比度：浅色标签文字加深、深色标签文字提亮，保证 12px 小字号 AA */
+html[data-theme="glass"] .el-tag--success .el-tag__content { color: #0f6b32; }
+html[data-theme="glass"] .el-tag--warning .el-tag__content { color: #8a4a00; }
+html[data-theme="glass"] .el-tag--primary .el-tag__content { color: #1d4ed8; }
+html[data-theme="glass"] .el-tag--info .el-tag__content { color: #475569; }
+html[data-theme="glass"] .el-tag--danger .el-tag__content { color: #a11717; }
+html[data-theme="glass-dark"] .el-tag--success .el-tag__content { color: #86efac; }
+html[data-theme="glass-dark"] .el-tag--warning .el-tag__content { color: #fcd34d; }
+html[data-theme="glass-dark"] .el-tag--primary .el-tag__content { color: #93c5fd; }
+html[data-theme="glass-dark"] .el-tag--info .el-tag__content { color: #cbd5e1; }
+html[data-theme="glass-dark"] .el-tag--danger .el-tag__content { color: #fca5a5; }
+html[data-theme="glass"] .el-button--primary.is-plain:not(.is-link):not(.is-text) {
+  color: #1d4ed8;
+}
+html[data-theme="glass"] .el-select__placeholder.is-transparent,
+html[data-theme="glass-dark"] .el-select__placeholder.is-transparent {
+  color: var(--app-text-secondary);
+}
+html[data-theme="glass-dark"] .el-button--primary.is-plain:not(.is-link):not(.is-text) {
+  color: #9cc0ff;
+  border-color: rgba(156, 192, 255, 0.45);
+}
 html[data-theme="glass"] .el-progress-bar__outer,
 html[data-theme="glass-dark"] .el-progress-bar__outer {
   border-radius: var(--app-radius-full);

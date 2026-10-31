@@ -7,7 +7,7 @@
         <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>
       <div class="head-actions">
-        <el-select v-model="statusFilter" size="small" class="status-select" @change="load">
+        <el-select v-model="statusFilter" size="small" class="status-select" aria-label="按评阅状态筛选" @change="load">
           <el-option label="待评阅" value="PENDING" />
           <el-option label="已评阅" value="REVIEWED" />
           <el-option label="全部" value="ALL" />
@@ -77,7 +77,7 @@
             v-model:page-size="size"
             :total="total"
             :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
+            layout="total, prev, pager, next"
             @current-change="load"
             @size-change="handleSizeChange"
           />
@@ -202,6 +202,7 @@
         <el-input
           v-model="comment"
           type="textarea"
+          aria-label="评语"
           :rows="4"
           maxlength="500"
           show-word-limit
@@ -255,8 +256,12 @@ const waitingText = (seconds?: number) => {
   if (s < 86400) return `${Math.floor(s / 3600)} 小时`;
   return `${Math.floor(s / 86400)} 天`;
 };
-// C3：证据缺失时只能退回（不能通过）；已评阅记录禁止重复提交
-const hasEvidence = computed(() => !!(selected.value?.questionText ?? "").trim());
+// C3：题干与参考答案齐全才算证据完整；缺任一只能退回（不能通过）；已评阅禁止重复提交
+const hasEvidence = computed(
+  () =>
+    !!(selected.value?.questionText ?? "").trim() &&
+    !!(selected.value?.correctAnswer ?? "").trim()
+);
 const isReviewed = computed(() => selected.value?.reviewStatus === "REVIEWED");
 const canSubmit = computed(
   () =>

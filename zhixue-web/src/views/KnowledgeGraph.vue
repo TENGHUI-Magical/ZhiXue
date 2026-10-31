@@ -41,12 +41,24 @@
       </template>
 
       <el-card class="graph-card">
+        <div v-if="visibleNodes.length" class="graph-controls" role="group" aria-label="图谱缩放与视图">
+          <button type="button" aria-label="放大" @click="zoomBy(1.2)">+</button>
+          <button type="button" aria-label="缩小" @click="zoomBy(0.83)">−</button>
+          <button type="button" aria-label="重置视图" @click="resetView">重置</button>
+        </div>
         <svg
           v-if="visibleNodes.length"
+          ref="svgRef"
           class="graph-svg"
+          :class="{ dragging }"
           viewBox="0 0 800 600"
-          role="img"
+          role="group"
           aria-label="知识点先修关系图，完整名称见下方节点列表"
+          @wheel.prevent="onWheel"
+          @pointerdown="onPointerDown"
+          @pointermove="onPointerMove"
+          @pointerup="onPointerUp"
+          @pointercancel="onPointerUp"
         >
           <defs>
             <marker
@@ -61,44 +73,53 @@
               <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--app-border-strong)" />
             </marker>
           </defs>
-          <line
-            v-for="edge in edgeLines"
-            :key="edge.id"
-            :x1="edge.x1"
-            :y1="edge.y1"
-            :x2="edge.x2"
-            :y2="edge.y2"
-            stroke="var(--app-border-strong)"
-            stroke-width="1.2"
-            marker-end="url(#kg-arrow)"
-          />
-          <g
-            v-for="node in nodePoints"
-            :key="node.id"
-            class="graph-node"
-            role="button"
-            tabindex="0"
-            :aria-label="`${node.id} ${node.name}`"
-            @click="openNode(node.id)"
-            @keydown.enter.prevent="openNode(node.id)"
-            @keydown.space.prevent="openNode(node.id)"
-          >
-            <circle
-              :cx="node.x"
-              :cy="node.y"
-              :r="node.r"
-              :class="['node-circle', { weak: node.weak }]"
+          <g class="graph-viewport" :transform="viewportTransform">
+            <line
+              v-for="edge in edgeLines"
+              :key="edge.id"
+              :class="['graph-edge', { active: isEdgeActive(edge), dim: activeId && !isEdgeActive(edge) }]"
+              :x1="edge.x1"
+              :y1="edge.y1"
+              :x2="edge.x2"
+              :y2="edge.y2"
+              stroke-width="1.2"
+              marker-end="url(#kg-arrow)"
             />
-            <text
-              v-if="node.showLabel"
-              :x="node.x"
-              :y="node.y + node.r + 14"
-              text-anchor="middle"
-              class="node-label"
+            <g
+              v-for="node in nodePoints"
+              :key="node.id"
+              :class="[
+                'graph-node',
+                {
+                  active: node.id === activeId,
+                  adjacent: adjacentIds.has(node.id),
+                  dim: activeId && node.id !== activeId && !adjacentIds.has(node.id)
+                }
+              ]"
+              role="button"
+              tabindex="0"
+              :aria-label="`${node.id} ${node.name}`"
+              @click="openNode(node.id)"
+              @keydown.enter.prevent="openNode(node.id)"
+              @keydown.space.prevent="openNode(node.id)"
             >
-              {{ node.labelText }}
-            </text>
-            <title>{{ node.id }} {{ node.name }}</title>
+              <circle
+                :cx="node.x"
+                :cy="node.y"
+                :r="node.r"
+                :class="['node-circle', { weak: node.weak }]"
+              />
+              <text
+                v-if="node.showLabel"
+                :x="node.x"
+                :y="node.y + node.r + 14"
+                text-anchor="middle"
+                class="node-label"
+              >
+                {{ node.labelText }}
+              </text>
+              <title>{{ node.id }} {{ node.name }}</title>
+            </g>
           </g>
         </svg>
         <div v-if="!visibleNodes.length" class="graph-empty">
@@ -127,7 +148,7 @@
       </el-card>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="知识点详情" size="480px" class="kp-drawer" append-to-body>
+    <el-drawer v-model="drawerVisible" title="知识点详情" size="480px" class="kp-drawer" append-to-body @closed="activeId = ''">
       <el-skeleton v-if="detailLoading" :rows="5" animated />
       <el-alert v-else-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
       <template v-else-if="detail">
@@ -146,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
 import {
@@ -171,6 +192,12 @@ const detailLoading = ref(false);
 const detailError = ref("");
 const detail = ref<KnowledgePointDetail | null>(null);
 const chapterFilter = ref<number | null>(null);
+const svgRef = ref<SVGSVGElement | null>(null);
+const scale = ref(1);
+const tx = ref(0);
+const ty = ref(0);
+const activeId = ref("");
+const dragging = ref(false);
 
 const chapterOptions = computed(() =>
   Array.from(
@@ -254,6 +281,8 @@ const edgeLines = computed(() =>
       if (!source || !target) return null;
       return {
         id: `edge-${index}`,
+        sourceId: edge.source ?? "",
+        targetId: edge.target ?? "",
         x1: source.x,
         y1: source.y,
         x2: target.x,
@@ -262,6 +291,79 @@ const edgeLines = computed(() =>
     })
     .filter((edge): edge is NonNullable<typeof edge> => !!edge)
 );
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+const viewportTransform = computed(
+  () => `translate(${tx.value} ${ty.value}) scale(${scale.value})`
+);
+
+/** 以 viewBox 坐标 (cx,cy) 为锚点缩放，保证光标下的点不漂移 */
+const zoomAt = (factor: number, cx = 400, cy = 300) => {
+  const next = clamp(scale.value * factor, 0.6, 2.5);
+  if (next === scale.value) return;
+  const ratio = next / scale.value;
+  tx.value = cx - (cx - tx.value) * ratio;
+  ty.value = cy - (cy - ty.value) * ratio;
+  scale.value = next;
+};
+const zoomBy = (factor: number) => zoomAt(factor);
+const resetView = () => {
+  scale.value = 1;
+  tx.value = 0;
+  ty.value = 0;
+};
+
+const onWheel = (event: WheelEvent) => {
+  const svg = svgRef.value;
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const cx = ((event.clientX - rect.left) / rect.width) * 800;
+  const cy = ((event.clientY - rect.top) / rect.height) * 600;
+  zoomAt(event.deltaY < 0 ? 1.15 : 0.87, cx, cy);
+};
+
+let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
+const onPointerDown = (event: PointerEvent) => {
+  const target = event.target as Element | null;
+  if (target?.closest(".graph-node")) return; // 节点点击不触发拖拽
+  if (event.button !== 0) return;
+  dragging.value = true;
+  panStart = { x: event.clientX, y: event.clientY, tx: tx.value, ty: ty.value };
+  (event.currentTarget as SVGSVGElement).setPointerCapture?.(event.pointerId);
+};
+const onPointerMove = (event: PointerEvent) => {
+  if (!dragging.value) return;
+  const svg = svgRef.value;
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  tx.value = panStart.tx + ((event.clientX - panStart.x) / rect.width) * 800;
+  ty.value = panStart.ty + ((event.clientY - panStart.y) / rect.height) * 600;
+};
+const onPointerUp = (event: PointerEvent) => {
+  if (!dragging.value) return;
+  dragging.value = false;
+  (event.currentTarget as SVGSVGElement).releasePointerCapture?.(event.pointerId);
+};
+
+const isEdgeActive = (edge: { sourceId: string; targetId: string }) =>
+  !!activeId.value && (edge.sourceId === activeId.value || edge.targetId === activeId.value);
+
+const adjacentIds = computed(() => {
+  const result = new Set<string>();
+  if (!activeId.value) return result;
+  for (const edge of edges.value) {
+    if (edge.source === activeId.value && edge.target) result.add(edge.target);
+    if (edge.target === activeId.value && edge.source) result.add(edge.source);
+  }
+  return result;
+});
+
+watch(chapterFilter, () => {
+  activeId.value = "";
+  resetView();
+});
 
 const load = async () => {
   loading.value = true;
@@ -290,6 +392,7 @@ const load = async () => {
 
 const openNode = async (id?: string) => {
   if (!id) return;
+  activeId.value = id;
   drawerVisible.value = true;
   detailLoading.value = true;
   detailError.value = "";
@@ -377,7 +480,35 @@ onMounted(load);
   background: var(--app-primary);
 }
 .graph-card {
+  position: relative;
   overflow: hidden;
+}
+.graph-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+}
+.graph-controls button {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  cursor: pointer;
+}
+.graph-controls button:hover {
+  color: var(--app-primary);
+  border-color: var(--app-primary);
+}
+.graph-controls button:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
 }
 .graph-svg {
   display: block;
@@ -386,10 +517,41 @@ onMounted(load);
   min-height: 420px;
   background: var(--app-surface-muted);
   border-radius: var(--app-radius-sm);
+  touch-action: none;
+  cursor: grab;
+}
+.graph-svg.dragging {
+  cursor: grabbing;
+}
+.graph-viewport {
+  transition: transform 0.15s var(--app-ease-standard);
+}
+.graph-edge {
+  stroke: var(--app-border-strong);
+  transition: opacity 0.15s ease, stroke 0.15s ease;
+}
+.graph-edge.active {
+  stroke: var(--app-warning);
+  stroke-width: 2.2;
+}
+.graph-edge.dim {
+  opacity: 0.18;
 }
 .graph-node {
   cursor: pointer;
   outline: none;
+  transition: opacity 0.15s ease;
+}
+.graph-node.dim {
+  opacity: 0.22;
+}
+.graph-node.active .node-circle {
+  stroke: var(--app-warning);
+  stroke-width: 3;
+}
+.graph-node.adjacent .node-circle {
+  stroke: var(--app-primary);
+  stroke-width: 2.5;
 }
 .graph-node:focus .node-circle {
   stroke: var(--app-warning);
@@ -465,6 +627,10 @@ onMounted(load);
   }
   .graph-svg {
     min-height: 320px;
+  }
+  .graph-controls button {
+    min-width: 44px;
+    height: 44px;
   }
   .node-label {
     display: none;

@@ -17,6 +17,7 @@
           filterable
           placeholder="全部知识点"
           class="filter"
+          aria-label="按知识点筛选错题"
         >
           <el-option
             v-for="item in kpOptions"
@@ -25,7 +26,7 @@
             :value="item.kpId"
           />
         </el-select>
-        <el-select v-model="status" clearable placeholder="全部状态" class="filter">
+        <el-select v-model="status" clearable placeholder="全部状态" class="filter" aria-label="按状态筛选错题">
           <el-option label="草稿" value="DRAFT" />
           <el-option label="已确认" value="CONFIRMED" />
         </el-select>
@@ -96,7 +97,7 @@
             v-model:page-size="size"
             :total="total"
             :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
+            layout="total, prev, pager, next"
             @current-change="load"
             @size-change="handleSizeChange"
           />

@@ -6,7 +6,7 @@
         <p class="sub">查看本课程学生的学习记录：练习量、正确率、做题时长、进度与薄弱知识点。</p>
       </div>
       <div class="head-actions">
-        <el-select v-model="sort" size="small" class="sort-select" @change="load">
+        <el-select v-model="sort" size="small" class="sort-select" aria-label="学生列表排序" @change="load">
           <el-option label="最近活跃" value="lastActiveDesc" />
           <el-option label="掌握度升序" value="masteryAsc" />
           <el-option label="练习量" value="practiceDesc" />
@@ -75,7 +75,7 @@
             v-model:page-size="size"
             :total="total"
             :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
+            layout="total, prev, pager, next"
             @current-change="load"
             @size-change="handleSizeChange"
           />

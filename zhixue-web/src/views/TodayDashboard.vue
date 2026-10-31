@@ -85,6 +85,7 @@
               :stroke-width="8"
               :show-text="false"
               class="metric-progress"
+              aria-label="本周完成进度"
             />
             <button type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
           </el-card>

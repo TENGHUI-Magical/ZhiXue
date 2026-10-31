@@ -1,14 +1,14 @@
 <template>
-  <div v-if="loading" class="page-state">
+  <div v-if="loading" class="page-state" role="status" aria-live="polite" aria-label="加载中">
     <el-skeleton :rows="skeletonRows" animated />
   </div>
-  <div v-else-if="error" class="page-state">
+  <div v-else-if="error" class="page-state" role="alert">
     <el-alert :title="error" type="error" show-icon :closable="false" />
     <el-button class="state-action" type="primary" plain @click="emit('retry')">
       {{ retryText }}
     </el-button>
   </div>
-  <el-empty v-else-if="empty" :description="emptyText" :image-size="96">
+  <el-empty v-else-if="empty" role="status" :description="emptyText" :image-size="96">
     <slot name="empty-action" />
   </el-empty>
   <slot v-else />

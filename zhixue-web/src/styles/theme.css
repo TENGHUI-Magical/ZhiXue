@@ -20,7 +20,7 @@ html[data-theme="glass"] {
   --app-surface-raised: #ffffff;
   --app-text: #101828;
   --app-text-secondary: #475467;
-  --app-text-muted: #667085;
+  --app-text-muted: #5B6B82;
   --app-border: rgba(16, 24, 40, 0.1);
   --app-border-strong: rgba(16, 24, 40, 0.18);
   --app-divider: rgba(16, 24, 40, 0.07);
@@ -69,7 +69,7 @@ html[data-theme="glass-dark"] {
   --app-surface-raised: #1c2739;
   --app-text: #e8eef7;
   --app-text-secondary: #a3b1c6;
-  --app-text-muted: #7b8ba3;
+  --app-text-muted: #9AA8C4;
   --app-border: rgba(148, 163, 184, 0.18);
   --app-border-strong: rgba(148, 163, 184, 0.3);
   --app-divider: rgba(255, 255, 255, 0.08);
@@ -321,7 +321,7 @@ a {
   --el-table-row-hover-bg-color: color-mix(in srgb, var(--app-primary) 4%, var(--app-surface));
   --el-table-border-color: var(--app-border);
   --el-table-text-color: var(--app-text);
-  --el-table-header-text-color: var(--app-text-muted);
+  --el-table-header-text-color: var(--app-text-secondary);
   border-radius: var(--app-radius-md);
 }
 
@@ -397,5 +397,50 @@ a {
 
   .main .el-button:active {
     transform: translateY(1px);
+  }
+}
+
+/* 移动端触控目标：关键操作 ≥44px（Apple HIG / Material 可用性标准） */
+@media (max-width: 768px) {
+  .el-button:not(.is-link):not(.is-text) {
+    min-height: 44px;
+  }
+  .el-input__wrapper,
+  .el-select__wrapper {
+    min-height: 44px;
+  }
+  .el-radio-button__inner {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .el-menu-item {
+    min-height: 44px;
+  }
+  .metric-link {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .weak-item,
+  .step {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .el-button.is-link,
+  .el-button.is-text {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .el-button.is-circle {
+    min-width: 44px;
+  }
+  .el-pagination button.btn-prev,
+  .el-pagination button.btn-next,
+  .el-pager li {
+    min-width: 44px;
+    height: 44px;
   }
 }

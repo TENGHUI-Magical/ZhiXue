@@ -3,6 +3,7 @@
     <router-view v-if="$route.path === '/login'" />
 
     <el-container v-else class="layout">
+      <a class="skip-link" href="#main-content">跳到主要内容</a>
       <div class="app-wall" aria-hidden="true">
         <i></i><i></i><i></i><i></i><i></i>
       </div>
@@ -66,6 +67,7 @@
               <button
                 type="button"
                 class="user-trigger"
+                aria-label="打开用户菜单"
                 :aria-expanded="userMenuOpen"
                 aria-haspopup="menu"
                 @click="userMenuOpen = !userMenuOpen"
@@ -95,7 +97,7 @@
             </div>
           </span>
         </el-header>
-        <el-main class="main">
+        <el-main class="main" id="main-content" tabindex="-1">
           <router-view />
         </el-main>
       </el-container>
@@ -272,6 +274,27 @@ onBeforeUnmount(() => {
   height: 100vh;
   height: 100dvh;
   background: var(--app-bg);
+}
+.skip-link {
+  position: absolute;
+  top: -48px;
+  left: 12px;
+  z-index: 100;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 13px 14px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: var(--app-shadow-lg);
+  font-size: var(--app-fs-sm);
+  text-decoration: none;
+}
+.skip-link:focus {
+  top: 12px;
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
 }
 .aside {
   background: var(--app-sidebar);
@@ -608,6 +631,8 @@ onBeforeUnmount(() => {
   }
   .user-trigger {
     padding: 0 2px;
+    min-width: 44px;
+    height: 44px;
   }
   .main {
     padding: 12px;

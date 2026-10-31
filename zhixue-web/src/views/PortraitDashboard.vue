@@ -74,7 +74,7 @@
           <template #header>
             <div class="card-head"><span>能力维度</span><span class="card-sub">五维掌握度</span></div>
           </template>
-          <div v-if="dimensionRows.length" class="cap">
+          <div v-if="dimensionRows.length" class="cap" tabindex="0" role="group" aria-label="五维能力分数">
             <div v-for="row in dimensionRows" :key="row.key" class="cap-row" :class="row.level">
               <span class="cap-name">{{ row.name }}</span>
               <span class="cap-track"><i :style="{ width: row.pct + '%' }"></i></span>
@@ -128,7 +128,7 @@
           <template #header>
             <div class="card-head"><span>错因分布</span><span class="card-sub">按已确认错题归类</span></div>
           </template>
-          <div v-if="errorRows.length" class="cap">
+          <div v-if="errorRows.length" class="cap" tabindex="0" role="group" aria-label="错因分布">
             <div v-for="row in errorRows" :key="row.key" class="cap-row error-row">
               <span class="cap-name">{{ row.label }}</span>
               <span class="cap-track"><i :style="{ width: row.percent + '%' }"></i></span>
@@ -753,12 +753,13 @@ onMounted(load);
 }
 
 @media (max-width: 1080px) {
-  .c4, .c5, .c7, .c8 { grid-column: span 12; }
+  .c4, .c5, .c7, .c8, .c12 { grid-column: span 12; }
 }
 @media (max-width: 720px) {
   .page-head { flex-direction: column; align-items: flex-start; }
-  .dash { grid-template-columns: 1fr; }
-  .c4, .c5, .c7, .c8 { grid-column: span 1; }
+  .dash { grid-template-columns: minmax(0, 1fr) !important; }
+  .dash > .el-card { grid-column: 1 / -1 !important; }
+  .c4, .c5, .c7, .c8, .c12 { grid-column: span 1; }
   .kpi-grid { grid-template-columns: 1fr; }
   .kpi {
     border-left: none;

@@ -1,0 +1,264 @@
+/**
+ * 智学领航前端验收脚本（本地可重复）
+ *
+ * 用法：
+ *   npm run e2e
+ *   或 BASE=http://localhost:5174 npm run e2e
+ *
+ * 依赖：playwright-core + axe-core（devDependencies，不进 bundle）；本机需安装 Edge。
+ * 脚本会在 5174 未启动时自动拉起 Vite，结束后关闭。
+ */
+import { chromium } from 'playwright-core'
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+
+const PORT = process.env.E2E_PORT || '5174'
+const BASE = process.env.BASE || `http://localhost:${PORT}`
+const OUT = process.env.E2E_OUT || path.resolve('../../spark-output/qa/2026-10-31-e2e')
+fs.mkdirSync(OUT, { recursive: true })
+const axeSource = fs.readFileSync(path.resolve('node_modules/axe-core/axe.min.js'), 'utf8')
+
+// ---------------- mock 数据（契约形状） ----------------
+const courses = [{ courseId: 1, courseName: '数据库系统概论', dimensionConfig: [
+  { key: 'concept', name: '概念理解' }, { key: 'sql', name: 'SQL 应用' },
+  { key: 'schema', name: '模式设计' }, { key: 'transaction', name: '事务与并发' },
+  { key: 'boundary', name: '边界与异常' }
+] }]
+const kpNames = ['关系模型基本概念','关系代数','元组关系演算','关系完整性','规范化初步','函数依赖','范式判定','模式分解','视图与索引','关系模型小结','SQL 概述','连接查询']
+const nodes = kpNames.map((name, i) => ({ id: 'KP' + String(i + 1).padStart(4, '0'), name, chapterId: i < 6 ? 2 : 3 }))
+const edges = nodes.slice(1).map((n, i) => ({ source: nodes[i].id, target: n.id, relation: 'PREREQ' }))
+const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。', misconception: '把笛卡儿积当连接', textbookPage: 'P88', dimensionKey: 'sql' }
+const portrait = { statDate: '2026-10-29', dimensionScores: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }, weakestKps: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6 }, { kpId: 'KP0006', name: '函数依赖', mastery: 0.41, sampleCount: 8 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, totalPractice: 18, totalError: 12 }
+const errorPage = { page: 1, size: 10, total: 2, records: [
+  { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00' },
+  { logId: 'LOG002', qId: null, kpId: 'KP0006', kpName: '函数依赖', status: 'DRAFT', errorType: 'STEP_OMISSION', createdAt: '2026-10-28T19:00:00' }
+] }
+const week = ['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30','2026-10-31','2026-11-01']
+const plans = week.map((d, i) => ({ planId: 100 + i, planDate: d, planCount: 3, doneCount: [3,3,2,1,0,0,0][i], status: i < 3 ? 'DONE' : 'PENDING', items: [1,2,3].map(k => ({ itemId: 1000 + i * 10 + k, qId: 'Q_030' + k, kpId: 'KP000' + k, sortNo: k, isDone: k <= [3,3,2,1,0,0,0][i] })) }))
+const recs = [1,2,3].map(i => ({ recommendationId: 900 + i, qId: 'Q_030' + i, layer: ['CONSOLIDATE','VARIANT','ADVANCE'][i-1], reason: '理由', difficulty: i, isAdopted: false, questionText: '题干 ' + i }))
+const reviewsPage = { page: 1, size: 10, total: 2, records: [
+  { logPk: 501, explainId: 'EXP501', userName: '张*', kpId: 'KP0012', errorType: 'METHOD_MISSING', model: 'bge', degraded: false, content: '讲解正文……', sources: [{ kpId: 'KP0012', textbookPage: 'P88', title: '连接查询' }], createdAt: '2026-10-29T09:20:00', questionText: '下列连接查询中，能保留左表全部行的是（ ）。', questionType: '单选', options: [{key:'A',text:'INNER JOIN'},{key:'B',text:'LEFT JOIN'},{key:'C',text:'CROSS JOIN'},{key:'D',text:'NATURAL JOIN'}], correctAnswer: 'B', analysisText: 'LEFT JOIN 保留左表全部行。', studentNote: '记错连接类型', waitingSeconds: 5400, reviewStatus: 'PENDING' },
+  { logPk: 502, explainId: 'EXP502', userName: '李*', kpId: 'KP0006', errorType: 'CONCEPT_CONFUSION', model: 'fallback', degraded: true, content: '保底讲解……', sources: [], createdAt: '2026-10-29T08:05:00', questionText: null, questionType: null, options: [], correctAnswer: null, analysisText: null, studentNote: null, waitingSeconds: 18000, reviewStatus: 'PENDING' }
+] }
+const teacherStudents = { page: 1, size: 20, total: 2, records: [
+  { userId: 2, displayName: '张*', practiceCount: 18, correctRate: 0.67, avgCostSeconds: 52, avgMastery: 0.6, errorCount: 6, planDone: 5, planTotal: 21, lastActiveAt: '2026-10-30 21:10:00' },
+  { userId: 3, displayName: '李*', practiceCount: 6, correctRate: null, avgCostSeconds: 35, avgMastery: null, errorCount: 2, planDone: 1, planTotal: 21, lastActiveAt: '2026-10-28 12:00:00' }
+] }
+const studentLearning = { summary: teacherStudents.records[0], practices: { page: 1, size: 10, total: 1, records: [{ practiceId: 1, qId: 'Q_0301', questionText: '题干', kpId: 'KP0001', kpName: '概念', isCorrect: true, myAnswer: 'B', correctAnswer: 'B', costSeconds: 45, errorType: null, source: 'PLAN', createdAt: '2026-10-30 21:10:00' }] }, errors: [], kpMastery: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6, errorCount: 4 }] }
+const questionDetail = { qId: 'Q_0301', courseId: 1, kpId: 'KP0001', kpName: '概念', questionType: '单选', questionText: '题干', options: [{key:'A',text:'A'},{key:'B',text:'B'},{key:'C',text:'C'},{key:'D',text:'D'}], difficulty: 1 }
+const answer = { qId: 'Q_0301', answerText: 'A', analysisText: '解析' }
+
+function reply(method, pathname, role) {
+  if (method !== 'GET') return { code: 0, data: null, timestamp: Date.now() }
+  if (pathname === '/api/auth/me') return { code: 0, data: { userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: role === 'TEACHER' ? '王老师' : '朱同学', role }, timestamp: Date.now() }
+  if (pathname === '/api/courses') return { code: 0, data: courses, timestamp: Date.now() }
+  if (/^\/api\/courses\/\d+\/knowledge-graph$/.test(pathname)) return { code: 0, data: { nodes, edges }, timestamp: Date.now() }
+  if (pathname.startsWith('/api/course/kp/')) return { code: 0, data: kpDetail, timestamp: Date.now() }
+  if (pathname === '/api/portraits/me') return { code: 0, data: portrait, timestamp: Date.now() }
+  if (pathname === '/api/error/records') return { code: 0, data: errorPage, timestamp: Date.now() }
+  if (pathname === '/api/plans') return { code: 0, data: plans, timestamp: Date.now() }
+  if (pathname === '/api/recommendations') return { code: 0, data: recs, timestamp: Date.now() }
+  if (pathname === '/api/teacher/reviews') return { code: 0, data: reviewsPage, timestamp: Date.now() }
+  if (pathname === '/api/teacher/students') return { code: 0, data: teacherStudents, timestamp: Date.now() }
+  if (/^\/api\/teacher\/students\/\d+\/learning-records$/.test(pathname)) return { code: 0, data: studentLearning, timestamp: Date.now() }
+  if (/^\/api\/questions\/[^/]+\/answer$/.test(pathname)) return { code: 0, data: answer, timestamp: Date.now() }
+  if (/^\/api\/questions\/[^/]+$/.test(pathname)) return { code: 0, data: questionDetail, timestamp: Date.now() }
+  return { code: 0, data: null, timestamp: Date.now() }
+}
+
+const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/error-book'],['portrait','/portrait'],['plan','/plan'],['knowledge-graph','/knowledge-graph']]
+const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teacher/class']]
+
+// ---------------- 启动与断言 ----------------
+async function ensureServer() {
+  try {
+    const res = await fetch(BASE, { signal: AbortSignal.timeout(1500) })
+    if (res.ok) return null
+  } catch { /* not running */ }
+  const child = spawn('npm', ['run', 'dev', '--', '--port', PORT, '--strictPort'], {
+    cwd: process.cwd(), stdio: 'ignore', shell: true
+  })
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 500))
+    try {
+      const res = await fetch(BASE, { signal: AbortSignal.timeout(1000) })
+      if (res.ok) return child
+    } catch { /* retry */ }
+  }
+  child.kill()
+  throw new Error('Vite 未能在 30s 内启动')
+}
+
+const results = []
+function check(name, condition, detail = '') {
+  results.push({ name, pass: !!condition, detail })
+  if (!condition) console.log('FAIL:', name, detail)
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+async function newContext(browser, role, theme, viewport) {
+  const ctx = await browser.newContext({ viewport, locale: 'zh-CN' })
+  await ctx.addInitScript(({ role, theme }) => {
+    localStorage.setItem('satoken', 'mock')
+    localStorage.setItem('zhixue_user', JSON.stringify({ userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: 'x', role }))
+    localStorage.setItem('zhixue-theme', theme)
+  }, { role, theme })
+  await ctx.route('**/*', async (route) => {
+    const u = new URL(route.request().url())
+    if (u.pathname.startsWith('/api/')) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role)) })
+    } else {
+      await route.continue()
+    }
+  })
+  return ctx
+}
+
+async function axeScan(page) {
+  await page.addScriptTag({ content: axeSource })
+  const result = await page.evaluate(async () => {
+    // @ts-ignore
+    return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] })
+  })
+  return result.violations
+    .filter(v => ['serious', 'critical'].includes(v.impact))
+    .map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+}
+
+const server = await ensureServer()
+const browser = await chromium.launch({ channel: 'msedge', headless: true })
+
+try {
+  // ---------- 学生桌面 ----------
+  const studentCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
+  const page = await studentCtx.newPage()
+
+  await page.goto(BASE + '/today', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('今日：主结论存在', await page.locator('.hero-title').count() === 1)
+  check('今日：一个主动作', await page.locator('.hero-actions .el-button--primary').count() === 1)
+  check('今日：三张指标卡', await page.locator('.metric-card').count() === 3)
+  check('今日：无横向溢出', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
+
+  await page.goto(BASE + '/error-book', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('错题本：两行记录', await page.locator('.el-table__row').count() >= 2)
+  check('错题本：缺 qId 显示待关联', await page.getByText('待关联题目').count() >= 1)
+
+  await page.goto(BASE + '/portrait', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('画像：同基线三条', await page.locator('.baseline-row').count() === 3)
+  check('画像：三环已移除', await page.locator('.rings').count() === 0)
+  check('画像：薄弱点可点击', await page.locator('button.weak-item').count() >= 1)
+  check('画像：结论含掌握度', (await page.locator('.hero-title').innerText()).includes('掌握度'))
+
+  await page.goto(BASE + '/plan', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('计划：7 天卡片', await page.locator('.day-card').count() === 7)
+  await page.getByRole('button', { name: '去打卡' }).first().click(); await sleep(800)
+  check('计划：打卡先打开练习抽屉', await page.locator('.practice-drawer.open').isVisible())
+  const practiceBox = await page.locator('.practice-drawer.open').boundingBox()
+  check('抽屉：铺满视口', !!practiceBox && practiceBox.height > 800, JSON.stringify(practiceBox))
+  await page.keyboard.press('Escape'); await sleep(500)
+
+  await page.goto(BASE + '/knowledge-graph', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('图谱：缩放控件 3 个', await page.locator('.graph-controls button').count() === 3)
+  const before = await page.locator('.graph-viewport').getAttribute('transform')
+  await page.locator('.graph-controls button').first().click(); await sleep(400)
+  const after = await page.locator('.graph-viewport').getAttribute('transform')
+  check('图谱：放大改变视图', before !== after, `${before} -> ${after}`)
+  await page.locator('.graph-node').first().click(); await sleep(800)
+  check('图谱：节点打开详情', await page.locator('.kp-drawer').isVisible())
+  await page.keyboard.press('Escape'); await sleep(400)
+
+  await page.goto(BASE + '/knowledge-graph?kpId=KP0012', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('图谱：kpId 深链打开详情', await page.locator('.kp-drawer').isVisible())
+  await page.keyboard.press('Escape'); await sleep(400)
+
+  await page.goto(BASE + '/not-exist', { waitUntil: 'domcontentloaded' }); await sleep(800)
+  check('404：未知路径兜底', (await page.locator('.state-code').innerText()).trim() === '404')
+
+  // 角色守卫
+  const teacherGuard = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
+  const tp = await teacherGuard.newPage()
+  await tp.goto(BASE + '/today', { waitUntil: 'domcontentloaded' }); await sleep(800)
+  check('守卫：教师访问学生页回教师首页', tp.url().includes('/teacher/reviews'))
+  await teacherGuard.close()
+
+  const studentGuard = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
+  const sp = await studentGuard.newPage()
+  await sp.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' }); await sleep(800)
+  check('守卫：学生访问教师页回今日', sp.url().includes('/today'))
+  await studentGuard.close()
+
+  // ---------- 教师桌面 ----------
+  const teacherCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
+  const tpage = await teacherCtx.newPage()
+  await tpage.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  await tpage.getByRole('button', { name: '评阅' }).nth(1).click(); await sleep(800)
+  check('评阅：无证据提示', await tpage.getByText('证据不完整').count() >= 1)
+  check('评阅：无证据禁用通过', await tpage.locator('.el-radio-button').first().evaluate(el => el.className.includes('is-disabled')))
+  check('评阅：默认退回', await tpage.locator('.el-radio-button').nth(1).evaluate(el => el.className.includes('is-active')))
+  const reviewBox = await tpage.locator('.review-drawer').boundingBox()
+  check('评阅：抽屉铺满视口', !!reviewBox && reviewBox.height > 800, JSON.stringify(reviewBox))
+  await tpage.keyboard.press('Escape'); await sleep(500)
+
+  await tpage.goto(BASE + '/teacher/class', { waitUntil: 'domcontentloaded' }); await sleep(1500)
+  check('班级：两名学生', await tpage.locator('.el-table__row').count() >= 2)
+  await tpage.getByRole('button', { name: '学习记录' }).first().click(); await sleep(900)
+  check('班级：学习记录抽屉', await tpage.locator('.student-drawer').isVisible())
+  await tpage.keyboard.press('Escape'); await sleep(400)
+  await teacherCtx.close()
+
+  // ---------- 移动端 ----------
+  const mobileCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
+  const mp = await mobileCtx.newPage()
+  for (const [name, pathname] of [['today','/today'],['plan','/plan'],['portrait','/portrait']]) {
+    await mp.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1200)
+    const info = await mp.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
+      let small = 0
+      for (const el of els) {
+        if (el.matches('.el-select__input')) continue
+        const r = el.getBoundingClientRect()
+        if (r.width === 0 || r.height === 0) continue
+        if (r.width < 44 || r.height < 44) small++
+      }
+      return { small, overflow: document.documentElement.scrollWidth > window.innerWidth + 1 }
+    })
+    check(`移动端/${name}：无横向溢出`, !info.overflow)
+    check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small}`)
+  }
+  await mobileCtx.close()
+
+  // ---------- axe（双主题 × 8 页 + 移动端 3 页） ----------
+  const a11y = []
+  for (const theme of ['glass', 'glass-dark']) {
+    const ctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 })
+    const p = await ctx.newPage()
+    for (const [name, pathname] of STUDENT) {
+      await p.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1000)
+      const v = await axeScan(p)
+      a11y.push({ theme, page: name, violations: v })
+      check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
+    }
+    await ctx.close()
+    const tctx = await newContext(browser, 'TEACHER', theme, { width: 1440, height: 900 })
+    const tp2 = await tctx.newPage()
+    for (const [name, pathname] of TEACHER) {
+      await tp2.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1000)
+      const v = await axeScan(tp2)
+      a11y.push({ theme, page: name, violations: v })
+      check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
+    }
+    await tctx.close()
+  }
+  await studentCtx.close()
+
+  fs.writeFileSync(path.join(OUT, 'e2e-report.json'), JSON.stringify({ base: BASE, results, a11y }, null, 2), 'utf8')
+  const failed = results.filter(r => !r.pass)
+  console.log(`\nE2E: ${results.length - failed.length}/${results.length} passed`)
+  console.log(`a11y: ${a11y.filter(a => a.violations.length === 0).length}/${a11y.length} pages clean`)
+  console.log('REPORT:', path.join(OUT, 'e2e-report.json'))
+  if (failed.length) process.exitCode = 1
+} finally {
+  await browser.close()
+  if (server) server.kill()
+}

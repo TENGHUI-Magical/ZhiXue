@@ -163,7 +163,8 @@ onBeforeUnmount(() => {
     display: none;
   }
   .theme-trigger {
-    width: 32px;
+    width: 44px;
+    height: 44px;
     padding: 0;
     justify-content: center;
   }
