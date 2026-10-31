@@ -355,7 +355,7 @@ onMounted(() => {
   margin: 0;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
@@ -363,14 +363,14 @@ onMounted(() => {
 .sub {
   margin: 6px 0 0;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .week-actions {
   display: flex;
   align-items: center;
   gap: 4px;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .week-title {
   min-width: 180px;
@@ -396,7 +396,7 @@ onMounted(() => {
 }
 .head-hint {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .day-grid {
   display: grid;
@@ -414,7 +414,7 @@ onMounted(() => {
 }
 .day-progress {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   margin: 6px 0 10px;
 }
 .plan-items {
@@ -437,11 +437,11 @@ onMounted(() => {
   gap: 2px;
 }
 .item-title {
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
   color: var(--app-text);
 }
 .item-kp {
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
 }
 .rec-grid {
@@ -460,7 +460,7 @@ onMounted(() => {
 }
 .rec-reason {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .rec-text {
   margin: 12px 0;
@@ -480,7 +480,7 @@ onMounted(() => {
 }
 .rec-id {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 @media (max-width: 1080px) {
   .day-grid {

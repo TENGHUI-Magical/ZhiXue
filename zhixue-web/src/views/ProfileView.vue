@@ -142,20 +142,20 @@ onMounted(() => {
   max-width: 960px;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
 }
 .page-head h2 {
   margin: 6px 0 3px;
-  font-size: 26px;
+  font-size: var(--app-fs-xl);
   letter-spacing: -0.012em;
 }
 .sub {
   margin: 0;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .profile-grid {
   display: grid;
@@ -176,7 +176,7 @@ onMounted(() => {
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 26px;
+  font-size: var(--app-fs-xl);
   font-weight: 600;
   background: linear-gradient(
     160deg,
@@ -188,13 +188,13 @@ onMounted(() => {
 }
 .identity h3 {
   margin: 14px 0 4px;
-  font-size: 18px;
+  font-size: var(--app-fs-lg);
   font-weight: 650;
   color: var(--app-text);
 }
 .identity-sub {
   margin: 0 0 10px;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   color: var(--app-text-muted);
 }
 .identity-actions {
@@ -210,7 +210,7 @@ onMounted(() => {
   gap: 8px;
 }
 .card-sub {
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
   font-weight: 400;
 }
@@ -230,12 +230,12 @@ onMounted(() => {
 }
 .info-row dt {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .info-row dd {
   margin: 0;
   color: var(--app-text);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -244,14 +244,14 @@ onMounted(() => {
 }
 .security-card p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   line-height: 1.75;
   color: var(--app-text-secondary);
 }
 .security-card .security-note {
   margin-top: 8px;
   color: var(--app-text-muted);
-  font-size: 11.5px;
+  font-size: var(--app-fs-xs);
 }
 @media (max-width: 760px) {
   .profile-grid {

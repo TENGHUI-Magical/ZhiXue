@@ -38,11 +38,7 @@ html[data-theme="glass"] {
   --app-shadow-lg: 0 1px 1px rgba(16, 24, 40, 0.05), 0 18px 44px -14px rgba(16, 24, 40, 0.22),
     0 48px 90px -40px rgba(16, 24, 40, 0.18);
   --app-shadow-hover: 0 2px 6px rgba(16, 24, 40, 0.05), 0 18px 44px -14px rgba(16, 24, 40, 0.2);
-  --app-radius: 16px;
-  --app-radius-sm: 10px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 12px;
-  --app-radius-xl: 16px;
+  /* 圆角统一由文末共享 :root 定义（5 档），此处不再覆盖，避免 base 倒挂 */
   --app-sidebar: rgba(255, 255, 255, 0.56);
   --app-header: rgba(255, 255, 255, 0.56);
   --app-accent-contrast: #ffffff;
@@ -89,11 +85,7 @@ html[data-theme="glass-dark"] {
   --app-shadow-md: 0 2px 8px rgba(0, 0, 0, 0.42), 0 22px 52px -16px rgba(0, 0, 0, 0.68);
   --app-shadow-lg: 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 60px -18px rgba(0, 0, 0, 0.78);
   --app-shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.42), 0 22px 52px -16px rgba(0, 0, 0, 0.68);
-  --app-radius: 16px;
-  --app-radius-sm: 10px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 12px;
-  --app-radius-xl: 16px;
+  /* 圆角统一由文末共享 :root 定义（5 档），此处不再覆盖 */
   --app-sidebar: rgba(17, 24, 37, 0.6);
   --app-header: rgba(17, 24, 37, 0.6);
   --app-accent-contrast: #ffffff;
@@ -114,12 +106,22 @@ html[data-theme="glass-dark"] {
 }
 
 :root {
-  --app-radius-xs: 6px;
+  /* 圆角 5 档（裁决 V3.0 §3 D6）：4 / 8 / 12 / 16 / 999；嵌套内 = max(0, 外 − padding) */
+  --app-radius-xs: 4px;
   --app-radius-sm: 8px;
-  --app-radius-md: 10px;
-  --app-radius-lg: 12px;
+  --app-radius-md: 12px;
+  --app-radius-lg: 16px;
   --app-radius-xl: 16px;
+  --app-radius: 12px;
   --app-radius-pill: 999px;
+  --app-radius-full: 999px;
+  /* 字号 6 档（裁决 V3.0 §3 D3）：12 / 13 / 15 / 20 / 26 / 34；中文最小 12 */
+  --app-fs-xs: 12px;
+  --app-fs-sm: 13px;
+  --app-fs-md: 15px;
+  --app-fs-lg: 20px;
+  --app-fs-xl: 26px;
+  --app-fs-hero: 34px;
   --app-space-1: 4px;
   --app-space-2: 8px;
   --app-space-3: 12px;
@@ -227,7 +229,7 @@ a {
 }
 ::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--app-text-muted) 40%, transparent);
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -257,7 +259,7 @@ a {
 }
 
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
@@ -275,7 +277,7 @@ a {
 .page-head .sub {
   margin: 6px 0 0;
   color: var(--app-text-muted);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
   line-height: 1.55;
 }
 
@@ -325,11 +327,11 @@ a {
 
 .el-table th.el-table__cell {
   font-weight: 500;
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 
 .el-table td.el-table__cell {
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
 }
 
 .el-tag {

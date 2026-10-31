@@ -580,20 +580,20 @@ onBeforeUnmount(() => {
   }
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
 }
 .page-head h2 {
   margin: 6px 0 3px;
-  font-size: 26px;
+  font-size: var(--app-fs-xl);
   letter-spacing: -0.012em;
 }
 .page-head .sub {
   margin: 0;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .card-head {
   display: flex;
@@ -619,7 +619,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 .card-sub {
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   font-weight: 400;
   color: var(--app-text-muted);
 }
@@ -631,23 +631,23 @@ onBeforeUnmount(() => {
 }
 .ocr-upload :deep(.el-upload-dragger) {
   padding: 18px 12px;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   background: var(--app-surface-muted);
   border-color: var(--app-border);
 }
 .upload-title {
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
   color: var(--app-text);
 }
 .upload-icon {
   display: block;
   margin: 0 auto 8px;
-  font-size: 28px;
+  font-size: var(--app-fs-xl);
   color: var(--app-text-muted);
 }
 .upload-sub {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
 }
 .ocr-status {
@@ -655,7 +655,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   margin: 8px 0;
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
 }
 .ocr-dot {
@@ -730,7 +730,7 @@ onBeforeUnmount(() => {
 }
 .empty-title {
   margin: 0 0 14px;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   color: var(--app-text-muted);
 }
 .guide {
@@ -745,7 +745,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
 }
 .guide i {
@@ -757,13 +757,13 @@ onBeforeUnmount(() => {
   place-items: center;
   background: var(--app-surface-muted);
   color: var(--app-primary);
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-style: normal;
   font-weight: 600;
 }
 .empty-note {
   margin: 18px 0 0;
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   line-height: 1.6;
   color: var(--app-text-muted);
 }
@@ -815,7 +815,7 @@ onBeforeUnmount(() => {
     flex: 1 1 auto;
   }
   .q-text {
-    font-size: 14px;
+    font-size: var(--app-fs-md);
   }
 }
 </style>

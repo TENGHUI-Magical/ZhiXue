@@ -85,10 +85,10 @@ onBeforeUnmount(() => {
   height: 32px;
   padding: 0 12px;
   border: 1px solid var(--app-border);
-  border-radius: 999px;
+  border-radius: var(--app-radius-full);
   background: var(--app-surface);
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
   cursor: pointer;
 }
 .theme-trigger:hover {
@@ -122,7 +122,7 @@ onBeforeUnmount(() => {
   padding: 6px;
   background: var(--app-surface);
   border: 1px solid var(--app-border);
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   box-shadow: var(--app-shadow-lg);
 }
 .theme-option {
@@ -131,7 +131,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   padding: 8px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   background: transparent;
   color: var(--app-text);
   font: inherit;
@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
 }
 .menu-label small {
   color: var(--app-text-muted);
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
 }
 @media (max-width: 768px) {
   .theme-trigger .label,

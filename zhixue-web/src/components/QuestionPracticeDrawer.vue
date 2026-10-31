@@ -282,10 +282,10 @@ watch(
 }
 .kp {
   color: var(--app-text-muted);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
 }
 .stem {
-  font-size: 16px;
+  font-size: var(--app-fs-md);
   line-height: 1.7;
   color: var(--app-text);
   margin-bottom: 16px;
@@ -317,18 +317,18 @@ watch(
 }
 .hint {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .answer-panel {
   margin-top: 8px;
 }
 .answer {
-  font-size: 15px;
+  font-size: var(--app-fs-md);
   line-height: 1.7;
   color: var(--app-text);
   white-space: pre-wrap;
   background: var(--app-surface-muted);
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   padding: 12px;
 }
 .analysis {

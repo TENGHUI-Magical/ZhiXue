@@ -125,12 +125,12 @@ const submit = async () => {
 .brand-mark {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--app-radius-md);
   display: grid;
   place-items: center;
   flex: none;
   color: var(--app-accent-contrast);
-  font-size: 18px;
+  font-size: var(--app-fs-lg);
   font-weight: 700;
   line-height: 1;
   background: linear-gradient(135deg, var(--app-primary), var(--app-primary-strong));
@@ -139,14 +139,14 @@ const submit = async () => {
 .login-brand strong {
   display: block;
   color: var(--app-text);
-  font-size: 18px;
+  font-size: var(--app-fs-lg);
   letter-spacing: -0.02em;
 }
 .login-brand div span {
   display: block;
   margin-top: 2px;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .login-btn {
   width: 100%;
@@ -154,14 +154,14 @@ const submit = async () => {
 }
 .login-notice {
   margin: 14px 0 0;
-  font-size: 11.5px;
+  font-size: var(--app-fs-xs);
   line-height: 1.6;
   color: var(--app-text-muted);
   text-align: center;
 }
 .login-hint {
   margin-top: 8px;
-  font-size: 11.5px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
   text-align: center;
 }
@@ -169,7 +169,7 @@ const submit = async () => {
   position: relative;
   z-index: 1;
   margin: 18px 0 0;
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   letter-spacing: 0.02em;
   color: var(--app-text-muted);
   text-align: center;

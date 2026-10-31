@@ -316,7 +316,7 @@ onMounted(load);
   margin: 0;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
@@ -324,7 +324,7 @@ onMounted(load);
 .sub {
   margin: 6px 0 0;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .graph-tools {
   display: flex;
@@ -343,7 +343,7 @@ onMounted(load);
   align-items: center;
   gap: 6px;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .dot {
   width: 10px;
@@ -366,7 +366,7 @@ onMounted(load);
   height: auto;
   min-height: 420px;
   background: var(--app-surface-muted);
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
 }
 .graph-node {
   cursor: pointer;
@@ -393,14 +393,14 @@ onMounted(load);
 }
 .node-id {
   fill: var(--app-accent-contrast);
-  font-size: 9px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   pointer-events: none;
 }
 .graph-note {
   margin-top: 10px;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   line-height: 1.5;
 }
 .list-card {
@@ -416,7 +416,7 @@ onMounted(load);
 }
 .kp-title {
   margin: 0 0 10px;
-  font-size: 18px;
+  font-size: var(--app-fs-lg);
 }
 .kp-meta {
   display: flex;

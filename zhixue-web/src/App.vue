@@ -305,7 +305,7 @@ onBeforeUnmount(() => {
   place-items: center;
   padding: 0;
   border: 0.5px solid var(--app-border);
-  border-radius: 7px;
+  border-radius: var(--app-radius-sm);
   background: color-mix(in srgb, var(--app-surface) 72%, transparent);
   color: var(--app-text-secondary);
   box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
@@ -329,12 +329,12 @@ onBeforeUnmount(() => {
 .brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--app-radius-sm);
   display: grid;
   place-items: center;
   flex: none;
   color: var(--app-accent-contrast);
-  font-size: 16px;
+  font-size: var(--app-fs-md);
   font-weight: 700;
   line-height: 1;
   background: linear-gradient(135deg, var(--app-primary), var(--app-primary-strong));
@@ -342,7 +342,7 @@ onBeforeUnmount(() => {
 }
 .brand-text {
   color: var(--app-text);
-  font-size: 18px;
+  font-size: var(--app-fs-lg);
   font-weight: 700;
   letter-spacing: -0.02em;
   white-space: nowrap;
@@ -361,7 +361,7 @@ onBeforeUnmount(() => {
 .menu-caption {
   padding: 2px 10px 8px;
   color: var(--app-text-muted);
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 500;
   letter-spacing: 0.14em;
 }
@@ -440,7 +440,7 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--app-text);
-  font-size: 15px;
+  font-size: var(--app-fs-md);
   font-weight: 600;
 }
 .nav-toggle {
@@ -469,7 +469,7 @@ onBeforeUnmount(() => {
   height: 36px;
   padding: 0 8px 0 4px;
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--app-radius-full);
   background: transparent;
   color: var(--app-text);
   font: inherit;
@@ -494,7 +494,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   color: #fff;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   font-weight: 600;
   background: linear-gradient(
     160deg,
@@ -515,12 +515,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   font-weight: 600;
 }
 .user-meta small {
   color: var(--app-text-muted);
-  font-size: 10.5px;
+  font-size: var(--app-fs-xs);
 }
 .caret {
   flex: none;
@@ -537,7 +537,7 @@ onBeforeUnmount(() => {
   padding: 6px;
   background: var(--app-surface);
   border: 1px solid var(--app-border);
-  border-radius: 12px;
+  border-radius: var(--app-radius-md);
   box-shadow: var(--app-shadow-lg);
 }
 .user-menu-head {
@@ -549,22 +549,22 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 .user-menu-head strong {
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   font-weight: 600;
   color: var(--app-text);
 }
 .user-menu-head span {
-  font-size: 11px;
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
 }
 .user-menu-item {
   padding: 8px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
   background: transparent;
   color: var(--app-text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
   text-align: left;
   cursor: pointer;
 }

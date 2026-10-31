@@ -267,7 +267,7 @@ onMounted(() => {
   margin: 0;
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: var(--app-fs-xs);
   font-weight: 600;
   letter-spacing: 0.18em;
   color: var(--app-text-muted);
@@ -275,7 +275,7 @@ onMounted(() => {
 .sub {
   margin: 6px 0 0;
   color: var(--app-text-secondary);
-  font-size: 12.5px;
+  font-size: var(--app-fs-sm);
 }
 .filter-card {
   margin-bottom: 16px;
@@ -314,12 +314,12 @@ onMounted(() => {
 .mobile-id {
   font-weight: 600;
   color: var(--app-text);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
 }
 .mobile-kp {
   margin-top: 8px;
   color: var(--app-text-secondary);
-  font-size: 13px;
+  font-size: var(--app-fs-sm);
 }
 .mobile-text {
   margin: 8px 0 12px;

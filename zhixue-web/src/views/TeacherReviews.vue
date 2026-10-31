@@ -272,17 +272,17 @@ onMounted(load);
 }
 .stat-label {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .stat-value {
   margin-top: 6px;
   color: var(--app-text);
-  font-size: 26px;
+  font-size: var(--app-fs-xl);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .stat-value.small {
-  font-size: 20px;
+  font-size: var(--app-fs-lg);
 }
 .table-card {
   overflow: hidden;
@@ -290,7 +290,7 @@ onMounted(load);
 .model {
   margin-right: 6px;
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .pager {
   display: flex;
@@ -315,7 +315,7 @@ onMounted(load);
 .mobile-meta {
   margin-top: 6px;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
 }
 .mobile-content {
   margin: 10px 0;
@@ -328,7 +328,7 @@ onMounted(load);
 }
 .sources {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -341,7 +341,7 @@ onMounted(load);
 }
 .review-time {
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   margin-left: auto;
 }
 .review-content {
@@ -355,7 +355,7 @@ onMounted(load);
 }
 .review-sources {
   color: var(--app-text-secondary);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   line-height: 1.7;
 }
 .review-sources .label {
@@ -365,7 +365,7 @@ onMounted(load);
 .section-label {
   margin: 16px 0 8px;
   color: var(--app-text-muted);
-  font-size: 12px;
+  font-size: var(--app-fs-xs);
   font-weight: 500;
 }
 .score-row {
@@ -380,7 +380,7 @@ onMounted(load);
   border-radius: var(--app-radius-sm);
   background: var(--app-surface);
   color: var(--app-text-secondary);
-  font-size: 15px;
+  font-size: var(--app-fs-md);
   font-weight: 600;
   cursor: pointer;
   transition: background-color var(--app-dur-fast) var(--app-ease-standard),
