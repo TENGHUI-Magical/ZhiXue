@@ -151,12 +151,16 @@ class TeacherReviewServiceTest {
     }
 
     @Test
-    void missingOrNonRagLogReturns40400() {
-        when(logMapper.selectById(99L)).thenReturn(null);
+    void returnWithoutCommentReturns40000() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(10L);
+        log.setScene("RAG");
+        when(logMapper.selectById(10L)).thenReturn(log);
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             BizException ex = assertThrows(BizException.class,
-                    () -> service.submit(99L, new ReviewSubmitRequest(4, "ok")));
-            assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
+                    () -> service.submit(10L, new ReviewSubmitRequest(3, "  ", "RETURN")));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+            verify(logMapper, never()).update(any(), any());
         }
     }
 }

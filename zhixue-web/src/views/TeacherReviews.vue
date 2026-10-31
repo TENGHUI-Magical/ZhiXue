@@ -119,6 +119,13 @@
           <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
           <el-tag size="small" type="info">{{ selected.kpId || "—" }}</el-tag>
           <el-tag v-if="selected.degraded" size="small" type="warning">降级</el-tag>
+          <el-tag
+            v-if="selected.reviewStatus === 'REVIEWED'"
+            size="small"
+            :type="selected.reviewResult === 'RETURN' ? 'danger' : 'success'"
+          >
+            {{ selected.reviewResult === "RETURN" ? "已退回" : "已通过" }}
+          </el-tag>
           <span class="review-time">{{ selected.createdAt }}</span>
         </div>
         <div class="section-label">评阅证据</div>
@@ -176,6 +183,11 @@
             {{ n }}
           </button>
         </div>
+        <div class="section-label">评阅结论</div>
+        <el-radio-group v-model="result" class="result-group">
+          <el-radio-button value="PASS">通过</el-radio-button>
+          <el-radio-button value="RETURN">退回</el-radio-button>
+        </el-radio-group>
         <el-input
           v-model="comment"
           type="textarea"
@@ -213,6 +225,7 @@ const drawerVisible = ref(false);
 const selected = ref<ReviewItem | null>(null);
 const score = ref<number | null>(null);
 const comment = ref("");
+const result = ref<"PASS" | "RETURN">("PASS");
 const submitting = ref(false);
 
 const ERROR_LABELS: Record<string, string> = {
@@ -272,6 +285,7 @@ const openReview = (row: ReviewItem) => {
   selected.value = row;
   score.value = null;
   comment.value = "";
+  result.value = "PASS";
   drawerVisible.value = true;
 };
 
@@ -279,6 +293,7 @@ const resetForm = () => {
   selected.value = null;
   score.value = null;
   comment.value = "";
+  result.value = "PASS";
 };
 
 const submit = async () => {
@@ -287,7 +302,8 @@ const submit = async () => {
   try {
     await submitReview(selected.value.logPk, {
       score: score.value as number,
-      comment: comment.value.trim()
+      comment: comment.value.trim(),
+      result: result.value
     });
     ElMessage.success("评阅已提交");
     drawerVisible.value = false;
@@ -490,6 +506,9 @@ onMounted(load);
 }
 .status-select {
   width: 108px;
+}
+.result-group {
+  margin-bottom: 12px;
 }
 .evidence-block {
   border: 1px solid var(--app-border);

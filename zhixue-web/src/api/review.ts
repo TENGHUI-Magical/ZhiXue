@@ -31,6 +31,7 @@ export interface ReviewItem {
   analysisText?: string | null;
   studentNote?: string | null;
   waitingSeconds?: number;
+  reviewResult?: "PASS" | "RETURN" | null;
   reviewStatus?: "PENDING" | "REVIEWED";
 }
 
@@ -53,5 +54,7 @@ export interface ReviewQuery {
 export const listReviews = (params: ReviewQuery) =>
   api.get<ReviewPage>("/api/teacher/reviews", params);
 
-export const submitReview = (logPk: number, payload: { score: number; comment: string }) =>
-  api.post<null>(`/api/teacher/reviews/${logPk}`, payload);
+export const submitReview = (
+  logPk: number,
+  payload: { score: number; comment: string; result?: "PASS" | "RETURN" }
+) => api.post<null>(`/api/teacher/reviews/${logPk}`, payload);

@@ -67,6 +67,9 @@ public class AiGenerationLog {
     /** 教师评语 */
     private String teacherComment;
 
+    /** 评阅结论：PASS / RETURN；未评为 NULL */
+    private String reviewResult;
+
     /** 评阅时间 */
     private LocalDateTime reviewedAt;
 
@@ -109,6 +112,8 @@ public class AiGenerationLog {
     public void setTeacherScore(Integer teacherScore) { this.teacherScore = teacherScore; }
     public String getTeacherComment() { return teacherComment; }
     public void setTeacherComment(String teacherComment) { this.teacherComment = teacherComment; }
+    public String getReviewResult() { return reviewResult; }
+    public void setReviewResult(String reviewResult) { this.reviewResult = reviewResult; }
     public LocalDateTime getReviewedAt() { return reviewedAt; }
     public void setReviewedAt(LocalDateTime reviewedAt) { this.reviewedAt = reviewedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }

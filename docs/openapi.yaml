@@ -505,6 +505,11 @@ paths:
               properties:
                 score: { type: integer, minimum: 1, maximum: 5 }
                 comment: { type: string, maxLength: 500 }
+                result:
+                  type: string
+                  enum: [PASS, RETURN]
+                  default: PASS
+                  description: 评阅结论；RETURN 时必须填写评语
       responses:
         '200':
           description: 成功
@@ -1197,6 +1202,7 @@ components:
         analysisText: { type: string, nullable: true }
         studentNote: { type: string, nullable: true, description: 学生笔记/错因说明（非“学生原答”，数据模型无该字段） }
         waitingSeconds: { type: integer, description: 提交至今等待秒数 }
+        reviewResult: { type: string, enum: [PASS, RETURN], nullable: true }
         reviewStatus: { type: string, enum: [PENDING, REVIEWED] }
     TeacherStudentPageResponse:
       allOf:

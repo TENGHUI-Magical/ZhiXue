@@ -138,11 +138,21 @@ public class TeacherReviewService {
         if (row.getReviewedAt() != null) {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该讲解已评阅: " + logPk);
         }
+        String result = request.result() == null || request.result().isBlank()
+                ? "PASS" : request.result().trim().toUpperCase();
+        if (!Set.of("PASS", "RETURN").contains(result)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "result 仅允许 PASS/RETURN");
+        }
+        if ("RETURN".equals(result)
+                && (request.comment() == null || request.comment().isBlank())) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "退回必须填写评语");
+        }
         int rows = logMapper.update(null, new LambdaUpdateWrapper<AiGenerationLog>()
                 .eq(AiGenerationLog::getLogPk, logPk)
                 .isNull(AiGenerationLog::getReviewedAt)
                 .set(AiGenerationLog::getTeacherScore, request.score())
                 .set(AiGenerationLog::getTeacherComment, request.comment())
+                .set(AiGenerationLog::getReviewResult, result)
                 .set(AiGenerationLog::getReviewedAt, LocalDateTime.now()));
         if (rows == 0) {
             AiGenerationLog fresh = logMapper.selectById(logPk);
@@ -211,6 +221,7 @@ public class TeacherReviewService {
                     question == null ? null : question.getAnalysisText(),
                     error == null ? null : error.getStudentNote(),
                     waitingSeconds,
+                    row.getReviewResult(),
                     row.getReviewedAt() == null ? "PENDING" : "REVIEWED"));
         }
         return result;

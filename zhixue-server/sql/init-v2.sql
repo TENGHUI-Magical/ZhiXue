@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS ai_generation_log (
   is_blocked       TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '是否触发合规拦截',
   teacher_score    TINYINT      DEFAULT NULL        COMMENT '教师评阅分 1-5',
   teacher_comment  VARCHAR(500) DEFAULT NULL        COMMENT '教师评语',
+  review_result    VARCHAR(10)  DEFAULT NULL        COMMENT '评阅结论：PASS / RETURN',
   reviewed_at      DATETIME     DEFAULT NULL        COMMENT '评阅时间，NULL 表示待评阅',
   created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (log_pk),
