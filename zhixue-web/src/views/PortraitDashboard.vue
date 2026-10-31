@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">LEARNING ANALYTICS</div>
         <h2>学情画像</h2>
         <p class="sub">
           基于最近一次画像快照<span v-if="portrait?.statDate">（{{ portrait.statDate }}）</span>汇总练习与已确认错题数据。
@@ -27,55 +26,48 @@
       </template>
 
       <div class="dash">
-        <el-card class="c4 ring-card" shadow="never">
-          <template #header>
-            <div class="card-head"><span>掌握概况</span><span class="card-sub">最近快照</span></div>
-          </template>
-          <div class="rings">
-            <svg viewBox="0 0 128 128" role="img" :aria-label="`综合掌握 ${masteryPct}%，作答正确率 ${accuracyPct}%，样本充分度 ${samplePct}%`">
-              <circle class="ring-track" cx="64" cy="64" r="53" stroke-width="9" />
-              <circle class="ring ring-mastery" cx="64" cy="64" r="53" stroke-width="9"
-                :style="{ strokeDasharray: 333, strokeDashoffset: 333 * (1 - masteryPct / 100) }" />
-              <circle class="ring-track" cx="64" cy="64" r="40" stroke-width="9" />
-              <circle class="ring ring-accuracy" cx="64" cy="64" r="40" stroke-width="9"
-                :style="{ strokeDasharray: 251, strokeDashoffset: 251 * (1 - accuracyPct / 100) }" />
-              <circle class="ring-track" cx="64" cy="64" r="27" stroke-width="9" />
-              <circle class="ring ring-sample" cx="64" cy="64" r="27" stroke-width="9"
-                :style="{ strokeDasharray: 170, strokeDashoffset: 170 * (1 - samplePct / 100) }" />
-            </svg>
-            <div class="ring-legend">
-              <div class="rl"><i class="dot mastery"></i>综合掌握<b>{{ masteryPct }}%</b></div>
-              <div class="rl"><i class="dot accuracy"></i>作答正确率<b>{{ accuracyPct }}%</b></div>
-              <div class="rl"><i class="dot sample"></i>样本充分度<b>{{ samplePct }}%</b></div>
-              <div class="rl muted"><i class="dot track"></i>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</div>
+        <el-card class="c12 hero-card" shadow="never">
+          <div class="hero-top">
+            <div>
+              <div class="hero-eyebrow">掌握概况 · 快照 {{ portrait?.statDate || "—" }}</div>
+              <h3 class="hero-title">{{ conclusionText }}</h3>
+              <p class="hero-note">
+                综合掌握取五维均值；正确率按练习与已确认错题估算，不等同考试成绩；样本充分度按 20 次展示参考，非算法阈值。
+              </p>
+            </div>
+            <el-button type="primary" @click="router.push(primaryTo)">{{ primaryLabel }}</el-button>
+          </div>
+          <div class="baseline-grid">
+            <div class="baseline-row">
+              <span class="baseline-name">掌握度</span>
+              <span class="baseline-track"><i class="mastery" :style="{ width: masteryPct + '%' }"></i></span>
+              <span class="baseline-value">{{ masteryPct }}%</span>
+            </div>
+            <div class="baseline-row">
+              <span class="baseline-name">作答正确率</span>
+              <span class="baseline-track"><i class="accuracy" :style="{ width: accuracyPct + '%' }"></i></span>
+              <span class="baseline-value">{{ accuracyPct }}%</span>
+            </div>
+            <div class="baseline-row">
+              <span class="baseline-name">样本充分度</span>
+              <span class="baseline-track"><i class="sample" :style="{ width: samplePct + '%' }"></i></span>
+              <span class="baseline-value">{{ samplePct }}%</span>
             </div>
           </div>
-          <div class="ring-note">综合掌握取五维均值；作答正确率按练习与已确认错题估算，不等同考试成绩。样本充分度以 20 次为展示参考上限，非算法判定阈值。</div>
-        </el-card>
-
-        <el-card class="c8 kpi-card" shadow="never">
-          <div class="kpi-grid">
-            <div class="kpi">
-              <span class="kpi-k">训练样本</span>
-              <b class="kpi-v">{{ portrait?.totalPractice ?? 0 }}<small>次</small></b>
-              <span class="kpi-d">练习与已确认错题合计</span>
-            </div>
-            <div class="kpi">
-              <span class="kpi-k">已确认错误</span>
-              <b class="kpi-v">{{ portrait?.totalError ?? 0 }}<small>条</small></b>
-              <span class="kpi-d">来自错题记录，不含草稿</span>
-            </div>
-            <div class="kpi">
-              <span class="kpi-k">薄弱知识点</span>
-              <b class="kpi-v">{{ weakest.length }}<small>项</small></b>
-              <span class="kpi-d">进入薄弱项排名的知识点</span>
-            </div>
-            <div class="kpi">
-              <span class="kpi-k">快照日期</span>
-              <b class="kpi-v date">{{ portrait?.statDate || "—" }}</b>
-              <span class="kpi-d">画像按自然日聚合</span>
-            </div>
+          <div class="hero-stats">
+            <span>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</span>
+            <span>已确认错误 {{ portrait?.totalError ?? 0 }} 条</span>
+            <span>薄弱知识点 {{ weakest.length }} 项</span>
+            <span>快照 {{ portrait?.statDate || "—" }}</span>
           </div>
+          <el-alert
+            v-if="!sampleSufficient"
+            class="hero-alert"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="样本不足（少于 3 次），暂不参与薄弱点排名。先完成几次练习再看结论。"
+          />
         </el-card>
 
         <el-card class="c7" shadow="never">
@@ -107,7 +99,14 @@
             <div class="card-head"><span>薄弱知识点</span><span class="card-sub">前 {{ weakest.length || 0 }} 项</span></div>
           </template>
           <div v-if="weakest.length" class="weak-list">
-            <div v-for="item in weakest" :key="item.kpId" class="weak-item">
+            <button
+              v-for="item in weakest"
+              :key="item.kpId"
+              type="button"
+              class="weak-item"
+              :title="`查看 ${item.name || item.kpId} 的知识点详情`"
+              @click="openKp(item.kpId)"
+            >
               <div class="weak-head">
                 <span class="weak-name">{{ item.kpId }} {{ item.name || "" }}</span>
                 <span class="weak-right">
@@ -118,7 +117,7 @@
               <div class="weak-track">
                 <i :style="{ width: Math.round((item.mastery ?? 0) * 100) + '%' }"></i>
               </div>
-            </div>
+            </button>
           </div>
           <el-empty v-else description="知识点累计作答不少于 3 次后进入薄弱项排名。" :image-size="56">
             <el-button link type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
@@ -143,19 +142,28 @@
           <template #header>
             <div class="card-head"><span>下一步建议</span><span class="card-sub">依据画像</span></div>
           </template>
-          <p v-if="advice.length" class="advice">
-            薄弱环节集中在<b>「{{ advice[0] }}」</b><template v-if="advice[1]">与<b>「{{ advice[1] }}」</b></template>。
+          <p v-if="adviceItems.length" class="advice">
+            薄弱环节集中在<b>「{{ adviceItems[0].name }}」</b><template v-if="adviceItems[1]">与<b>「{{ adviceItems[1].name }}」</b></template>。
             建议按以下顺序补齐，可分批完成。
           </p>
           <p v-else class="advice">当前样本不足以生成建议，请先完成一次诊断或练习。</p>
-          <div v-if="advice.length" class="steps">
-            <div class="step"><i>1</i><span>专项诊断 2 题：{{ advice[0] }}</span></div>
-            <div v-if="advice[1]" class="step"><i>2</i><span>错题回看 1 题：{{ advice[1] }}</span></div>
-            <div class="step"><i>{{ advice[1] ? 3 : 2 }}</i><span>错题本复盘 3 题</span></div>
+          <div v-if="adviceItems.length" class="steps">
+            <button
+              v-for="(item, index) in adviceItems"
+              :key="item.kpId"
+              type="button"
+              class="step"
+              @click="openKp(item.kpId)"
+            >
+              <i>{{ index + 1 }}</i><span>专项诊断 2 题：{{ item.name }}</span>
+            </button>
+            <button type="button" class="step" @click="router.push('/error-book')">
+              <i>{{ adviceItems.length + 1 }}</i><span>错题本复盘 3 题</span>
+            </button>
           </div>
           <div class="advice-foot">
             <span>数据口径：{{ portrait?.totalPractice ?? 0 }} 次训练样本 · {{ portrait?.totalError ?? 0 }} 条已确认错误</span>
-            <el-button v-if="advice.length" link type="primary" @click="router.push('/diagnosis')">查看诊断 →</el-button>
+            <el-button v-if="adviceItems.length" link type="primary" @click="router.push('/diagnosis')">查看诊断 →</el-button>
           </div>
         </el-card>
       </div>
@@ -184,7 +192,12 @@ const ERROR_LABELS: Record<string, string> = {
   BOUNDARY_ERROR: "边界条件"
 };
 
-const weakest = computed(() => portrait.value?.weakestKps ?? []);
+const weakest = computed(() =>
+  (portrait.value?.weakestKps ?? [])
+    .filter((item) => (item.sampleCount ?? 0) >= 3)
+    .sort((a, b) => (a.mastery ?? 1) - (b.mastery ?? 1))
+);
+const sampleSufficient = computed(() => (portrait.value?.totalPractice ?? 0) >= 3);
 const hasEmptyDimension = computed(() =>
   dimensionDefs.value.some((def) => portrait.value?.dimensionScores?.[def.key] == null)
 );
@@ -234,13 +247,33 @@ const errorRows = computed(() => {
     }));
 });
 
-const advice = computed(() => {
-  const names = weakest.value
-    .slice(0, 2)
-    .map((item) => item.name || item.kpId || "")
-    .filter(Boolean);
-  return names;
+const adviceItems = computed(() =>
+  weakest.value.slice(0, 2).map((item) => ({
+    kpId: item.kpId ?? "",
+    name: item.name || item.kpId || "知识点"
+  }))
+);
+
+const conclusionText = computed(() => {
+  const total = portrait.value?.totalPractice ?? 0;
+  if (total === 0) return "还没有训练样本，先完成一次诊断或练习";
+  if (total < 3) return `样本 ${total} 次，先积累到 3 次再看薄弱点`;
+  const first = weakest.value[0];
+  return first
+    ? `掌握度 ${masteryPct.value}% · 最该补「${first.name || first.kpId}」`
+    : `掌握度 ${masteryPct.value}% · 暂无明显薄弱点`;
 });
+
+const primaryTo = computed(() => {
+  const kpId = weakest.value[0]?.kpId;
+  return kpId ? `/knowledge-graph?kpId=${encodeURIComponent(kpId)}` : "/diagnosis";
+});
+const primaryLabel = computed(() => (weakest.value[0] ? "去练这个知识点" : "进入诊断"));
+
+const openKp = (kpId?: string) => {
+  if (!kpId) return;
+  router.push(`/knowledge-graph?kpId=${encodeURIComponent(kpId)}`);
+};
 
 let loadSeq = 0;
 
@@ -321,6 +354,80 @@ onMounted(load);
 .c5 { grid-column: span 5; }
 .c7 { grid-column: span 7; }
 .c8 { grid-column: span 8; }
+.c12 { grid-column: span 12; }
+.hero-card :deep(.el-card__body) {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.hero-eyebrow {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.hero-title {
+  margin: 8px 0;
+  font-size: var(--app-fs-xl);
+  line-height: 1.32;
+  color: var(--app-text);
+}
+.hero-note {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-xs);
+  line-height: 1.6;
+}
+.baseline-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.baseline-row {
+  display: grid;
+  grid-template-columns: 96px 1fr 56px;
+  align-items: center;
+  gap: 12px;
+}
+.baseline-name {
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+}
+.baseline-track {
+  height: 8px;
+  border-radius: var(--app-radius-full);
+  background: var(--app-surface-muted);
+  overflow: hidden;
+}
+.baseline-track i {
+  display: block;
+  height: 100%;
+  border-radius: var(--app-radius-full);
+}
+.baseline-track i.mastery { background: var(--app-primary); }
+.baseline-track i.accuracy { background: var(--app-success); }
+.baseline-track i.sample { background: var(--app-warning); }
+.baseline-value {
+  text-align: right;
+  color: var(--app-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--app-fs-sm);
+}
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.hero-alert {
+  margin-top: 2px;
+}
 .card-head {
   display: flex;
   align-items: baseline;
@@ -507,6 +614,24 @@ onMounted(load);
   flex-direction: column;
   gap: 14px;
 }
+.weak-item {
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.weak-item:hover .weak-name {
+  color: var(--app-primary);
+}
+.weak-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 3px;
+  border-radius: var(--app-radius-sm);
+}
 .weak-head {
   display: flex;
   align-items: baseline;
@@ -573,8 +698,23 @@ onMounted(load);
   display: flex;
   align-items: center;
   gap: 9px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  font: inherit;
   font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
+  cursor: pointer;
+}
+.step:hover {
+  color: var(--app-primary);
+}
+.step:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 3px;
+  border-radius: var(--app-radius-sm);
 }
 .step i {
   width: 18px;

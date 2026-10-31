@@ -147,7 +147,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
 import {
   getKnowledgeGraph,
@@ -160,6 +160,7 @@ import {
 import { getPortrait } from "../api/portrait";
 
 const router = useRouter();
+const route = useRoute();
 const loading = ref(false);
 const error = ref("");
 const nodes = ref<GraphNode[]>([]);
@@ -279,6 +280,7 @@ const load = async () => {
         .map((item) => item.kpId)
         .filter((id): id is string => !!id)
     );
+    await applyQuery();
   } catch (e) {
     error.value = (e as Error).message || "知识图谱加载失败";
   } finally {
@@ -298,6 +300,20 @@ const openNode = async (id?: string) => {
     detailError.value = (e as Error).message || "知识点详情加载失败";
   } finally {
     detailLoading.value = false;
+  }
+};
+
+/** 深链：?chapterId=3 先筛选章节；?kpId=KP0301 自动打开节点详情（来自画像/今日的深链） */
+const applyQuery = async () => {
+  const chapterRaw = route.query.chapterId;
+  const chapter = typeof chapterRaw === "string" ? Number(chapterRaw) : NaN;
+  if (Number.isFinite(chapter) && chapter > 0) {
+    chapterFilter.value = chapter;
+  }
+  const kpRaw = route.query.kpId;
+  const kpId = typeof kpRaw === "string" ? kpRaw.trim() : "";
+  if (kpId && nodes.value.some((node) => node.id === kpId)) {
+    await openNode(kpId);
   }
 };
 
