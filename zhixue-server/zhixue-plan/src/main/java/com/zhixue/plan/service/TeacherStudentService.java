@@ -265,7 +265,8 @@ public class TeacherStudentService {
         }
         return new TeacherStudentViews.StudentItem(userId, displayName, practiceCount,
                 correctRate, avgCostSeconds, avgMastery, errorQidCount,
-                plan[0], plan[1],
+                // StudentItem 字段顺序是 planDone、planTotal；int[] 是 [total, done]，不要写反
+                plan[1], plan[0],
                 aggregate.getLastActiveAt() == null ? null : DATE_TIME.format(aggregate.getLastActiveAt()));
     }
 
