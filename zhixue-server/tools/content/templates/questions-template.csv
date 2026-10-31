@@ -1,0 +1,2 @@
+qId,primaryKpId,questionType,questionText,optionsJson,answerText,analysisText,difficulty,source,variantHint
+Q_0401,KP0401,单选,示例题干（ ）？,"[{""key"":""A"",""text"":""选项A""},{""key"":""B"",""text"":""选项B""},{""key"":""C"",""text"":""选项C""},{""key"":""D"",""text"":""选项D""}]",A,解析至少 50 字：说明为什么对、为什么其它选项错、易错点在哪里。,1,习题册,把本题改成填空并换一组数据。
