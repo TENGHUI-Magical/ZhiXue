@@ -5,6 +5,7 @@ import com.zhixue.diagnosis.dto.ReviewPageView;
 import com.zhixue.diagnosis.dto.ReviewSubmitRequest;
 import com.zhixue.diagnosis.service.TeacherReviewService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -12,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.LocalDate;
 
 /**
  * 教师评阅接口（契约 V2 teacher 组）。
@@ -30,8 +33,14 @@ public class TeacherReviewController {
     @GetMapping
     public ApiResponse<ReviewPageView> queue(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "10") int size) {
-        return ApiResponse.ok(teacherReviewService.page(page, size));
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "PENDING") String status,
+            @RequestParam(required = false) String kpId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return ApiResponse.ok(teacherReviewService.page(page, size, status, kpId, from, to));
     }
 
     @PostMapping("/{logPk}")

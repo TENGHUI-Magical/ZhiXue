@@ -7,6 +7,11 @@ export interface ReviewSource {
   title?: string | null;
 }
 
+export interface ReviewOption {
+  key?: string;
+  text?: string;
+}
+
 export interface ReviewItem {
   logPk?: number;
   explainId?: string;
@@ -18,6 +23,15 @@ export interface ReviewItem {
   content?: string;
   sources?: ReviewSource[];
   createdAt?: string;
+  // C3 评阅证据
+  questionText?: string | null;
+  questionType?: string | null;
+  options?: ReviewOption[] | null;
+  correctAnswer?: string | null;
+  analysisText?: string | null;
+  studentNote?: string | null;
+  waitingSeconds?: number;
+  reviewStatus?: "PENDING" | "REVIEWED";
 }
 
 export interface ReviewPage {
@@ -27,7 +41,16 @@ export interface ReviewPage {
   records: ReviewItem[];
 }
 
-export const listReviews = (params: { page: number; size: number }) =>
+export interface ReviewQuery {
+  page: number;
+  size: number;
+  status?: "PENDING" | "REVIEWED" | "ALL";
+  kpId?: string;
+  from?: string;
+  to?: string;
+}
+
+export const listReviews = (params: ReviewQuery) =>
   api.get<ReviewPage>("/api/teacher/reviews", params);
 
 export const submitReview = (logPk: number, payload: { score: number; comment: string }) =>

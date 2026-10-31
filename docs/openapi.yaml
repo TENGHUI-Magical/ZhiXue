@@ -460,7 +460,7 @@ paths:
   /api/teacher/reviews:
     get:
       tags: [teacher]
-      summary: 待评阅队列（教师）
+      summary: 评阅队列（教师；支持状态/知识点/时间筛选）
       parameters:
         - name: page
           in: query
@@ -468,6 +468,18 @@ paths:
         - name: size
           in: query
           schema: { type: integer, default: 10, maximum: 50 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, REVIEWED, ALL], default: PENDING }
+        - name: kpId
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
       responses:
         '200':
           description: 成功
@@ -1115,6 +1127,22 @@ components:
           type: array
           items: { $ref: '#/components/schemas/SourceRef' }
         createdAt: { type: string }
+        # —— C3 评阅证据（2026-10-31）——
+        questionText: { type: string, nullable: true, description: 题干；为空表示证据不完整 }
+        questionType: { type: string, nullable: true }
+        options:
+          type: array
+          nullable: true
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              text: { type: string }
+        correctAnswer: { type: string, nullable: true }
+        analysisText: { type: string, nullable: true }
+        studentNote: { type: string, nullable: true, description: 学生笔记/错因说明（非“学生原答”，数据模型无该字段） }
+        waitingSeconds: { type: integer, description: 提交至今等待秒数 }
+        reviewStatus: { type: string, enum: [PENDING, REVIEWED] }
     QuestionPageResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -204,5 +206,17 @@ public class QuestionBankService {
         } catch (Exception ignored) {
             return List.of();
         }
+    }
+
+    /** 批量按题号取题（评阅证据用）；空集合返回空 Map。 */
+    public Map<String, QuestionBank> findByIds(Collection<String> qIds) {
+        if (qIds == null || qIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, QuestionBank> result = new HashMap<>();
+        for (QuestionBank question : questionBankMapper.selectBatchIds(qIds)) {
+            result.put(question.getQId(), question);
+        }
+        return result;
     }
 }

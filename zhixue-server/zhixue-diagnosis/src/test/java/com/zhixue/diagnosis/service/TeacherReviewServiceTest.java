@@ -7,6 +7,7 @@ import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewPageView;
 import com.zhixue.diagnosis.dto.ReviewSubmitRequest;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
@@ -47,6 +48,8 @@ class TeacherReviewServiceTest {
     @Mock
     private KnowledgePointService knowledgePointService;
     @Mock
+    private QuestionBankService questionBankService;
+    @Mock
     private UserQueryService userQueryService;
 
     private TeacherReviewService service;
@@ -60,7 +63,7 @@ class TeacherReviewServiceTest {
     @BeforeEach
     void setUp() {
         service = new TeacherReviewService(logMapper, errorRecordMapper, knowledgePointService,
-                userQueryService, new ObjectMapper());
+                questionBankService, userQueryService, new ObjectMapper());
     }
 
     @Test

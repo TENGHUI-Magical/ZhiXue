@@ -6,12 +6,19 @@
         <h2>教师评阅</h2>
         <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>
-      <el-button :loading="loading" @click="load">刷新队列</el-button>
+      <div class="head-actions">
+        <el-select v-model="statusFilter" size="small" class="status-select" @change="load">
+          <el-option label="待评阅" value="PENDING" />
+          <el-option label="已评阅" value="REVIEWED" />
+          <el-option label="全部" value="ALL" />
+        </el-select>
+        <el-button :loading="loading" @click="load">刷新队列</el-button>
+      </div>
     </div>
 
     <div class="stat-row">
       <el-card class="stat-card" shadow="never">
-        <div class="stat-label">待评阅</div>
+        <div class="stat-label">{{ statusFilter === "PENDING" ? "待评阅" : statusFilter === "REVIEWED" ? "已评阅" : "记录" }}</div>
         <div class="stat-value">{{ total }}</div>
       </el-card>
       <el-card class="stat-card" shadow="never">
@@ -114,6 +121,38 @@
           <el-tag v-if="selected.degraded" size="small" type="warning">降级</el-tag>
           <span class="review-time">{{ selected.createdAt }}</span>
         </div>
+        <div class="section-label">评阅证据</div>
+        <div v-if="selected.questionText" class="evidence-block">
+          <div class="evidence-k">
+            题干<span v-if="selected.questionType"> · {{ selected.questionType }}</span>
+          </div>
+          <div class="evidence-v">{{ selected.questionText }}</div>
+          <div v-if="selected.options?.length" class="evidence-options">
+            <div v-for="opt in selected.options" :key="opt.key">{{ opt.key }}. {{ opt.text }}</div>
+          </div>
+          <div v-if="selected.correctAnswer" class="evidence-v">
+            <strong>参考答案：</strong>{{ selected.correctAnswer }}
+          </div>
+          <div v-if="selected.analysisText" class="evidence-v muted">
+            <strong>解析：</strong>{{ selected.analysisText }}
+          </div>
+        </div>
+        <el-alert
+          v-else
+          type="warning"
+          :closable="false"
+          show-icon
+          title="证据不完整：该讲解未关联题库题目（无题干/答案）。请结合错因与来源谨慎评阅。"
+        />
+        <div class="evidence-row">
+          <span>错因：{{ errorTypeLabel(selected.errorType || "") || "—" }}</span>
+          <span>等待：{{ waitingText(selected.waitingSeconds) }}</span>
+        </div>
+        <div v-if="selected.studentNote" class="evidence-v">
+          <strong>学生笔记：</strong>{{ selected.studentNote }}
+        </div>
+
+        <div class="section-label">AI 讲解</div>
         <div class="review-content">{{ selected.content || "（空讲解）" }}</div>
         <div v-if="selected.sources?.length" class="review-sources">
           <div class="label">引用来源</div>
@@ -167,6 +206,7 @@ const records = ref<ReviewItem[]>([]);
 const total = ref(0);
 const page = ref(1);
 const size = ref(10);
+const statusFilter = ref<"PENDING" | "REVIEWED" | "ALL">("PENDING");
 const loading = ref(false);
 const error = ref("");
 const drawerVisible = ref(false);
@@ -184,6 +224,13 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? (value || "—");
+const waitingText = (seconds?: number) => {
+  const s = typeof seconds === "number" ? seconds : 0;
+  if (s <= 0) return "—";
+  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))} 分钟`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时`;
+  return `${Math.floor(s / 86400)} 天`;
+};
 const canSubmit = computed(() => score.value != null && comment.value.trim().length > 0);
 const sourceText = (row: ReviewItem) =>
   (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
@@ -195,7 +242,11 @@ const load = async () => {
   loading.value = true;
   error.value = "";
   try {
-    const data = await listReviews({ page: page.value, size: size.value });
+    const data = await listReviews({
+      page: page.value,
+      size: size.value,
+      status: statusFilter.value
+    });
     if (seq !== loadSeq) return; // 快速翻页时丢弃旧响应
     records.value = data.records ?? [];
     total.value = data.total ?? 0;
@@ -430,5 +481,46 @@ onMounted(load);
   :deep(.el-drawer) {
     width: 92vw !important;
   }
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.status-select {
+  width: 108px;
+}
+.evidence-block {
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  padding: 10px 12px;
+  background: var(--app-surface-muted);
+  margin-bottom: 10px;
+}
+.evidence-k {
+  font-weight: 600;
+  color: var(--app-text);
+  margin-bottom: 6px;
+}
+.evidence-v {
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+}
+.evidence-v.muted {
+  color: var(--app-text-muted);
+}
+.evidence-options {
+  margin: 6px 0;
+  color: var(--app-text-secondary);
+  line-height: 1.6;
+}
+.evidence-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  margin-bottom: 8px;
 }
 </style>
