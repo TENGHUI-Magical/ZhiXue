@@ -81,9 +81,10 @@
                   type="primary"
                   size="small"
                   plain
+                  title="先作答再打卡"
                   @click="startCheckin(plan, item)"
                 >
-                  去作答并打卡
+                  去打卡
                 </el-button>
               </div>
               <el-empty
@@ -404,11 +405,18 @@ onMounted(() => {
 }
 .day-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
 }
 .day-card {
   min-width: 0;
+}
+.day-card :deep(.el-card__body) {
+  padding: 10px;
+}
+.plan-item :deep(.el-button) {
+  flex: none;
+  padding: 0 8px;
 }
 .day-head {
   display: flex;
@@ -443,6 +451,9 @@ onMounted(() => {
 .item-title {
   font-size: var(--app-fs-sm);
   color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .item-kp {
   font-size: var(--app-fs-xs);
@@ -485,6 +496,11 @@ onMounted(() => {
 .rec-id {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
+}
+@media (max-width: 1279px) {
+  .day-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 @media (max-width: 1080px) {
   .day-grid {
