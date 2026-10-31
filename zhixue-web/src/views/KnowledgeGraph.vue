@@ -90,13 +90,13 @@
               :class="['node-circle', { weak: node.weak }]"
             />
             <text
+              v-if="node.showLabel"
               :x="node.x"
-              :y="node.y + node.r * 0.28"
+              :y="node.y + node.r + 14"
               text-anchor="middle"
-              class="node-id"
-              :style="{ fontSize: `${node.font}px` }"
+              class="node-label"
             >
-              {{ node.label }}
+              {{ node.labelText }}
             </text>
             <title>{{ node.id }} {{ node.name }}</title>
           </g>
@@ -105,7 +105,7 @@
           <el-empty description="本章暂无知识点" :image-size="64" />
         </div>
         <div class="graph-note">
-          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选第 {{ chapterFilter }} 章）</span>。
+          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选第 {{ chapterFilter }} 章）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
         </div>
       </el-card>
 
@@ -208,7 +208,10 @@ const nodePoints = computed(() => {
   const ringCount = count <= 24 ? 1 : count <= 48 ? 2 : 3;
   const radii = ringCount === 1 ? [210] : ringCount === 2 ? [120, 205] : [95, 155, 215];
   const nodeRadius = count > 48 ? 13 : count > 24 ? 15 : 18;
-  const font = count > 48 ? 7.5 : count > 24 ? 8 : 9;
+  // 标签外置：节点较少时才显示名称（≥12px），密集时靠章节筛选/清单兜底，禁止 <12px 字号
+  const showLabel = count <= 24;
+  const truncate = (text: string, max: number) =>
+    text.length > max ? `${text.slice(0, max)}…` : text;
   const totalWeight = radii.reduce((sum, radius) => sum + radius, 0);
   let remaining = count;
   const ringSizes = radii.map((radius, index) => {
@@ -229,11 +232,11 @@ const nodePoints = computed(() => {
       return {
         id,
         name: node.name ?? id,
-        label: count > 48 ? id.replace(/^KP/i, "").slice(-4) : id,
+        labelText: truncate(node.name ?? id, 5),
+        showLabel,
         x: CENTER.x + Math.cos(angle) * radius,
         y: CENTER.y + Math.sin(angle) * radius,
         r: nodeRadius,
-        font,
         weak: weakIds.value.has(id)
       };
     });
@@ -391,10 +394,10 @@ onMounted(load);
 .graph-node:hover .node-circle.weak {
   fill: color-mix(in srgb, var(--app-danger) 82%, black);
 }
-.node-id {
-  fill: var(--app-accent-contrast);
+.node-label {
+  fill: var(--app-text-secondary);
   font-size: var(--app-fs-xs);
-  font-weight: 600;
+  font-weight: 500;
   pointer-events: none;
 }
 .graph-note {
@@ -447,7 +450,7 @@ onMounted(load);
   .graph-svg {
     min-height: 320px;
   }
-  .node-id {
+  .node-label {
     display: none;
   }
   :deep(.el-drawer) {
