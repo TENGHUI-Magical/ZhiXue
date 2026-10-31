@@ -77,13 +77,16 @@
           <el-table-column label="操作" width="90" fixed="right">
             <template #default="{ row }">
               <el-button
+                v-if="row.qId && row.kpId"
                 link
                 type="primary"
-                :disabled="!row.qId || !row.kpId"
                 @click="openPractice(row as ErrorRecordItem)"
               >
                 开始练习
               </el-button>
+              <span v-else class="pending-link" title="该错题尚未关联题库题目，暂不能直接练习；可在诊断台重新关联">
+                待关联题目
+              </span>
             </template>
           </el-table-column>
         </el-table>
@@ -115,13 +118,14 @@
               {{ errorTypeLabel(row.errorType) }}
             </el-tag>
             <el-button
+              v-if="row.qId && row.kpId"
               link
               type="primary"
-              :disabled="!row.qId || !row.kpId"
               @click="openPractice(row)"
             >
               开始练习
             </el-button>
+            <span v-else class="pending-link">待关联题目</span>
           </div>
         </el-card>
         <div class="pager">
@@ -295,6 +299,11 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   padding-top: 14px;
+}
+.pending-link {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  cursor: help;
 }
 .mobile-list {
   display: flex;

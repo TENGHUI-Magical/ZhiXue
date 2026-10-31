@@ -50,7 +50,7 @@
               <div class="rl muted"><i class="dot track"></i>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</div>
             </div>
           </div>
-          <div class="ring-note">综合掌握取五维均值；作答正确率按练习与已确认错题估算，不等同考试成绩。</div>
+          <div class="ring-note">综合掌握取五维均值；作答正确率按练习与已确认错题估算，不等同考试成绩。样本充分度以 20 次为展示参考上限，非算法判定阈值。</div>
         </el-card>
 
         <el-card class="c8 kpi-card" shadow="never">
