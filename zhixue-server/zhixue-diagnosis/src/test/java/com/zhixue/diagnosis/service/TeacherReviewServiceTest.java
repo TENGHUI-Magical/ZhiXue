@@ -32,6 +32,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -79,8 +80,9 @@ class TeacherReviewServiceTest {
         log.setSourceIds("[\"KP0201\"]");
         log.setContentText("讲解正文");
         log.setCreatedAt(LocalDateTime.of(2026, 10, 28, 20, 0, 0));
-        when(logMapper.selectCount(any())).thenReturn(1L);
-        when(logMapper.selectList(any())).thenReturn(List.of(log));
+        when(logMapper.countForReview(any(), any(), any(), any())).thenReturn(1L);
+        when(logMapper.selectForReview(any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenReturn(List.of(log));
 
         StudentErrorRecord error = new StudentErrorRecord();
         error.setLogId("EL_1");

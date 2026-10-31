@@ -1,7 +1,6 @@
 package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
@@ -90,35 +89,19 @@ public class TeacherReviewService {
         if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "status 仅允许 PENDING/REVIEWED/ALL");
         }
-        LambdaQueryWrapper<AiGenerationLog> query = new LambdaQueryWrapper<AiGenerationLog>()
-                .eq(AiGenerationLog::getScene, "RAG");
-        if ("PENDING".equals(st)) {
-            query.isNull(AiGenerationLog::getReviewedAt);
-        } else if ("REVIEWED".equals(st)) {
-            query.isNotNull(AiGenerationLog::getReviewedAt);
-        }
-        if (from != null) {
-            query.ge(AiGenerationLog::getCreatedAt, from.atStartOfDay());
-        }
-        if (to != null) {
-            query.le(AiGenerationLog::getCreatedAt, to.atTime(23, 59, 59));
-        }
-        if (kpId != null && !kpId.isBlank()) {
-            List<String> logIds = errorRecordMapper.selectList(
-                            new LambdaQueryWrapper<StudentErrorRecord>()
-                                    .eq(StudentErrorRecord::getKpId, kpId.trim()))
-                    .stream().map(StudentErrorRecord::getLogId)
-                    .filter(Objects::nonNull).distinct().toList();
-            if (logIds.isEmpty()) {
-                return new ReviewPageView(page, size, 0, List.of());
-            }
-            query.in(AiGenerationLog::getLogId, logIds);
-        }
-        query.orderByDesc(AiGenerationLog::getCreatedAt)
-                .orderByDesc(AiGenerationLog::getLogPk);
-        long total = logMapper.selectCount(query);
+        // null=全部；true=已评阅；false=待评阅
+        Boolean reviewed = switch (st) {
+            case "REVIEWED" -> Boolean.TRUE;
+            case "ALL" -> null;
+            default -> Boolean.FALSE;
+        };
+        LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
+        LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
+        String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
+        long total = logMapper.countForReview(reviewed, kp, fromTime, toTime);
         List<AiGenerationLog> rows = total == 0 ? List.of()
-                : logMapper.selectList(query.last("LIMIT " + size + " OFFSET " + (long) (page - 1) * size));
+                : logMapper.selectForReview(reviewed, kp, fromTime, toTime,
+                size, (page - 1) * size);
         return new ReviewPageView(page, size, total, toViews(rows));
     }
 
