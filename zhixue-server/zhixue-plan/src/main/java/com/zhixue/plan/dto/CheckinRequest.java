@@ -5,12 +5,13 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
  * 计划打卡请求（契约 openapi /api/plans/{planId}/checkin）。
  *
- * <p>2026-10-31 C1：区分“已作答”与“仅记录进度”。
+ * <p>2026-10-31 C1：区分"已作答"与"仅记录进度"。
  * answered=true 时按真实作答写入 practice_record（真实 is_correct）；
  * answered=false 时仅推进计划进度，不写 practice_record、不计正确率。</p>
  */
@@ -31,6 +32,10 @@ public record CheckinRequest(
 
         @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
                 "CALCULATION_ERROR", "BOUNDARY_ERROR"}, nullable = true)
+        @Pattern(regexp = "CONCEPT_CONFUSION|METHOD_MISSING|STEP_OMISSION"
+                + "|CALCULATION_ERROR|BOUNDARY_ERROR",
+                message = "errorType 仅允许 CONCEPT_CONFUSION/METHOD_MISSING"
+                + "/STEP_OMISSION/CALCULATION_ERROR/BOUNDARY_ERROR")
         String errorType,
 
         @Size(max = 200, message = "note 最长 200 字") String note) {

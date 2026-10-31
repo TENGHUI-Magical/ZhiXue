@@ -10,13 +10,15 @@ import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
+import com.zhixue.diagnosis.dto.UserKpAgg;
+import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import com.zhixue.diagnosis.service.MasteryCalculator;
 import com.zhixue.plan.dto.TeacherStudentViews;
-import com.zhixue.plan.entity.StudyPlan;
+import com.zhixue.plan.dto.UserPlanAgg;
 import com.zhixue.plan.mapper.StudyPlanMapper;
 import com.zhixue.user.service.UserQueryService;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,18 +32,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 教师查看学生学习记录（契约 C12）。
  *
  * <p>学生集合 = 在该课程题目上有作答记录的学生（无 course_student 表，复用 practice_record）。
  * 权限：TEACHER 且课程归属教师；姓名脱敏；不返回图片/OCR 原文。</p>
+ *
+ * <p>性能（2026-10-31 二次审核修复，整合为单一实现）：
+ * 列表与摘要一律走 SQL 聚合（GROUP BY user_id / user_id+kp_id），JVM 只接收
+ * “每学生一行 / 每学生-知识点一行”的有界结果；排序（含 masteryAsc）在全局聚合结果上完成，
+ * 修正“只对当前页排序”的全局顺序错误。明细分页使用参数绑定的 LIMIT/OFFSET。</p>
  */
 @Service
 public class TeacherStudentService {
@@ -60,6 +67,7 @@ public class TeacherStudentService {
     private final UserQueryService userQueryService;
     private final MasteryCalculator masteryCalculator;
     private final int minSamples;
+    private final double halfLifeDays;
 
     public TeacherStudentService(CourseService courseService,
                                  QuestionBankService questionBankService,
@@ -77,53 +85,46 @@ public class TeacherStudentService {
         this.errorRecordMapper = errorRecordMapper;
         this.studyPlanMapper = studyPlanMapper;
         this.userQueryService = userQueryService;
-        this.masteryCalculator = new MasteryCalculator(halfLifeDays);
+        this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
+        this.masteryCalculator = new MasteryCalculator(this.halfLifeDays);
         this.minSamples = Math.max(1, minSamples);
     }
 
     /** 课程学生聚合列表。 */
     public TeacherStudentViews.Page page(long courseId, int page, int size, String sort) {
         StpUtil.checkRole("TEACHER");
-        if (page < 1) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须大于 0");
-        }
-        if (size < 1 || size > 50) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
-        }
+        validatePage(page, size);
         String sortKey = sort == null || sort.isBlank() ? "lastActiveDesc" : sort.trim();
         if (!SORTS.contains(sortKey)) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "sort 仅允许 lastActiveDesc/masteryAsc/practiceDesc");
         }
-        Course course = ensureOwnership(courseId);
+        ensureOwnership(courseId);
         List<String> qIds = questionBankService.listQidsByCourse(courseId);
         if (qIds.isEmpty()) {
             return new TeacherStudentViews.Page(page, size, 0, List.of());
         }
-        List<PracticeRecord> records = practiceRecordMapper.selectList(
-                new LambdaQueryWrapper<PracticeRecord>()
-                        .select(PracticeRecord::getUserId, PracticeRecord::getQId,
-                                PracticeRecord::getKpId, PracticeRecord::getIsCorrect,
-                                PracticeRecord::getErrorType, PracticeRecord::getCostSeconds,
-                                PracticeRecord::getCreatedAt)
-                        .in(PracticeRecord::getQId, qIds));
-        Map<Long, List<PracticeRecord>> byUser = new HashMap<>();
-        for (PracticeRecord record : records) {
-            if (record.getUserId() != null) {
-                byUser.computeIfAbsent(record.getUserId(), key -> new ArrayList<>()).add(record);
-            }
-        }
-        if (byUser.isEmpty()) {
+        List<UserPracticeAgg> aggregates = practiceRecordMapper.aggregateByUser(qIds, null);
+        if (aggregates.isEmpty()) {
             return new TeacherStudentViews.Page(page, size, 0, List.of());
         }
-        LocalDateTime now = LocalDateTime.now(ZONE);
-        Map<Long, String> names = userQueryService.findDisplayNames(byUser.keySet());
-        Map<Long, int[]> planProgress = loadPlanProgress(byUser.keySet());
-        List<TeacherStudentViews.StudentItem> items = new ArrayList<>(byUser.size());
-        for (Map.Entry<Long, List<PracticeRecord>> entry : byUser.entrySet()) {
-            items.add(buildItem(entry.getKey(), entry.getValue(),
-                    mask(names.get(entry.getKey())),
-                    planProgress.getOrDefault(entry.getKey(), new int[2]), now));
+        Set<Long> userIds = aggregates.stream().map(UserPracticeAgg::getUserId)
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, List<UserKpAgg>> kpByUser = practiceRecordMapper
+                .aggregateByUserKp(qIds, userIds, halfLifeDays).stream()
+                .filter(item -> item.getUserId() != null)
+                .collect(Collectors.groupingBy(UserKpAgg::getUserId));
+        Map<Long, int[]> planProgress = loadPlanProgress(userIds);
+        Map<Long, String> names = userQueryService.findDisplayNames(userIds);
+
+        List<TeacherStudentViews.StudentItem> items = new ArrayList<>(aggregates.size());
+        for (UserPracticeAgg aggregate : aggregates) {
+            Long userId = aggregate.getUserId();
+            if (userId == null) {
+                continue;
+            }
+            items.add(buildItem(userId, aggregate, kpByUser.getOrDefault(userId, List.of()),
+                    mask(names.get(userId)), planProgress.getOrDefault(userId, new int[2])));
         }
         items.sort(comparator(sortKey));
 
@@ -139,45 +140,32 @@ public class TeacherStudentService {
                                                               LocalDate from, LocalDate to,
                                                               int page, int size) {
         StpUtil.checkRole("TEACHER");
-        if (page < 1) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须大于 0");
-        }
-        if (size < 1 || size > 50) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
-        }
+        validatePage(page, size);
         ensureOwnership(courseId);
         List<String> qIds = questionBankService.listQidsByCourse(courseId);
         if (qIds.isEmpty()) {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
-        List<PracticeRecord> all = practiceRecordMapper.selectList(
-                new LambdaQueryWrapper<PracticeRecord>()
-                        .eq(PracticeRecord::getUserId, userId)
-                        .in(PracticeRecord::getQId, qIds));
-        if (all.isEmpty()) {
+        List<Long> single = List.of(userId);
+        List<UserPracticeAgg> aggregateList = practiceRecordMapper.aggregateByUser(qIds, single);
+        if (aggregateList.isEmpty() || aggregateList.get(0).getPracticeCount() == null
+                || aggregateList.get(0).getPracticeCount() <= 0) {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
-        LocalDateTime now = LocalDateTime.now(ZONE);
+        UserPracticeAgg aggregate = aggregateList.get(0);
+        List<UserKpAgg> kpAggs = practiceRecordMapper.aggregateByUserKp(qIds, single, halfLifeDays);
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(courseKpIds(courseId));
-        Map<Long, String> names = userQueryService.findDisplayNames(List.of(userId));
+        Map<Long, String> names = userQueryService.findDisplayNames(single);
         Map<Long, int[]> planProgress = loadPlanProgress(Set.of(userId));
-        TeacherStudentViews.StudentItem summary = buildItem(userId, all,
-                mask(names.get(userId)), planProgress.getOrDefault(userId, new int[2]), now);
+        TeacherStudentViews.StudentItem summary = buildItem(userId, aggregate, kpAggs,
+                mask(names.get(userId)), planProgress.getOrDefault(userId, new int[2]));
 
-        LambdaQueryWrapper<PracticeRecord> query = new LambdaQueryWrapper<PracticeRecord>()
-                .eq(PracticeRecord::getUserId, userId)
-                .in(PracticeRecord::getQId, qIds);
-        if (from != null) {
-            query.ge(PracticeRecord::getCreatedAt, from.atStartOfDay());
-        }
-        if (to != null) {
-            query.le(PracticeRecord::getCreatedAt, to.atTime(23, 59, 59));
-        }
-        query.orderByDesc(PracticeRecord::getCreatedAt).orderByDesc(PracticeRecord::getPracticeId);
-        long total = practiceRecordMapper.selectCount(query);
+        LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
+        LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
+        long total = practiceRecordMapper.countByUserPaged(userId, qIds, fromTime, toTime);
         List<PracticeRecord> rows = total == 0 ? List.of()
-                : practiceRecordMapper.selectList(query.last(
-                "LIMIT " + size + " OFFSET " + (long) (page - 1) * size));
+                : practiceRecordMapper.selectByUserPaged(userId, qIds, fromTime, toTime,
+                size, (page - 1) * size);
         Set<String> pageQIds = new LinkedHashSet<>();
         rows.forEach(row -> {
             if (row.getQId() != null && !row.getQId().isBlank()) {
@@ -202,13 +190,25 @@ public class TeacherStudentService {
         }
 
         List<TeacherStudentViews.ErrorItem> errors = loadErrors(userId, kpById);
-        List<TeacherStudentViews.KpMastery> kpMastery = buildKpMastery(all, kpById, now);
+        List<TeacherStudentViews.KpMastery> kpMastery = buildKpMastery(kpAggs, kpById);
         return new TeacherStudentViews.LearningRecord(summary,
                 new TeacherStudentViews.PracticePage(page, size, total, practices),
                 errors, kpMastery);
     }
 
+    private void validatePage(int page, int size) {
+        if (page < 1) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须大于 0");
+        }
+        if (size < 1 || size > 50) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
+        }
+    }
+
     private Course ensureOwnership(long courseId) {
+        if (courseId <= 0) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "courseId 非法");
+        }
         Course course = courseService.getActiveById(courseId);
         long teacherId = StpUtil.getLoginIdAsLong();
         if (course.getTeacherId() != null && !Objects.equals(course.getTeacherId(), teacherId)) {
@@ -230,74 +230,43 @@ public class TeacherStudentService {
         }
         LocalDate monday = LocalDate.now(ZONE).with(DayOfWeek.MONDAY);
         LocalDate sunday = monday.plusDays(6);
-        List<StudyPlan> plans = studyPlanMapper.selectList(new LambdaQueryWrapper<StudyPlan>()
-                .in(StudyPlan::getUserId, userIds)
-                .ge(StudyPlan::getPlanDate, monday)
-                .le(StudyPlan::getPlanDate, sunday));
+        List<UserPlanAgg> rows = studyPlanMapper.aggregateProgress(userIds, monday, sunday);
         Map<Long, int[]> result = new HashMap<>();
-        for (StudyPlan plan : plans) {
-            if (plan.getUserId() == null) {
+        for (UserPlanAgg row : rows) {
+            if (row.getUserId() == null) {
                 continue;
             }
-            int[] arr = result.computeIfAbsent(plan.getUserId(), key -> new int[2]);
-            arr[0] += plan.getPlanCount() == null ? 0 : plan.getPlanCount();
-            arr[1] += plan.getDoneCount() == null ? 0 : plan.getDoneCount();
+            result.put(row.getUserId(), new int[]{
+                    row.getPlanTotal() == null ? 0 : row.getPlanTotal(),
+                    row.getPlanDone() == null ? 0 : row.getPlanDone()});
         }
         return result;
     }
 
-    private TeacherStudentViews.StudentItem buildItem(long userId, List<PracticeRecord> list,
-                                                      String displayName, int[] plan,
-                                                      LocalDateTime now) {
-        int practiceCount = list.size();
-        int wrongCount = 0;
-        Set<String> errorQIds = new HashSet<>();
-        long costSum = 0;
-        int costN = 0;
-        Map<String, Integer> kpEvents = new HashMap<>();
-        Map<String, Double> kpSeverity = new HashMap<>();
-        LocalDateTime lastActive = null;
-        for (PracticeRecord record : list) {
-            boolean wrong = record.getIsCorrect() != null && record.getIsCorrect() == 0;
-            if (wrong) {
-                wrongCount++;
-                if (record.getQId() != null) {
-                    errorQIds.add(record.getQId());
-                }
-            }
-            if (record.getCostSeconds() != null) {
-                costSum += record.getCostSeconds();
-                costN++;
-            }
-            String kpId = record.getKpId();
-            if (kpId != null && !kpId.isBlank()) {
-                kpEvents.merge(kpId, 1, Integer::sum);
-                if (wrong && record.getCreatedAt() != null) {
-                    kpSeverity.merge(kpId, masteryCalculator.errorWeight(
-                            record.getErrorType(), record.getCreatedAt(), now), Double::sum);
-                }
-            }
-            if (record.getCreatedAt() != null
-                    && (lastActive == null || record.getCreatedAt().isAfter(lastActive))) {
-                lastActive = record.getCreatedAt();
-            }
-        }
+    private TeacherStudentViews.StudentItem buildItem(long userId, UserPracticeAgg aggregate,
+                                                      List<UserKpAgg> kpAggs,
+                                                      String displayName, int[] plan) {
+        int practiceCount = aggregate.getPracticeCount() == null ? 0 : aggregate.getPracticeCount();
+        int wrongCount = aggregate.getWrongCount() == null ? 0 : aggregate.getWrongCount();
+        int errorQidCount = aggregate.getErrorQidCount() == null ? 0 : aggregate.getErrorQidCount();
         Double correctRate = practiceCount >= minSamples
                 ? round3((practiceCount - wrongCount) / (double) practiceCount) : null;
-        Integer avgCostSeconds = costN == 0 ? null : (int) Math.round(costSum / (double) costN);
+        Integer avgCostSeconds = aggregate.getAvgCostSeconds() == null ? null
+                : (int) Math.round(aggregate.getAvgCostSeconds());
         Double avgMastery = null;
-        if (!kpEvents.isEmpty()) {
+        if (!kpAggs.isEmpty()) {
             double sum = 0;
-            for (Map.Entry<String, Integer> entry : kpEvents.entrySet()) {
-                sum += masteryCalculator.mastery(entry.getValue(),
-                        kpSeverity.getOrDefault(entry.getKey(), 0.0));
+            for (UserKpAgg kp : kpAggs) {
+                sum += masteryCalculator.mastery(
+                        kp.getEvents() == null ? 0 : kp.getEvents(),
+                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum());
             }
-            avgMastery = round3(sum / kpEvents.size());
+            avgMastery = round3(sum / kpAggs.size());
         }
         return new TeacherStudentViews.StudentItem(userId, displayName, practiceCount,
-                correctRate, avgCostSeconds, avgMastery, errorQIds.size(),
+                correctRate, avgCostSeconds, avgMastery, errorQidCount,
                 plan[0], plan[1],
-                lastActive == null ? null : DATE_TIME.format(lastActive));
+                aggregate.getLastActiveAt() == null ? null : DATE_TIME.format(aggregate.getLastActiveAt()));
     }
 
     private List<TeacherStudentViews.ErrorItem> loadErrors(long userId,
@@ -324,35 +293,20 @@ public class TeacherStudentService {
         return result;
     }
 
-    private List<TeacherStudentViews.KpMastery> buildKpMastery(List<PracticeRecord> records,
-                                                               Map<String, KnowledgePoint> kpById,
-                                                               LocalDateTime now) {
-        Map<String, Integer> events = new HashMap<>();
-        Map<String, Double> severity = new HashMap<>();
-        Map<String, Integer> errors = new HashMap<>();
-        for (PracticeRecord record : records) {
-            String kpId = record.getKpId();
+    private List<TeacherStudentViews.KpMastery> buildKpMastery(List<UserKpAgg> kpAggs,
+                                                               Map<String, KnowledgePoint> kpById) {
+        List<TeacherStudentViews.KpMastery> result = new ArrayList<>();
+        for (UserKpAgg aggregate : kpAggs) {
+            String kpId = aggregate.getKpId();
             if (kpId == null || kpId.isBlank()) {
                 continue;
             }
-            events.merge(kpId, 1, Integer::sum);
-            if (record.getIsCorrect() != null && record.getIsCorrect() == 0) {
-                errors.merge(kpId, 1, Integer::sum);
-                if (record.getCreatedAt() != null) {
-                    severity.merge(kpId, masteryCalculator.errorWeight(
-                            record.getErrorType(), record.getCreatedAt(), now), Double::sum);
-                }
-            }
-        }
-        List<TeacherStudentViews.KpMastery> result = new ArrayList<>();
-        for (Map.Entry<String, Integer> entry : events.entrySet()) {
-            String kpId = entry.getKey();
             KnowledgePoint kp = kpById.get(kpId);
-            double mastery = masteryCalculator.mastery(entry.getValue(),
-                    severity.getOrDefault(kpId, 0.0));
+            int events = aggregate.getEvents() == null ? 0 : aggregate.getEvents();
+            double severitySum = aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum();
             result.add(new TeacherStudentViews.KpMastery(kpId,
-                    kp == null ? null : kp.getName(), round3(mastery),
-                    entry.getValue(), errors.getOrDefault(kpId, 0)));
+                    kp == null ? null : kp.getName(), round3(masteryCalculator.mastery(events, severitySum)),
+                    events, aggregate.getErrorCount() == null ? 0 : aggregate.getErrorCount()));
         }
         result.sort(Comparator.comparingDouble(TeacherStudentViews.KpMastery::mastery));
         return result;
@@ -371,12 +325,19 @@ public class TeacherStudentService {
         };
     }
 
-    private String mask(String name) {
+    /** 姓名脱敏：保留首字与末字，中间打码（“欧阳锋”→“欧*锋”），降低可识别度；2 字保留首字。 */
+    static String mask(String name) {
         if (name == null || name.isBlank()) {
             return "学生";
         }
         String value = name.trim();
-        return value.length() <= 1 ? value : value.charAt(0) + "*";
+        if (value.length() == 1) {
+            return value;
+        }
+        if (value.length() == 2) {
+            return value.charAt(0) + "*";
+        }
+        return value.charAt(0) + "*".repeat(value.length() - 2) + value.charAt(value.length() - 1);
     }
 
     private double round3(double value) {

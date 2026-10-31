@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">CLASS INSIGHTS</div>
         <h2>班级学情</h2>
         <p class="sub">查看本课程学生的学习记录：练习量、正确率、做题时长、进度与薄弱知识点。</p>
       </div>
