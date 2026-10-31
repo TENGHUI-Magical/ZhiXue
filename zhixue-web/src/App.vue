@@ -100,7 +100,7 @@
         </el-main>
       </el-container>
 
-      <el-drawer v-model="navOpen" direction="ltr" size="240px" :with-header="false" class="nav-drawer">
+      <el-drawer v-model="navOpen" direction="ltr" size="240px" :with-header="false" class="nav-drawer" append-to-body>
         <div class="brand drawer-logo">
           <span class="brand-mark" aria-hidden="true">智</span>
           <span class="brand-text">智学领航</span>

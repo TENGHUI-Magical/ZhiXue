@@ -111,7 +111,7 @@
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="学生学习记录" size="640px" class="student-drawer">
+    <el-drawer v-model="drawerVisible" title="学生学习记录" size="640px" class="student-drawer" append-to-body>
       <PageState
         :loading="detailLoading"
         :error="detailError"

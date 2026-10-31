@@ -130,10 +130,31 @@ def load_questions(path, kp_ids, strict):
                 options = []
             if len(options) < 4:
                 err(f"{where} 选择题至少 4 个选项（当前 {len(options)}）")
-            keys = {str(o.get("key")) for o in options if isinstance(o, dict) and o.get("key")}
-            answer = (row.get("answerText") or "").strip()
-            if answer and answer not in keys:
-                err(f"{where} answerText={answer} 不在选项 key 内")
+            raw_keys = [str(o.get("key")).strip().upper() for o in options
+                        if isinstance(o, dict) and str(o.get("key") or "").strip()]
+            keys = set(raw_keys)
+            if len(keys) != len(raw_keys):
+                err(f"{where} 选项 key 重复")
+            if any(not re.fullmatch(r"[A-Z]", key) for key in raw_keys):
+                err(f"{where} 选项 key 必须为单个大写字母（A/B/C/D）")
+            answer_raw = (row.get("answerText") or "").strip()
+            answer = answer_raw.upper()
+            if not answer:
+                err(f"{where} 选择题 answerText 不能为空")
+            elif answer_raw != answer:
+                err(f"{where} 选择题 answerText 请使用大写选项 key（当前 {answer_raw}）")
+            elif qtype == "多选":
+                # 多选答案必须是大写 key 直接拼接（如 ABD），不接受逗号/空格
+                if not re.fullmatch(r"[A-Z]+", answer):
+                    err(f"{where} 多选题 answerText 必须为大写选项 key 拼接（如 ABD）")
+                elif len(answer) != len(set(answer)):
+                    err(f"{where} 多选题 answerText={answer_raw} 含重复选项 key")
+                elif len(set(answer)) < 2:
+                    err(f"{where} 多选题 answerText={answer_raw} 至少包含 2 个选项 key")
+                elif not set(answer).issubset(keys):
+                    err(f"{where} answerText={answer_raw} 含选项 key 之外的字符")
+            elif answer not in keys:
+                err(f"{where} answerText={answer_raw} 不在选项 key 内")
         analysis = (row.get("analysisText") or "").strip()
         if strict and len(analysis) < 50:
             err(f"{where} analysisText 不足 50 字（当前 {len(analysis)}）")

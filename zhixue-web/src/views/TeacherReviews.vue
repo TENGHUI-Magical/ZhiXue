@@ -113,7 +113,7 @@
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" @closed="resetForm">
+    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" append-to-body @closed="resetForm">
       <template v-if="selected">
         <div class="review-meta">
           <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
@@ -145,11 +145,19 @@
           </div>
         </div>
         <el-alert
-          v-else
+          v-if="isReviewed"
+          class="reviewed-alert"
+          type="info"
+          :closable="false"
+          show-icon
+          title="该讲解已评阅，不能重复提交。"
+        />
+        <el-alert
+          v-if="!isReviewed && !hasEvidence"
           type="warning"
           :closable="false"
           show-icon
-          title="证据不完整：该讲解未关联题库题目（无题干/答案）。请结合错因与来源谨慎评阅。"
+          title="证据不完整：缺少题干/参考答案。只能选择“退回”并注明原因，不能通过。"
         />
         <div class="evidence-row">
           <span>错因：{{ errorTypeLabel(selected.errorType || "") || "—" }}</span>
@@ -185,9 +193,12 @@
         </div>
         <div class="section-label">评阅结论</div>
         <el-radio-group v-model="result" class="result-group">
-          <el-radio-button value="PASS">通过</el-radio-button>
-          <el-radio-button value="RETURN">退回</el-radio-button>
+          <el-radio-button value="PASS" :disabled="!hasEvidence || isReviewed">通过</el-radio-button>
+          <el-radio-button value="RETURN" :disabled="isReviewed">退回</el-radio-button>
         </el-radio-group>
+        <p v-if="!hasEvidence && !isReviewed" class="result-hint">
+          证据不完整时只能退回；请在评语里写清缺失项。
+        </p>
         <el-input
           v-model="comment"
           type="textarea"
@@ -244,7 +255,16 @@ const waitingText = (seconds?: number) => {
   if (s < 86400) return `${Math.floor(s / 3600)} 小时`;
   return `${Math.floor(s / 86400)} 天`;
 };
-const canSubmit = computed(() => score.value != null && comment.value.trim().length > 0);
+// C3：证据缺失时只能退回（不能通过）；已评阅记录禁止重复提交
+const hasEvidence = computed(() => !!(selected.value?.questionText ?? "").trim());
+const isReviewed = computed(() => selected.value?.reviewStatus === "REVIEWED");
+const canSubmit = computed(
+  () =>
+    !isReviewed.value &&
+    score.value != null &&
+    comment.value.trim().length > 0 &&
+    (hasEvidence.value || result.value === "RETURN")
+);
 const sourceText = (row: ReviewItem) =>
   (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
 
@@ -285,7 +305,8 @@ const openReview = (row: ReviewItem) => {
   selected.value = row;
   score.value = null;
   comment.value = "";
-  result.value = "PASS";
+  // 证据缺失时只能退回；有题干默认通过
+  result.value = (row.questionText ?? "").trim() ? "PASS" : "RETURN";
   drawerVisible.value = true;
 };
 
@@ -509,6 +530,14 @@ onMounted(load);
 }
 .result-group {
   margin-bottom: 12px;
+}
+.result-hint {
+  margin: -4px 0 10px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.reviewed-alert {
+  margin-bottom: 10px;
 }
 .evidence-block {
   border: 1px solid var(--app-border);

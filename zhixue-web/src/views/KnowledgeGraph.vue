@@ -127,7 +127,7 @@
       </el-card>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="知识点详情" size="480px" class="kp-drawer">
+    <el-drawer v-model="drawerVisible" title="知识点详情" size="480px" class="kp-drawer" append-to-body>
       <el-skeleton v-if="detailLoading" :rows="5" animated />
       <el-alert v-else-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
       <template v-else-if="detail">

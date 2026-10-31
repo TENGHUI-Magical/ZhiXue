@@ -5,6 +5,7 @@
     size="560px"
     destroy-on-close
     class="practice-drawer"
+    append-to-body
     @closed="onClosed"
   >
     <PageState :loading="loading" :error="error" retry-text="重新加载" @retry="load">
