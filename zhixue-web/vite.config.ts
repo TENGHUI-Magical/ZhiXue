@@ -18,6 +18,21 @@ export default defineConfig({
       dts: 'src/types/components.d.ts'
     })
   ],
+  // 拆包：把重量级第三方库从入口 index chunk 分离，压低最大单 chunk 体积
+  // （体积棘轮 ceilings.json 同时约束 totalJs 与 largestJs；拆包主要改善 largestJs）
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return
+          // 注意：不要分组 element-plus——unplugin 已按组件懒加载拆分，
+          // 强制合并会把整个 EP 打成 eager 大 chunk，反而暴涨总体积。
+          if (id.includes('/vue-router/') || id.includes('/@vue/') || id.includes('/vue/')) return 'vue-vendor'
+          if (id.includes('/axios/')) return 'axios-vendor'
+        }
+      }
+    }
+  },
   server: {
     port: 5173,
     proxy: {
