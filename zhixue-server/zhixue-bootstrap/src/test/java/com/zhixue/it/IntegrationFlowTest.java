@@ -44,7 +44,11 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -103,6 +107,7 @@ class IntegrationFlowTest {
 
     /** 测试用户口令：It!Pass123 的 BCrypt 哈希（仅测试库使用） */
     private static final String TEST_HASH = "$2a$10$xARWaBRcoRVDmdtPMopUJecaI4F5/vskTeAA3IcIA9LIULv6v6XPO";
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
@@ -127,8 +132,19 @@ class IntegrationFlowTest {
             executeScript(connection, "../sql/init-v2.sql", true);
             executeScript(connection, "../sql/seed-kp-ch02-ch03.sql", false);
             executeScript(connection, "../sql/seed-question-ch02-ch03.sql", false);
-            upsertUser(connection, "it_user");
-            upsertUser(connection, "it_user2");
+            // 先建教师：course.teacher_id=1（init-v2.sql 种子），教师 user_id 必须为 1 才能通过课程归属校验
+            upsertUser(connection, "it_teacher", "TEACHER", "集成教师");
+            upsertUser(connection, "it_teacher2", "TEACHER", "其他教师");
+            upsertUser(connection, "it_user", "STUDENT", "集成测试");
+            upsertUser(connection, "it_user2", "STUDENT", "张三");
+            upsertUser(connection, "it_user3", "STUDENT", "欧阳锋");
+            upsertUser(connection, "it_user4", "STUDENT", "李四");
+            // 不依赖插入顺序：显式把课程归属到 it_teacher，避免自增 ID 变化导致 40300
+            try (PreparedStatement ps = connection.prepareStatement(
+                    "UPDATE course SET teacher_id = (SELECT user_id FROM sys_user "
+                            + "WHERE username = 'it_teacher') WHERE course_id = 1")) {
+                ps.executeUpdate();
+            }
             long chapterId = queryChapterId(connection);
             insertTestKp(connection, chapterId, "KPITL3", "集成测试L3",
                     "用于触发上游 500 并验证 L3 本地模板降级的概念切片", "集成测试误区");
@@ -145,7 +161,8 @@ class IntegrationFlowTest {
         }
     }
 
-    private static void upsertUser(Connection connection, String username) throws Exception {
+    private static void upsertUser(Connection connection, String username,
+                                   String role, String realName) throws Exception {
         try (PreparedStatement ps = connection.prepareStatement(
                 "INSERT INTO sys_user (username, password, real_name, role, class_name, is_active) "
                         + "VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE "
@@ -153,8 +170,8 @@ class IntegrationFlowTest {
                         + "role = VALUES(role), class_name = VALUES(class_name), is_active = 1")) {
             ps.setString(1, username);
             ps.setString(2, TEST_HASH);
-            ps.setString(3, "集成测试");
-            ps.setString(4, "STUDENT");
+            ps.setString(3, realName);
+            ps.setString(4, role);
             ps.setString(5, "IT");
             ps.executeUpdate();
         }
@@ -205,6 +222,10 @@ class IntegrationFlowTest {
         jdbcTemplate.update("DELETE FROM ai_generation_log");
         jdbcTemplate.update("DELETE FROM recommendation");
         jdbcTemplate.update("DELETE FROM ocr_task");
+        // C1 打卡与 C12 学生下钻会写这三张表；不清会让用例依赖执行顺序
+        jdbcTemplate.update("DELETE FROM study_plan_item");
+        jdbcTemplate.update("DELETE FROM study_plan");
+        jdbcTemplate.update("DELETE FROM practice_record");
         Set<String> keys = redisTemplate.keys("zhixue:*");
         if (keys != null && !keys.isEmpty()) {
             redisTemplate.delete(keys);
@@ -620,6 +641,300 @@ class IntegrationFlowTest {
                 .isEqualTo("CONFIRMED");
     }
 
+    // ==================== C1 打卡：真实作答 / 仅记录 / 幂等 / 40900 ====================
+
+    @Test
+    void checkinAnsweredWritesRealPracticeAndReplaysIdempotently() throws Exception {
+        String token = login();
+        HttpResponse<String> generated = generatePlan(token);
+        assertThat(code(generated)).isZero();
+        List<Map<String, Object>> days = JsonPath.read(body(generated), "$.data");
+        assertThat(days).hasSize(7);
+        long planId = ((Number) days.get(0).get("planId")).longValue();
+        List<Map<String, Object>> items = castList(days.get(0).get("items"));
+        String qId = String.valueOf(items.get(0).get("qId"));
+
+        String payload = """
+                {"qId":"%s","clientToken":"c1-answered","answered":true,"myAnswer":"B",
+                 "isCorrect":false,"costSeconds":30,"errorType":"CONCEPT_CONFUSION"}
+                """.formatted(qId);
+        HttpResponse<String> first = postJson("/api/plans/" + planId + "/checkin", payload, token);
+        assertThat(code(first)).isZero();
+        assertThat(first.headers().firstValue("X-Trace-Id").orElse("")).isNotBlank();
+        assertThat((Boolean) JsonPath.read(body(first), "$.data.verified")).isTrue();
+        assertThat((Boolean) JsonPath.read(body(first), "$.data.isCorrect")).isFalse();
+        assertThat((Boolean) JsonPath.read(body(first), "$.data.duplicate")).isFalse();
+        assertThat(number(body(first), "$.data.doneCount").intValue()).isEqualTo(1);
+        assertThat((Object) JsonPath.read(body(first), "$.data.practiceId")).isNotNull();
+
+        Map<String, Object> practice = jdbcTemplate.queryForMap(
+                "SELECT is_correct, source, my_answer, cost_seconds FROM practice_record "
+                        + "WHERE client_token = 'c1-answered'");
+        assertThat(((Number) practice.get("is_correct")).intValue()).isZero();
+        assertThat(practice.get("source")).isEqualTo("PLAN");
+        assertThat(practice.get("my_answer")).isEqualTo("B");
+        assertThat(((Number) practice.get("cost_seconds")).intValue()).isEqualTo(30);
+
+        // 同 token 重放：返回首次结果，不双写、完成数不重复递增
+        HttpResponse<String> replay = postJson("/api/plans/" + planId + "/checkin", payload, token);
+        assertThat(code(replay)).isZero();
+        assertThat((Boolean) JsonPath.read(body(replay), "$.data.duplicate")).isTrue();
+        assertThat(number(body(replay), "$.data.doneCount").intValue()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM practice_record WHERE client_token = 'c1-answered'",
+                Integer.class)).isEqualTo(1);
+
+        // 不同 token 打同一已完成题：40900，且不产生第二条作答
+        String conflictPayload = payload.replace("c1-answered", "c1-answered-dup");
+        assertThat(code(postJson("/api/plans/" + planId + "/checkin", conflictPayload, token)))
+                .isEqualTo(40900);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM practice_record WHERE user_id = ? AND q_id = ?",
+                Integer.class, userIdOf("it_user"), qId)).isEqualTo(1);
+    }
+
+    @Test
+    void checkinWithoutAnswerOnlyAdvancesProgress() throws Exception {
+        String token = login();
+        HttpResponse<String> generated = generatePlan(token);
+        List<Map<String, Object>> days = JsonPath.read(body(generated), "$.data");
+        long planId = ((Number) days.get(0).get("planId")).longValue();
+        List<Map<String, Object>> items = castList(days.get(0).get("items"));
+        assertThat(items).hasSizeGreaterThanOrEqualTo(2);
+
+        String recordOnly = """
+                {"qId":"%s","clientToken":"c1-record-only","answered":false}
+                """.formatted(items.get(0).get("qId"));
+        HttpResponse<String> first = postJson("/api/plans/" + planId + "/checkin", recordOnly, token);
+        assertThat(code(first)).isZero();
+        assertThat((Boolean) JsonPath.read(body(first), "$.data.verified")).isFalse();
+        assertThat((Object) JsonPath.read(body(first), "$.data.isCorrect")).isNull();
+        assertThat((Object) JsonPath.read(body(first), "$.data.practiceId")).isNull();
+        assertThat(number(body(first), "$.data.doneCount").intValue()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM practice_record WHERE user_id = ?",
+                Integer.class, userIdOf("it_user"))).isZero();
+
+        // 仅记录进度却提交答案/对错：40000，不推进度
+        String invalid = """
+                {"qId":"%s","clientToken":"c1-record-invalid","answered":false,"myAnswer":"A"}
+                """.formatted(items.get(1).get("qId"));
+        assertThat(code(postJson("/api/plans/" + planId + "/checkin", invalid, token)))
+                .isEqualTo(40000);
+
+        // 已完成题再次“仅记录”：40900
+        assertThat(code(postJson("/api/plans/" + planId + "/checkin", recordOnly, token)))
+                .isEqualTo(40900);
+    }
+
+    // ==================== C3 评阅：证据 / 筛选 / PASS / RETURN / 权限 ====================
+
+    @Test
+    void teacherReviewQueueFiltersEvidenceAndPersistsResult() throws Exception {
+        String studentToken = login();
+        String teacherToken = login("it_teacher");
+        List<String> qIds = courseQids(1);
+        String logId = createAndConfirmWithQid(studentToken, "c3-review", "KP0201",
+                qIds.get(0), "课堂笔记");
+        String sse = body(explain(studentToken, logId, "KP0201"));
+        assertThat(sse).contains("event:done");
+        awaitExplainLog(explainIdFromSse(sse), userIdOf("it_user"));
+
+        // 用数据库日期而不是 JVM 日期：ai_generation_log.created_at 由 DB 默认值写入，
+        // CI 容器时区可能是 UTC，用 JVM 的 Asia/Shanghai 日期会跨日误判
+        LocalDate today = dbToday();
+        HttpResponse<String> pending = getJson(
+                "/api/teacher/reviews?page=1&size=10&status=PENDING&from=" + today
+                        + "&to=" + today, teacherToken);
+        assertThat(code(pending)).isZero();
+        assertThat(pending.headers().firstValue("X-Trace-Id").orElse("")).isNotBlank();
+        assertThat(number(body(pending), "$.data.total").intValue()).isEqualTo(1);
+        Map<String, Object> item = JsonPath.read(body(pending), "$.data.records[0]");
+        assertThat(item.get("kpId")).isEqualTo("KP0201");
+        assertThat(item.get("questionText")).isNotNull();
+        assertThat(item.get("correctAnswer")).isNotNull();
+        assertThat(item.get("studentNote")).isEqualTo("课堂笔记");
+        assertThat(item.get("reviewStatus")).isEqualTo("PENDING");
+        assertThat(item.get("reviewResult")).isNull();
+        long logPk = ((Number) item.get("logPk")).longValue();
+
+        // status 三态
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&status=REVIEWED", teacherToken)),
+                "$.data.total").intValue()).isZero();
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&status=ALL", teacherToken)),
+                "$.data.total").intValue()).isEqualTo(1);
+        // kpId 筛选
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&kpId=KP0201", teacherToken)),
+                "$.data.total").intValue()).isEqualTo(1);
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&kpId=KP9999", teacherToken)),
+                "$.data.total").intValue()).isZero();
+        // from/to 日期筛选
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&from=" + today + "&to=" + today,
+                teacherToken)), "$.data.total").intValue()).isEqualTo(1);
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&from=" + today.plusDays(1),
+                teacherToken)), "$.data.total").intValue()).isZero();
+        assertThat(number(body(getJson(
+                "/api/teacher/reviews?page=1&size=10&to=" + today.minusDays(1),
+                teacherToken)), "$.data.total").intValue()).isZero();
+
+        // RETURN 必须填评语：40000，且不落库
+        HttpResponse<String> badReturn = postJson("/api/teacher/reviews/" + logPk,
+                "{\"score\":3,\"comment\":\" \",\"result\":\"RETURN\"}", teacherToken);
+        assertThat(code(badReturn)).isEqualTo(40000);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT review_result FROM ai_generation_log WHERE log_pk = ?",
+                String.class, logPk)).isNull();
+
+        // PASS 写入并可在响应中看到
+        HttpResponse<String> pass = postJson("/api/teacher/reviews/" + logPk,
+                "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}", teacherToken);
+        assertThat(code(pass)).isZero();
+        Map<String, Object> saved = jdbcTemplate.queryForMap(
+                "SELECT review_result, reviewed_at, teacher_score, teacher_comment "
+                        + "FROM ai_generation_log WHERE log_pk = ?", logPk);
+        assertThat(saved.get("review_result")).isEqualTo("PASS");
+        assertThat(((Number) saved.get("teacher_score")).intValue()).isEqualTo(5);
+        assertThat(saved.get("reviewed_at")).isNotNull();
+        assertThat(saved.get("teacher_comment")).isEqualTo("讲解清晰");
+
+        HttpResponse<String> reviewed = getJson(
+                "/api/teacher/reviews?page=1&size=10&status=REVIEWED", teacherToken);
+        assertThat(number(body(reviewed), "$.data.total").intValue()).isEqualTo(1);
+        assertThat((String) JsonPath.read(body(reviewed), "$.data.records[0].reviewResult"))
+                .isEqualTo("PASS");
+        assertThat((String) JsonPath.read(body(reviewed), "$.data.records[0].reviewStatus"))
+                .isEqualTo("REVIEWED");
+
+        // 重复评阅 40900；学生访问教师接口 40300
+        assertThat(code(postJson("/api/teacher/reviews/" + logPk,
+                "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}", teacherToken)))
+                .isEqualTo(40900);
+        assertThat(code(getJson("/api/teacher/reviews?page=1&size=10", studentToken)))
+                .isEqualTo(40300);
+    }
+
+    // ==================== C12 教师下钻：聚合 / 脱敏 / 全局排序 / 权限 ====================
+
+    @Test
+    void teacherStudentListAggregatesAndMasksNames() throws Exception {
+        seedC12Students();
+        String teacher = login("it_teacher");
+        HttpResponse<String> response = getJson(
+                "/api/teacher/students?courseId=1&page=1&size=20&sort=lastActiveDesc", teacher);
+        assertThat(code(response)).isZero();
+        assertThat(response.headers().firstValue("X-Trace-Id").orElse("")).isNotBlank();
+        assertThat(number(body(response), "$.data.total").intValue()).isEqualTo(3);
+        List<Map<String, Object>> records = JsonPath.read(body(response), "$.data.records");
+        assertThat(records).hasSize(3);
+
+        long u1 = userIdOf("it_user");
+        long u2 = userIdOf("it_user2");
+        long u3 = userIdOf("it_user3");
+        // lastActiveDesc：u1(1 天前) → u3(2 天前) → u2(3 天前)
+        assertThat(((Number) records.get(0).get("userId")).longValue()).isEqualTo(u1);
+        assertThat(((Number) records.get(1).get("userId")).longValue()).isEqualTo(u3);
+        assertThat(((Number) records.get(2).get("userId")).longValue()).isEqualTo(u2);
+
+        Map<String, Object> r1 = recordOf(records, u1);
+        assertThat(r1.get("displayName")).isEqualTo("集**试");
+        assertThat(((Number) r1.get("practiceCount")).intValue()).isEqualTo(4);
+        assertThat(((Number) r1.get("correctRate")).doubleValue()).isEqualTo(0.5);
+        assertThat(((Number) r1.get("avgCostSeconds")).intValue()).isEqualTo(45);
+        assertThat(((Number) r1.get("errorCount")).intValue()).isEqualTo(2);
+        assertThat(((Number) r1.get("planDone")).intValue()).isEqualTo(2);
+        assertThat(((Number) r1.get("planTotal")).intValue()).isEqualTo(7);
+        assertThat(r1.get("lastActiveAt")).isNotNull();
+
+        Map<String, Object> r2 = recordOf(records, u2);
+        assertThat(r2.get("displayName")).isEqualTo("张*");
+        assertThat(((Number) r2.get("practiceCount")).intValue()).isEqualTo(2);
+        assertThat(r2.get("correctRate")).isNull();
+        assertThat(((Number) r2.get("avgCostSeconds")).intValue()).isEqualTo(25);
+        assertThat(((Number) r2.get("errorCount")).intValue()).isEqualTo(2);
+        assertThat(((Number) r2.get("planTotal")).intValue()).isZero();
+
+        Map<String, Object> r3 = recordOf(records, u3);
+        assertThat(r3.get("displayName")).isEqualTo("欧*锋");
+        assertThat(((Number) r3.get("correctRate")).doubleValue()).isEqualTo(1.0);
+        assertThat(((Number) r3.get("errorCount")).intValue()).isZero();
+        assertThat(((Number) r3.get("avgMastery")).doubleValue()).isEqualTo(1.0);
+
+        assertThat(((Number) r2.get("avgMastery")).doubleValue())
+                .isLessThan(((Number) r1.get("avgMastery")).doubleValue());
+        assertThat(((Number) r1.get("avgMastery")).doubleValue())
+                .isLessThan(((Number) r3.get("avgMastery")).doubleValue());
+    }
+
+    @Test
+    void teacherStudentMasteryAscSortsGloballyBeforePaging() throws Exception {
+        seedC12Students();
+        String teacher = login("it_teacher");
+        long u1 = userIdOf("it_user");
+        long u2 = userIdOf("it_user2");
+        long u3 = userIdOf("it_user3");
+        // 每页 1 条：若只对“当前页”排序，第 1 页不会是全局最低掌握度的 u2
+        assertThat(studentIdAt(teacher, 1, 1, "masteryAsc")).isEqualTo(u2);
+        assertThat(studentIdAt(teacher, 2, 1, "masteryAsc")).isEqualTo(u1);
+        assertThat(studentIdAt(teacher, 3, 1, "masteryAsc")).isEqualTo(u3);
+    }
+
+    @Test
+    void teacherStudentLearningRecordsFiltersAndRejectsOutsiders() throws Exception {
+        long u1 = userIdOf("it_user");
+        List<String> qIds = courseQids(2);
+        insertPractice(u1, "c12-detail-now", qIds.get(0), true, 40, 0, null);
+        insertPractice(u1, "c12-detail-old", qIds.get(1), false, 50, 5, "CONCEPT_CONFUSION");
+        String studentToken = login();
+        createAndConfirmWithQid(studentToken, "c12-detail-err", "KP0201",
+                qIds.get(0), "课堂笔记");
+
+        String teacher = login("it_teacher");
+        HttpResponse<String> detail = getJson("/api/teacher/students/" + u1
+                + "/learning-records?courseId=1&page=1&size=1", teacher);
+        assertThat(code(detail)).isZero();
+        assertThat((String) JsonPath.read(body(detail), "$.data.summary.displayName"))
+                .isEqualTo("集**试");
+        assertThat(number(body(detail), "$.data.practices.total").intValue()).isEqualTo(2);
+        List<Map<String, Object>> practices =
+                JsonPath.read(body(detail), "$.data.practices.records");
+        assertThat(practices).hasSize(1);
+        assertThat(practices.get(0).get("questionText")).isNotNull();
+        assertThat((Boolean) practices.get(0).get("isCorrect")).isTrue();
+        assertThat(((Number) practices.get(0).get("costSeconds")).intValue()).isEqualTo(40);
+        assertThat(practices.get(0).get("source")).isEqualTo("PLAN");
+        assertThat(practices.get(0).get("createdAt")).isNotNull();
+        List<Map<String, Object>> errors = JsonPath.read(body(detail), "$.data.errors");
+        assertThat(errors).hasSize(1);
+        assertThat(errors.get(0).get("kpId")).isEqualTo("KP0201");
+        List<Map<String, Object>> kpMastery = JsonPath.read(body(detail), "$.data.kpMastery");
+        assertThat(kpMastery).isNotEmpty();
+        assertThat(kpMastery.get(0).get("kpId")).isEqualTo("KP0201");
+
+        // from/to：只保留今天的那条作答
+        LocalDate today = LocalDate.now(ZONE);
+        HttpResponse<String> filtered = getJson("/api/teacher/students/" + u1
+                + "/learning-records?courseId=1&from=" + today + "&to=" + today
+                + "&page=1&size=10", teacher);
+        assertThat(number(body(filtered), "$.data.practices.total").intValue()).isEqualTo(1);
+
+        // 非课程教师 40300；学生 40300；无作答学生 40400
+        String otherTeacher = login("it_teacher2");
+        assertThat(code(getJson("/api/teacher/students?courseId=1&page=1&size=10", otherTeacher)))
+                .isEqualTo(40300);
+        assertThat(code(getJson("/api/teacher/students/" + u1
+                + "/learning-records?courseId=1", otherTeacher))).isEqualTo(40300);
+        assertThat(code(getJson("/api/teacher/students?courseId=1", studentToken)))
+                .isEqualTo(40300);
+        assertThat(code(getJson("/api/teacher/students/" + userIdOf("it_user4")
+                + "/learning-records?courseId=1", teacher))).isEqualTo(40400);
+    }
+
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
         for (int i = 0; i < 100; i++) {
             Integer count = jdbcTemplate.queryForObject(
@@ -798,6 +1113,104 @@ class IntegrationFlowTest {
                         + "(task_id, user_id, client_token, image_path, status, retry_count, created_at, updated_at) "
                         + "VALUES (?, ?, ?, '/tmp/it.jpg', ?, 0, NOW() - INTERVAL 5 MINUTE, NOW() - INTERVAL 5 MINUTE)",
                 taskId, userId, clientToken, status);
+    }
+
+    // ==================== C1/C12 测试数据与断言辅助 ====================
+
+    private HttpResponse<String> generatePlan(String token) throws Exception {
+        String monday = LocalDate.now(ZONE).with(DayOfWeek.MONDAY).toString();
+        return postJson("/api/plans/generate",
+                "{\"courseId\":1,\"weekStart\":\"%s\",\"dailyQuestionCount\":3}"
+                        .formatted(monday), token);
+    }
+
+    private List<String> courseQids(int limit) {
+        return jdbcTemplate.queryForList(
+                "SELECT q_id FROM question_bank WHERE course_id = 1 ORDER BY q_id LIMIT ?",
+                String.class, limit);
+    }
+
+    private void insertPractice(long userId, String clientToken, String qId, boolean correct,
+                                int costSeconds, int daysAgo, String errorType) {
+        jdbcTemplate.update("INSERT INTO practice_record (user_id, client_token, q_id, kp_id, "
+                        + "source, is_correct, my_answer, error_type, cost_seconds, created_at) "
+                        + "VALUES (?, ?, ?, 'KP0201', 'PLAN', ?, 'A', ?, ?, ?)",
+                userId, clientToken, qId, correct ? 1 : 0, errorType, costSeconds,
+                LocalDateTime.now(ZONE).minusDays(daysAgo));
+    }
+
+    /** C12 三个学生：u1 4 次/2 错/均 45s、u2 2 次全错/均 25s、u3 4 次全对/均 25s；u1 另有本周计划。 */
+    private void seedC12Students() {
+        List<String> qIds = courseQids(4);
+        long u1 = userIdOf("it_user");
+        long u2 = userIdOf("it_user2");
+        long u3 = userIdOf("it_user3");
+        for (int i = 0; i < 4; i++) {
+            insertPractice(u1, "c12-u1-" + i, qIds.get(i), i < 2,
+                    30 + i * 10, 1, i < 2 ? null : "CONCEPT_CONFUSION");
+        }
+        for (int i = 0; i < 2; i++) {
+            insertPractice(u2, "c12-u2-" + i, qIds.get(i), false,
+                    20 + i * 10, 3, "CONCEPT_CONFUSION");
+        }
+        for (int i = 0; i < 4; i++) {
+            insertPractice(u3, "c12-u3-" + i, qIds.get(i), true, 10 + i * 10, 2, null);
+        }
+        jdbcTemplate.update("INSERT INTO study_plan (user_id, plan_date, plan_count, done_count, "
+                        + "status) VALUES (?, ?, 7, 2, 'PENDING')",
+                u1, LocalDate.now(ZONE).with(DayOfWeek.MONDAY));
+    }
+
+    private Map<String, Object> recordOf(List<Map<String, Object>> records, long userId) {
+        return records.stream()
+                .filter(row -> ((Number) row.get("userId")).longValue() == userId)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("未找到学生 userId=" + userId));
+    }
+
+    private long studentIdAt(String token, int page, int size, String sort) throws Exception {
+        HttpResponse<String> response = getJson("/api/teacher/students?courseId=1&page=" + page
+                + "&size=" + size + "&sort=" + sort, token);
+        assertThat(code(response)).isZero();
+        List<Map<String, Object>> records = JsonPath.read(body(response), "$.data.records");
+        assertThat(records).hasSize(1);
+        return ((Number) records.get(0).get("userId")).longValue();
+    }
+
+    private Number number(String json, String path) {
+        Number value = JsonPath.read(json, path);
+        assertThat(value).isNotNull();
+        return value;
+    }
+
+    private LocalDate dbToday() {
+        return LocalDate.parse(jdbcTemplate.queryForObject(
+                "SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d')", String.class));
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> castList(Object value) {
+        return (List<Map<String, Object>>) value;
+    }
+
+    /** C3：带 qId / 学生笔记创建并确认错题，供评阅队列补证据字段。 */
+    private String createAndConfirmWithQid(String token, String clientToken, String kpId,
+                                           String qId, String studentNote) throws Exception {
+        HttpResponse<String> created = createRaw(token, clientToken, kpId, qId, studentNote);
+        assertThat(code(created)).isZero();
+        String logId = JsonPath.read(body(created), "$.data.logId");
+        assertThat(code(confirm(token, logId, kpId))).isZero();
+        return logId;
+    }
+
+    private HttpResponse<String> createRaw(String token, String clientToken,
+                                           String kpId, String qId, String studentNote)
+            throws Exception {
+        String payload = """
+                {"courseId":1,"clientToken":"%s","kpId":"%s","errorType":"CONCEPT_CONFUSION",
+                 "correctedText":"求闭包","qId":"%s","studentNote":"%s"}
+                """.formatted(clientToken, kpId, qId, studentNote);
+        return postJson("/api/error/records", payload, token);
     }
 
     private String login() throws Exception {
