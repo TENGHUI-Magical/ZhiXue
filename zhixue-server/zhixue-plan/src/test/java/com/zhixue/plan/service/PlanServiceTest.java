@@ -83,7 +83,8 @@ class PlanServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
-                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-1", null)));
+                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-1",
+                            true, "A", true, 10, null, null)));
             assertEquals(ErrorCode.DUPLICATE_SUBMIT, ex.getErrorCode());
         }
     }
@@ -98,9 +99,45 @@ class PlanServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
-                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-1", null)));
+                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-1",
+                            true, "A", true, 10, null, null)));
             assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
         }
+    }
+
+    @Test
+    void recordOnlyCheckinDoesNotWritePractice() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanCount(3);
+        plan.setDoneCount(0);
+        plan.setStatus("PENDING");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        StudyPlanItem item = new StudyPlanItem();
+        item.setItemId(5L);
+        item.setPlanId(1L);
+        item.setQId("Q_0201");
+        item.setKpId("KP0201");
+        item.setIsDone(0);
+        when(itemMapper.selectOne(any())).thenReturn(item);
+        when(itemMapper.update(any(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            com.zhixue.plan.dto.CheckinResult result = service.checkin(1L,
+                    new CheckinRequest("Q_0201", "token-only", false, null, null, null, null, null));
+            org.junit.jupiter.api.Assertions.assertFalse(result.verified());
+            org.junit.jupiter.api.Assertions.assertNull(result.practiceId());
+            org.junit.jupiter.api.Assertions.assertNull(result.isCorrect());
+        }
+        org.mockito.Mockito.verify(practiceService, org.mockito.Mockito.never())
+                .recordPlanCompletion(org.mockito.ArgumentMatchers.anyLong(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any(),
+                        org.mockito.ArgumentMatchers.any());
     }
 
     @Test

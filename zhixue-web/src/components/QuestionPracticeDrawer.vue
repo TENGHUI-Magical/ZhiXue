@@ -82,6 +82,11 @@
           <span v-if="!canReveal" class="hint">先作答或写下思路，再查看答案</span>
         </div>
 
+        <div v-if="mode === 'plan'" class="actions plan-only">
+          <el-button :loading="submitting" @click="recordOnly">仅记录进度（未作答）</el-button>
+          <span class="hint">不计正确率、不入可信闭环</span>
+        </div>
+
         <div v-if="revealed && answer" class="answer-panel">
           <el-divider content-position="left">参考答案</el-divider>
           <div class="answer">{{ answer.answerText || "暂无参考答案" }}</div>
@@ -97,7 +102,7 @@
               我答错了
             </el-button>
           </div>
-          <div class="hint">自评会写入练习记录；推荐题会标记为已采纳。</div>
+          <div class="hint">{{ mode === 'plan' ? '自评后打卡：按真实作答计入正确率与可信闭环。' : '自评会写入练习记录；推荐题会标记为已采纳。' }}</div>
         </div>
       </template>
     </PageState>
@@ -106,7 +111,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import PageState from "./PageState.vue";
 import {
   getQuestionDetail,
@@ -115,21 +120,27 @@ import {
   type QuestionDetail
 } from "../api/questions";
 import { newClientToken, submitPractice } from "../api/diagnosis";
+import { checkinPlan } from "../api/plan";
 
 interface Props {
   modelValue: boolean;
   qId: string;
   kpId: string;
   recommendationId?: number | null;
+  /** practice=推荐/自主练习写入 /api/practices；plan=计划打卡写入 checkin */
+  mode?: "practice" | "plan";
+  planId?: number | null;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  recommendationId: null
+  recommendationId: null,
+  mode: "practice",
+  planId: null
 });
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
-  (e: "completed", payload: { isCorrect: boolean; practiceId?: number }): void;
+  (e: "completed", payload: { isCorrect: boolean; practiceId?: number; verified?: boolean }): void;
 }>();
 
 const visible = computed({
@@ -184,6 +195,7 @@ const clearFields = () => {
 let loadSeq = 0;
 let submitToken = "";
 let submitTokenKey = "";
+let openedAt = 0;
 
 const onClosed = () => {
   // 关闭动画结束时可能已经切到下一题，只有确实关闭才清空
@@ -207,6 +219,7 @@ const load = async () => {
     return;
   }
   loading.value = true;
+  openedAt = Date.now();
   try {
     const data = await getQuestionDetail(props.qId);
     if (seq !== loadSeq) return; // 快速切题时丢弃旧响应
@@ -241,6 +254,25 @@ const submit = async (isCorrect: boolean) => {
   }
   submitting.value = true;
   try {
+    // 计划模式：打卡走 checkin（answered=true），按真实作答记正确率，不双写 /practices
+    if (props.mode === "plan" && props.planId != null) {
+      const costSeconds = openedAt ? Math.max(0, Math.round((Date.now() - openedAt) / 1000)) : null;
+      const result = await checkinPlan(props.planId, {
+        qId: props.qId,
+        clientToken: tokenForCurrentQuestion(),
+        answered: true,
+        myAnswer: combinedAnswer.value,
+        isCorrect,
+        costSeconds
+      });
+      submitToken = "";
+      ElMessage.success(result.verified
+        ? (isCorrect ? "已打卡：本题正确" : "已打卡：本题错误")
+        : "已打卡");
+      emit("completed", { isCorrect, practiceId: result.practiceId ?? undefined, verified: result.verified });
+      visible.value = false;
+      return;
+    }
     const result = await submitPractice({
       qId: props.qId,
       kpId,
@@ -258,6 +290,36 @@ const submit = async (isCorrect: boolean) => {
     visible.value = false;
   } catch (e) {
     ElMessage.error((e as Error).message || "提交失败");
+  } finally {
+    submitting.value = false;
+  }
+};
+
+/** 仅记录进度（计划模式）：不写 practice_record，不计正确率/不入可信闭环 */
+const recordOnly = async () => {
+  if (submitting.value) return;
+  if (props.mode !== "plan" || props.planId == null) return;
+  try {
+    await ElMessageBox.confirm(
+      "未作答仅记录进度：不计正确率、不计入可信闭环。确认？",
+      "仅记录进度",
+      { type: "warning", confirmButtonText: "仅记录", cancelButtonText: "去作答" }
+    );
+  } catch {
+    return;
+  }
+  submitting.value = true;
+  try {
+    await checkinPlan(props.planId, {
+      qId: props.qId,
+      clientToken: newClientToken(),
+      answered: false
+    });
+    ElMessage.success("已记录进度（未验证）");
+    emit("completed", { isCorrect: false, verified: false });
+    visible.value = false;
+  } catch (e) {
+    ElMessage.error((e as Error).message || "记录失败");
   } finally {
     submitting.value = false;
   }

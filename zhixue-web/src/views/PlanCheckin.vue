@@ -81,10 +81,9 @@
                   type="primary"
                   size="small"
                   plain
-                  :loading="checkingKey === `${plan.planId}-${item.itemId}`"
-                  @click="checkin(plan, item)"
+                  @click="startCheckin(plan, item)"
                 >
-                  打卡
+                  去作答并打卡
                 </el-button>
               </div>
               <el-empty
@@ -140,6 +139,15 @@
       :recommendation-id="activeRecommendationId"
       @completed="onPracticeCompleted"
     />
+
+    <QuestionPracticeDrawer
+      v-model="planDrawerVisible"
+      :q-id="planQId"
+      :kp-id="planKpId"
+      mode="plan"
+      :plan-id="planId"
+      @completed="onPlanCheckinCompleted"
+    />
   </div>
 </template>
 
@@ -153,11 +161,9 @@ import { listErrorRecords } from "../api/errorBook";
 import {
   DEFAULT_COURSE_ID,
   getRecommendations,
-  newClientToken,
   type Recommendation
 } from "../api/diagnosis";
-import { checkinPlan, generatePlans, listPlans, type PlanItem, type StudyPlan } from "../api/plan";
-import { ApiError } from "../api/request";
+import { generatePlans, listPlans, type PlanItem, type StudyPlan } from "../api/plan";
 
 const router = useRouter();
 const weekStartDate = ref(mondayOf(new Date()));
@@ -166,7 +172,6 @@ const loading = ref(false);
 const generating = ref(false);
 const error = ref("");
 const actionError = ref("");
-const checkingKey = ref("");
 const recommendations = ref<Recommendation[]>([]);
 const recLoading = ref(false);
 const recError = ref("");
@@ -174,6 +179,10 @@ const drawerVisible = ref(false);
 const activeQId = ref("");
 const activeKpId = ref("");
 const activeRecommendationId = ref<number | null>(null);
+const planDrawerVisible = ref(false);
+const planQId = ref("");
+const planKpId = ref("");
+const planId = ref<number | null>(null);
 
 const weekStart = computed(() => formatDate(weekStartDate.value));
 const weekEnd = computed(() => formatDate(addDays(weekStartDate.value, 6)));
@@ -266,28 +275,23 @@ const generate = async () => {
   }
 };
 
-const checkin = async (plan: StudyPlan, item: PlanItem) => {
+/** 打卡前必先作答：打开练习抽屉（plan 模式），由抽屉提交真实作答并打卡 */
+const startCheckin = (plan: StudyPlan, item: PlanItem) => {
   if (!plan.planId || !item.qId) return;
-  const key = `${plan.planId}-${item.itemId}`;
-  checkingKey.value = key;
-  actionError.value = "";
-  try {
-    await checkinPlan(plan.planId, {
-      qId: item.qId,
-      clientToken: newClientToken()
-    });
-    ElMessage.success("打卡成功");
-    await loadPlans();
-  } catch (e) {
-    if (e instanceof ApiError && e.code === 40900) {
-      ElMessage.warning("这道题已经打卡过了");
-      await loadPlans();
-    } else {
-      actionError.value = (e as Error).message || "打卡失败";
-    }
-  } finally {
-    checkingKey.value = "";
+  if (!item.kpId) {
+    ElMessage.warning("这道计划题缺少知识点归属，暂不能打卡");
+    return;
   }
+  planId.value = plan.planId;
+  planQId.value = item.qId;
+  planKpId.value = item.kpId;
+  actionError.value = "";
+  planDrawerVisible.value = true;
+};
+
+const onPlanCheckinCompleted = async () => {
+  planDrawerVisible.value = false;
+  await loadPlans();
 };
 
 const loadRecommendations = async () => {

@@ -12,6 +12,7 @@ import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.service.PracticeService;
 import com.zhixue.plan.dto.CheckinRequest;
+import com.zhixue.plan.dto.CheckinResult;
 import com.zhixue.plan.dto.PlanGenerateRequest;
 import com.zhixue.plan.dto.PlanView;
 import com.zhixue.plan.entity.StudyPlan;
@@ -195,11 +196,12 @@ public class PlanService {
     }
 
     /**
-     * 打卡：写 practice_record(source=PLAN) + 更新明细与完成率。
-     * 同一 clientToken 重放返回成功；不同 token 打同一题返回 40900。
+     * 打卡：answered=true 写 practice_record(source=PLAN) 并按真实作答记 is_correct；
+     * answered=false 仅推进度、不写 practice_record（不计正确率/不入可信闭环）。
+     * 同一 clientToken 重放返回成功（duplicate=true）；不同 token 打同一已完成题返回 40900。
      */
     @Transactional
-    public void checkin(Long planId, CheckinRequest request) {
+    public CheckinResult checkin(Long planId, CheckinRequest request) {
         long userId = StpUtil.getLoginIdAsLong();
         StudyPlan plan = planMapper.selectById(planId);
         if (plan == null) {
@@ -216,6 +218,30 @@ public class PlanService {
             throw new BizException(ErrorCode.NOT_FOUND, "该计划不含此题目: " + request.qId());
         }
 
+        boolean answered = Boolean.TRUE.equals(request.answered());
+        if (!answered && (request.myAnswer() != null || request.isCorrect() != null)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "仅记录进度时不能提交答案或对错");
+        }
+        if (answered) {
+            if (request.myAnswer() == null || request.myAnswer().isBlank()) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "已作答打卡必须提交 myAnswer");
+            }
+            if (request.isCorrect() == null) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "已作答打卡必须提交 isCorrect");
+            }
+        } else {
+            // 仅记录进度：不写 practice_record，只把明细置完成（不计正确率/样本）
+            int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
+                    .eq(StudyPlanItem::getItemId, item.getItemId())
+                    .eq(StudyPlanItem::getIsDone, 0)
+                    .set(StudyPlanItem::getIsDone, 1));
+            if (rows == 0) {
+                throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
+            }
+            planMapper.refreshProgress(planId);
+            return buildResult(planId, request.qId(), false, null, null, false);
+        }
+
         PracticeService.PlanCompletion existing =
                 practiceService.findCompletionByToken(userId, request.clientToken());
         if (existing != null) {
@@ -226,14 +252,16 @@ public class PlanService {
         }
         if (item.getIsDone() != null && item.getIsDone() == 1) {
             if (existing != null) {
-                return;
+                return buildResult(planId, request.qId(), true, request.isCorrect(),
+                        existing.practiceId(), true);
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
 
         PracticeService.PlanCompletion completion = existing != null ? existing
                 : practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
-                request.clientToken(), request.note());
+                request.clientToken(), request.myAnswer(), Boolean.TRUE.equals(request.isCorrect()),
+                request.costSeconds(), request.errorType());
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())
                 .eq(StudyPlanItem::getIsDone, 0)
@@ -243,13 +271,24 @@ public class PlanService {
             StudyPlanItem current = itemMapper.selectById(item.getItemId());
             if (current != null && current.getIsDone() != null
                     && current.getIsDone() == 1 && existing != null) {
-                return;
+                return buildResult(planId, request.qId(), true, request.isCorrect(),
+                        existing.practiceId(), true);
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
 
         // 原子重算完成数与状态，避免并发打卡把 done_count 写小
         planMapper.refreshProgress(planId);
+        return buildResult(planId, request.qId(), true, request.isCorrect(),
+                completion.practiceId(), existing != null);
+    }
+
+    private CheckinResult buildResult(Long planId, String qId, boolean verified,
+                                      Boolean isCorrect, Long practiceId, boolean duplicate) {
+        StudyPlan latest = planMapper.selectById(planId);
+        int done = latest == null || latest.getDoneCount() == null ? 0 : latest.getDoneCount();
+        int total = latest == null || latest.getPlanCount() == null ? 0 : latest.getPlanCount();
+        return new CheckinResult(planId, qId, done, total, verified, isCorrect, practiceId, duplicate);
     }
 
     private List<PlanView> toViews(List<StudyPlan> plans) {

@@ -2,6 +2,7 @@ package com.zhixue.plan.controller;
 
 import com.zhixue.common.api.ApiResponse;
 import com.zhixue.plan.dto.CheckinRequest;
+import com.zhixue.plan.dto.CheckinResult;
 import com.zhixue.plan.dto.PlanGenerateRequest;
 import com.zhixue.plan.dto.PlanView;
 import com.zhixue.plan.service.PlanService;
@@ -52,9 +53,8 @@ public class PlanController {
     }
 
     @PostMapping("/{planId}/checkin")
-    public ApiResponse<Void> checkin(@PathVariable Long planId,
-                                     @Valid @RequestBody CheckinRequest request) {
-        planService.checkin(planId, request);
-        return ApiResponse.ok(null);
+    public ApiResponse<CheckinResult> checkin(@PathVariable Long planId,
+                                              @Valid @RequestBody CheckinRequest request) {
+        return ApiResponse.ok(planService.checkin(planId, request));
     }
 }

@@ -27,7 +27,28 @@ export const generatePlans = (payload: {
   dailyQuestionCount: number;
 }) => api.post<StudyPlan[]>("/api/plans/generate", payload);
 
-export const checkinPlan = (
-  planId: number,
-  payload: { qId: string; clientToken: string; note?: string }
-) => api.post<null>(`/api/plans/${planId}/checkin`, payload);
+export interface CheckinPayload {
+  qId: string;
+  clientToken: string;
+  /** true=已作答（按真实对错计入）；false=仅记录进度（不计正确率/不入可信闭环） */
+  answered: boolean;
+  myAnswer?: string | null;
+  isCorrect?: boolean | null;
+  costSeconds?: number | null;
+  errorType?: string | null;
+  note?: string;
+}
+
+export interface CheckinResult {
+  planId?: number;
+  qId?: string;
+  doneCount?: number;
+  planCount?: number;
+  verified?: boolean;
+  isCorrect?: boolean | null;
+  practiceId?: number | null;
+  duplicate?: boolean;
+}
+
+export const checkinPlan = (planId: number, payload: CheckinPayload) =>
+  api.post<CheckinResult>(`/api/plans/${planId}/checkin`, payload);

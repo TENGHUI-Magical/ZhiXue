@@ -424,7 +424,7 @@ paths:
   /api/plans/{planId}/checkin:
     post:
       tags: [plan]
-      summary: 打卡（完成一道计划题）
+      summary: 打卡（完成一道计划题；支持“已作答”与“仅记录进度”）
       parameters:
         - name: planId
           in: path
@@ -436,17 +436,27 @@ paths:
           application/json:
             schema:
               type: object
-              required: [qId, clientToken]
+              required: [qId, clientToken, answered]
               properties:
                 qId: { type: string }
                 clientToken: { type: string, maxLength: 64 }
+                answered:
+                  type: boolean
+                  description: 是否已完成作答；false = 仅记录进度（不计正确率/不入可信闭环）
+                myAnswer: { type: string, nullable: true, maxLength: 20000, description: answered=true 时必填 }
+                isCorrect: { type: boolean, nullable: true, description: answered=true 时必填 }
+                costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
+                errorType:
+                  type: [string, "null"]
+                  nullable: true
+                  enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
                 note: { type: string, maxLength: 200 }
       responses:
         '200':
-          description: 成功
+          description: 成功（业务错误仍 HTTP 200 + code≠0）
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/EmptyResponse' }
+              schema: { $ref: '#/components/schemas/CheckinResponse' }
   /api/teacher/reviews:
     get:
       tags: [teacher]
@@ -682,6 +692,22 @@ components:
         - type: object
           properties:
             data: { type: 'null' }
+    CheckinResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                planId: { type: integer, format: int64 }
+                qId: { type: string }
+                doneCount: { type: integer }
+                planCount: { type: integer }
+                verified: { type: boolean, description: 是否计入可信闭环（answered=true 才为 true） }
+                isCorrect: { type: boolean, nullable: true }
+                practiceId: { type: integer, format: int64, nullable: true }
+                duplicate: { type: boolean }
     HealthResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

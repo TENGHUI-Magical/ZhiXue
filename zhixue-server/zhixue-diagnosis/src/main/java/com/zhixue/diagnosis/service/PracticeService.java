@@ -184,12 +184,18 @@ public class PracticeService {
 
     /**
      * 计划打卡写 practice_record（source=PLAN）。
-     * 打卡不判定对错，is_correct 固定 1；note 存入 my_answer，避免新增列。
+     * 2026-10-31 C1：按真实作答写入 is_correct（不再固定 1）。
+     * 仅“已作答”打卡才调用本方法；“仅记录进度”不写 practice_record。
      */
     public PlanCompletion recordPlanCompletion(long userId, String qId, String kpId,
-                                               String clientToken, String note) {
-        if (note != null && note.length() > 200) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "note 最长 200 字");
+                                               String clientToken, String myAnswer,
+                                               boolean isCorrect, Integer costSeconds,
+                                               String errorType) {
+        if (myAnswer != null && myAnswer.length() > 20000) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "myAnswer 最长 20000 字");
+        }
+        if (errorType != null && !ERROR_TYPES.contains(errorType)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "errorType 非法");
         }
         PracticeRecord existing = findByClientToken(userId, clientToken);
         if (existing != null) {
@@ -206,8 +212,10 @@ public class PracticeService {
         record.setQId(qId);
         record.setKpId(kpId);
         record.setSource("PLAN");
-        record.setIsCorrect(1);
-        record.setMyAnswer(note);
+        record.setIsCorrect(isCorrect ? 1 : 0);
+        record.setMyAnswer(myAnswer);
+        record.setCostSeconds(costSeconds);
+        record.setErrorType(errorType);
         try {
             practiceRecordMapper.insert(record);
         } catch (DuplicateKeyException e) {
