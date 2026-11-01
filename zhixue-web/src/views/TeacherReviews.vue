@@ -6,7 +6,7 @@
         <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>
       <div class="head-actions">
-        <el-select v-model="statusFilter" size="small" class="status-select" aria-label="按评阅状态筛选" @change="load">
+        <el-select v-model="statusFilter" size="small" class="status-select" aria-label="按评阅状态筛选" @change="onStatusChange">
           <el-option label="待评阅" value="PENDING" />
           <el-option label="已评阅" value="REVIEWED" />
           <el-option label="全部" value="ALL" />
@@ -267,6 +267,12 @@ const sourceText = (row: ReviewItem) =>
   (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
 
 let loadSeq = 0;
+
+/** 切换状态筛选必须回到第 1 页，否则会先请求空页再回退 */
+const onStatusChange = () => {
+  page.value = 1;
+  load();
+};
 
 const load = async () => {
   const seq = ++loadSeq;

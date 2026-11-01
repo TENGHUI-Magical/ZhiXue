@@ -391,19 +391,25 @@ const load = async () => {
   }
 };
 
+let detailSeq = 0;
+
 const openNode = async (id?: string) => {
   if (!id) return;
+  const seq = ++detailSeq;
   activeId.value = id;
   drawerVisible.value = true;
   detailLoading.value = true;
   detailError.value = "";
   detail.value = null;
   try {
-    detail.value = await getKnowledgePoint(id);
+    const data = await getKnowledgePoint(id);
+    if (seq !== detailSeq) return; // 快速切换节点时丢弃旧响应
+    detail.value = data;
   } catch (e) {
+    if (seq !== detailSeq) return;
     detailError.value = (e as Error).message || "知识点详情加载失败";
   } finally {
-    detailLoading.value = false;
+    if (seq === detailSeq) detailLoading.value = false;
   }
 };
 
@@ -502,7 +508,8 @@ onMounted(load);
   height: auto;
   background: var(--app-surface-muted);
   border-radius: var(--app-radius-sm);
-  touch-action: none;
+  /* 竖向手势留给页面滚动，横向拖拽用于平移图谱 */
+  touch-action: pan-y;
   cursor: grab;
 }
 .graph-svg.dragging {

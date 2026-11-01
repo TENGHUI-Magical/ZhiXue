@@ -43,7 +43,12 @@ request.interceptors.request.use((config) => {
 })
 
 // 401 统一处理：清 token、保留当前站内地址、跳登录一次（避免各处复制）
+// 首屏并发多个请求同时 401 时只跳一次、只提示一次
+let lastRedirectAt = 0
 function redirectToLogin(message: string) {
+  const now = Date.now()
+  if (now - lastRedirectAt < 3000) return
+  lastRedirectAt = now
   localStorage.removeItem('satoken')
   ElMessage.warning(message)
   if (window.location.pathname.startsWith('/login')) return

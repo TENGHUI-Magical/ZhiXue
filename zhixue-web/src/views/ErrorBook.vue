@@ -245,11 +245,8 @@ const openPractice = (row: ErrorRecordItem) => {
 };
 
 /** 未关联题库题目的错题：去诊断台重新录入并选择关联题目 */
-const goDiagnosis = (row: ErrorRecordItem) => {
-  router.push({
-    path: "/diagnosis",
-    query: row.kpId ? { kpId: row.kpId } : undefined
-  });
+const goDiagnosis = (_row: ErrorRecordItem) => {
+  router.push("/diagnosis");
 };
 
 const loadKpOptions = async () => {

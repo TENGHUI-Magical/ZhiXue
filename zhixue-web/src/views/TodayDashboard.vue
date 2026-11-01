@@ -172,6 +172,7 @@ const router = useRouter();
 const loading = ref(true);
 const planError = ref("");
 const portraitError = ref("");
+const latestErrorMsg = ref("");
 const recError = ref("");
 const allPlans = ref<StudyPlan[]>([]);
 const portrait = ref<Portrait | null>(null);
@@ -305,17 +306,18 @@ const isFirstUse = computed(
   () =>
     !planError.value &&
     !portraitError.value &&
+    !latestErrorMsg.value &&
     allPlans.value.length === 0 &&
     !portrait.value &&
     !latestError.value
 );
 const hasPartialError = computed(
-  () => !!planError.value || !!portraitError.value || !!recError.value
+  () => !!planError.value || !!portraitError.value || !!latestErrorMsg.value || !!recError.value
 );
 // 计划与画像都拿不到时，不能把失败写成“今天没有紧急任务”
 const fatalError = computed(() => !!planError.value && !!portraitError.value);
 const partialErrorText = computed(() =>
-  ["部分数据暂不可用", planError.value, portraitError.value, recError.value]
+  ["部分数据暂不可用", planError.value, portraitError.value, latestErrorMsg.value, recError.value]
     .filter(Boolean)
     .join("；")
 );
@@ -359,10 +361,12 @@ const loadPortrait = async () => {
 };
 
 const loadLatestError = async () => {
+  latestErrorMsg.value = "";
   try {
     const page = await listErrorRecords({ page: 1, size: 1, status: "CONFIRMED" });
     latestError.value = page.records?.[0] ?? null;
-  } catch {
+  } catch (e) {
+    latestErrorMsg.value = (e as Error).message || "最近错题加载失败";
     latestError.value = null;
   }
 };

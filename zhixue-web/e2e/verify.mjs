@@ -34,7 +34,19 @@ const errorPage = { page: 1, size: 10, total: 2, records: [
   { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00' },
   { logId: 'LOG002', qId: null, kpId: 'KP0006', kpName: '函数依赖', status: 'DRAFT', errorType: 'STEP_OMISSION', createdAt: '2026-10-28T19:00:00' }
 ] }
-const week = ['2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30','2026-10-31','2026-11-01']
+const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const monday = (() => {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  return d
+})()
+// 用真实当周生成计划，避免跨天后“本周指标”断言失真
+const week = Array.from({ length: 7 }, (_, i) => {
+  const d = new Date(monday)
+  d.setDate(monday.getDate() + i)
+  return fmtDate(d)
+})
 const plans = week.map((d, i) => ({ planId: 100 + i, planDate: d, planCount: 3, doneCount: [3,3,2,1,0,0,0][i], status: i < 3 ? 'DONE' : 'PENDING', items: [1,2,3].map(k => ({ itemId: 1000 + i * 10 + k, qId: 'Q_030' + k, kpId: 'KP000' + k, sortNo: k, isDone: k <= [3,3,2,1,0,0,0][i] })) }))
 const recs = [1,2,3].map(i => ({ recommendationId: 900 + i, qId: 'Q_030' + i, layer: ['CONSOLIDATE','VARIANT','ADVANCE'][i-1], reason: '理由', difficulty: i, isAdopted: false, questionText: '题干 ' + i }))
 const reviewsPage = { page: 1, size: 10, total: 2, records: [
@@ -118,7 +130,7 @@ async function waitFor(fn, timeout = 12000, interval = 250) {
 async function open(page, pathname) {
   await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
   await page.waitForSelector('#main-content', { state: 'attached', timeout: 20000 }).catch(() => {})
-  await page
+  const mounted = await page
     .waitForFunction(
       () => {
         const main = document.querySelector('#main-content')
@@ -127,7 +139,9 @@ async function open(page, pathname) {
       null,
       { timeout: 20000 }
     )
-    .catch(() => {})
+    .then(() => true)
+    .catch(() => false)
+  if (!mounted) throw new Error(`页面未挂载：${pathname}`)
   await page
     .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
     .catch(() => {})
@@ -141,13 +155,13 @@ async function checkNext(name, fn, detail = '', timeout = 12000) {
 }
 
 async function newContext(browser, role, theme, viewport, options = {}) {
-  const { token = true } = options
+  const { token = true, storedRole = role } = options
   const ctx = await browser.newContext({ viewport, locale: 'zh-CN' })
-  await ctx.addInitScript(({ role, theme, token }) => {
+  await ctx.addInitScript(({ role, theme, token, storedRole }) => {
     if (token) localStorage.setItem('satoken', 'mock')
-    localStorage.setItem('zhixue_user', JSON.stringify({ userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: 'x', role }))
+    localStorage.setItem('zhixue_user', JSON.stringify({ userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: 'x', role: storedRole }))
     localStorage.setItem('zhixue-theme', theme)
-  }, { role, theme, token })
+  }, { role, theme, token, storedRole })
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
     if (u.pathname.startsWith('/api/')) {
@@ -266,6 +280,14 @@ try {
   await sp.waitForURL('**/today', { timeout: 15000 }).catch(() => {})
   check('守卫：学生访问教师页回今日', sp.url().includes('/today'), sp.url())
   await studentGuard.close()
+
+  // 本地缓存缺角色：先放行，/me 补角色后必须纠正到正确首页
+  const unknownCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 }, { storedRole: '' })
+  const unknownPage = await unknownCtx.newPage()
+  await unknownPage.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' })
+  await unknownPage.waitForURL((url) => new URL(url).pathname === '/today', { timeout: 15000 }).catch(() => {})
+  check('守卫：角色未知时按 /me 纠正', new URL(unknownPage.url()).pathname === '/today', unknownPage.url())
+  await unknownCtx.close()
 
   // ---------- 教师桌面 ----------
   const teacherCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })

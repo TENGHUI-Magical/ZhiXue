@@ -171,6 +171,7 @@ const baseMenus = [
 
 /** 教师端只展示已实现的教学入口；学生页面不再混进教师导航。 */
 const teacherMenus = [
+  { path: "/teacher", label: "教学概览", icon: LayoutDashboard },
   { path: "/teacher/reviews", label: "教师评阅", icon: ClipboardCheck },
   { path: "/teacher/class", label: "班级学情", icon: Users }
 ];
@@ -198,6 +199,14 @@ const applyUser = (user: MeUser) => {
   userRole.value = user.role || "";
 };
 
+/** /me 补到角色后，若当前页不属于该角色则纠正一次（清缓存后直接访问的场景） */
+const enforceRoleRoute = (role: string) => {
+  const roles = route.meta.roles as string[] | undefined;
+  if (role && roles && !roles.includes(role)) {
+    router.replace(role === "TEACHER" ? "/teacher" : "/today");
+  }
+};
+
 /** 路由变化时刷新用户名；本地有 token 但缺 user 信息时回查 /api/auth/me */
 const refreshUser = async () => {
   if (!localStorage.getItem("satoken")) {
@@ -209,8 +218,14 @@ const refreshUser = async () => {
   const raw = localStorage.getItem("zhixue_user");
   if (raw) {
     try {
-      applyUser(JSON.parse(raw) as MeUser);
-      return;
+      const cached = JSON.parse(raw) as MeUser;
+      // 角色缺失时不能直接信缓存，否则守卫无法分流
+      if (cached.role) {
+        applyUser(cached);
+        // 路由解析完成后（App 首次挂载时 route 可能仍是 /）再校正角色落点
+        enforceRoleRoute(cached.role);
+        return;
+      }
     } catch {
       // 本地缓存坏了，走接口
     }
@@ -219,6 +234,7 @@ const refreshUser = async () => {
     const me = await api.get<MeUser>("/api/auth/me");
     localStorage.setItem("zhixue_user", JSON.stringify(me));
     applyUser(me);
+    enforceRoleRoute(me.role);
   } catch {
     userName.value = "未登录";
     userAccount.value = "";
