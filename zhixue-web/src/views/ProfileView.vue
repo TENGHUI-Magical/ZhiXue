@@ -48,6 +48,28 @@
           </dl>
         </el-card>
 
+        <el-card v-if="isStudent" class="learning-card" shadow="never">
+          <div class="learning-main">
+            <div class="learning-copy">
+              <div class="card-head">
+                <span>学习概览</span>
+                <span class="card-sub">{{ portrait?.statDate || "尚无快照" }}</span>
+              </div>
+              <h3>{{ learningTitle }}</h3>
+              <p>{{ learningSub }}</p>
+              <div class="learning-actions">
+                <el-button link type="primary" @click="router.push('/portrait')">查看画像</el-button>
+                <el-button link type="primary" @click="router.push('/plan')">去周计划</el-button>
+              </div>
+            </div>
+            <div class="learning-stats">
+              <div><span>练习样本</span><strong>{{ portrait?.totalPractice ?? 0 }}</strong></div>
+              <div><span>整体掌握度</span><strong>{{ masteryText }}</strong></div>
+              <div><span>已确认错题</span><strong>{{ portrait?.totalError ?? 0 }}</strong></div>
+            </div>
+          </div>
+        </el-card>
+
         <el-card class="security-card" shadow="never">
           <template #header>
             <div class="card-head"><span>账号与安全</span><span class="card-sub">统一认证</span></div>
@@ -67,13 +89,32 @@
           </template>
           <div class="quick-links">
             <template v-if="profile.role === 'TEACHER'">
-              <el-button @click="router.push('/teacher/reviews')">教学评阅</el-button>
-              <el-button @click="router.push('/teacher/class')">班级学情</el-button>
+              <el-button class="quick-link" @click="router.push('/teacher')">
+                <span class="ql-no">01</span>
+                <span class="ql-copy"><strong>教学概览</strong><span>本课程最该讲的知识点</span></span>
+              </el-button>
+              <el-button class="quick-link" @click="router.push('/teacher/reviews')">
+                <span class="ql-no">02</span>
+                <span class="ql-copy"><strong>教学评阅</strong><span>抽样评阅 AI 讲解</span></span>
+              </el-button>
+              <el-button class="quick-link" @click="router.push('/teacher/class')">
+                <span class="ql-no">03</span>
+                <span class="ql-copy"><strong>班级学情</strong><span>学生练习与掌握度</span></span>
+              </el-button>
             </template>
             <template v-else>
-              <el-button @click="router.push('/today')">今日工作台</el-button>
-              <el-button @click="router.push('/portrait')">学情画像</el-button>
-              <el-button @click="router.push('/plan')">周计划</el-button>
+              <el-button class="quick-link" @click="router.push('/today')">
+                <span class="ql-no">01</span>
+                <span class="ql-copy"><strong>今日工作台</strong><span>先做最值得的一件事</span></span>
+              </el-button>
+              <el-button class="quick-link" @click="router.push('/portrait')">
+                <span class="ql-no">02</span>
+                <span class="ql-copy"><strong>学情画像</strong><span>掌握度与薄弱知识点</span></span>
+              </el-button>
+              <el-button class="quick-link" @click="router.push('/plan')">
+                <span class="ql-no">03</span>
+                <span class="ql-copy"><strong>周计划</strong><span>按天完成练习与打卡</span></span>
+              </el-button>
             </template>
           </div>
           <p class="quick-note">主题可在右上角切换（浅色 / 深色）。</p>
@@ -88,6 +129,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
 import { api } from "../api/request";
+import { getPortrait, type Portrait } from "../api/portrait";
 
 interface MeUser {
   userId: number;
@@ -100,8 +142,31 @@ const router = useRouter();
 const loading = ref(false);
 const error = ref("");
 const profile = ref<MeUser>({ userId: 0, username: "", realName: "", role: "" });
+const portrait = ref<Portrait | null>(null);
 
 const initial = computed(() => (profile.value.realName || profile.value.username || "访").slice(0, 1));
+const isStudent = computed(() => profile.value.role === "STUDENT");
+const pct = (value?: number | null) =>
+  typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
+const overallMastery = computed(() => {
+  const values = Object.values(portrait.value?.dimensionScores ?? {}).filter(
+    (value): value is number => typeof value === "number"
+  );
+  if (!values.length) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+});
+const masteryText = computed(() => pct(overallMastery.value));
+const weakest = computed(() => portrait.value?.weakestKps?.[0] ?? null);
+const learningTitle = computed(() =>
+  weakest.value
+    ? `最该补：${weakest.value.name || weakest.value.kpId || "暂无"}`
+    : "还没有足够的学习数据"
+);
+const learningSub = computed(() => {
+  if (!portrait.value) return "完成一次错题诊断并确认后，这里会出现你的学习概览。";
+  if (!weakest.value) return "已完成练习，但样本还不足以排出薄弱点；继续完成诊断与计划。";
+  return `画像快照 ${portrait.value.statDate || "—"} · 训练样本 ${portrait.value.totalPractice ?? 0} 次 · 已确认错题 ${portrait.value.totalError ?? 0} 条`;
+});
 const roleLabel = computed(() => {
   if (profile.value.role === "TEACHER") return "教师";
   if (profile.value.role === "STUDENT") return "学生";
@@ -125,6 +190,15 @@ const load = async () => {
     const me = await api.get<MeUser>("/api/auth/me");
     profile.value = me;
     localStorage.setItem("zhixue_user", JSON.stringify(me));
+    if (me.role === "STUDENT") {
+      try {
+        portrait.value = await getPortrait();
+      } catch {
+        portrait.value = null;
+      }
+    } else {
+      portrait.value = null;
+    }
   } catch (e) {
     error.value = (e as Error).message || "账号信息加载失败";
   } finally {
@@ -133,7 +207,7 @@ const load = async () => {
 };
 
 const goHome = () => {
-  router.push(profile.value.role === "TEACHER" ? "/teacher/reviews" : "/today");
+  router.push(profile.value.role === "TEACHER" ? "/teacher" : "/today");
 };
 
 const logout = async () => {
@@ -156,7 +230,7 @@ onMounted(() => {
 
 <style scoped>
 .page {
-  max-width: 960px;
+  max-width: 1080px;
 }
 .page-head h2 {
   margin: 6px 0 3px;
@@ -200,7 +274,7 @@ onMounted(() => {
 .identity h3 {
   margin: 14px 0 4px;
   font-size: var(--app-fs-lg);
-  font-weight: 650;
+  font-weight: 600;
   color: var(--app-text);
 }
 .identity-sub {
@@ -234,7 +308,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 11px 0;
-  border-bottom: 0.5px solid var(--app-border);
+  border-bottom: 1px solid var(--app-hairline);
 }
 .info-row:last-child {
   border-bottom: none;
@@ -248,6 +322,51 @@ onMounted(() => {
   color: var(--app-text);
   font-size: var(--app-fs-sm);
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.learning-card {
+  grid-column: 1 / -1;
+}
+.learning-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--app-space-6);
+}
+.learning-copy h3 {
+  margin: var(--app-space-2) 0;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--app-text);
+}
+.learning-copy p {
+  margin: 0 0 var(--app-space-2);
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  line-height: 1.6;
+}
+.learning-actions {
+  display: flex;
+  gap: var(--app-space-2);
+  flex-wrap: wrap;
+}
+.learning-stats {
+  display: flex;
+  gap: var(--app-space-8);
+}
+.learning-stats span {
+  display: block;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  white-space: nowrap;
+}
+.learning-stats strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--app-text);
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .security-card {
@@ -268,9 +387,56 @@ onMounted(() => {
   grid-column: 1 / -1;
 }
 .quick-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--app-space-3);
+}
+html[data-theme] .quick-link {
+  height: auto;
+  min-height: 76px;
+  padding: var(--app-space-3) var(--app-space-4);
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--app-space-3);
+  text-align: left;
+  white-space: normal;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface-muted);
+  color: var(--app-text);
+}
+html[data-theme] .quick-link:hover {
+  border-color: var(--app-primary);
+  background: color-mix(in srgb, var(--app-primary) 5%, var(--app-surface));
+}
+.quick-link .ql-no {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--app-border-strong);
+  display: grid;
+  place-items: center;
+  color: var(--app-primary);
+  font-size: var(--app-fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.quick-link .ql-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.quick-link .ql-copy strong {
+  font-size: var(--app-fs-sm);
+  font-weight: 600;
+  color: var(--app-text);
+}
+.quick-link .ql-copy span {
+  font-size: var(--app-fs-xs);
+  color: var(--app-text-muted);
+  line-height: 1.5;
 }
 .quick-note {
   margin: 12px 0 0;
@@ -279,6 +445,17 @@ onMounted(() => {
 }
 @media (max-width: 760px) {
   .profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .learning-main {
+    grid-template-columns: 1fr;
+    gap: var(--app-space-4);
+  }
+  .learning-stats {
+    gap: var(--app-space-4);
+    justify-content: space-between;
+  }
+  .quick-links {
     grid-template-columns: 1fr;
   }
 }

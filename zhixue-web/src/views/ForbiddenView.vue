@@ -21,7 +21,7 @@ const homePath = () => {
   try {
     const raw = localStorage.getItem("zhixue_user");
     const role = raw ? (JSON.parse(raw) as { role?: string }).role : "";
-    return role === "TEACHER" ? "/teacher/reviews" : "/today";
+    return role === "TEACHER" ? "/teacher" : "/today";
   } catch {
     return "/today";
   }

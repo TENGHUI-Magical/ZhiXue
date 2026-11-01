@@ -7,7 +7,6 @@
       </div>
       <div class="head-actions">
         <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" @click="router.push('/teacher/class')">班级学情</el-button>
         <el-button @click="router.push('/teacher/reviews')">
           评阅队列<template v-if="pendingTotal">（{{ pendingTotal }}）</template>
         </el-button>
@@ -21,35 +20,45 @@
       empty-text="本课程暂无学习数据。学生完成练习或打卡后，这里会出现教学概览。"
       @retry="load"
     >
-      <div class="stat-row">
-        <el-card class="stat-card" shadow="never">
-          <div class="stat-label">学生数</div>
-          <div class="stat-value">{{ classPortrait?.studentCount ?? 0 }}</div>
-          <p class="stat-hint">有作答记录的学生</p>
-        </el-card>
-        <el-card class="stat-card" shadow="never">
-          <div class="stat-label">活跃率</div>
-          <div class="stat-value">{{ pct(classPortrait?.activeRate) }}</div>
-          <p class="stat-hint">近 7 天有学习行为</p>
-        </el-card>
-        <el-card class="stat-card" shadow="never">
-          <div class="stat-label">待评阅</div>
-          <div class="stat-value">{{ pendingTotal ?? "—" }}</div>
-          <p class="stat-hint">AI 讲解待教师抽样</p>
-        </el-card>
-        <el-card class="stat-card" shadow="never">
-          <div class="stat-label">薄弱点</div>
-          <div class="stat-value">{{ weakest.length }}</div>
-          <p class="stat-hint">按班级平均掌握度排序</p>
-        </el-card>
-      </div>
+      <el-card class="overview-brief" shadow="never">
+        <div class="brief-main">
+          <div>
+            <div class="brief-eyebrow">课程结论</div>
+            <h3 class="brief-title">{{ overviewTitle }}</h3>
+            <p class="brief-sub">{{ overviewSub }}</p>
+          </div>
+          <el-button type="primary" @click="router.push('/teacher/class')">查看班级学情</el-button>
+        </div>
+        <div class="stat-row">
+          <div class="stat-card">
+            <div class="stat-label">学生数</div>
+            <div class="stat-value">{{ classPortrait?.studentCount ?? 0 }}</div>
+            <p class="stat-hint">有作答记录的学生</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">活跃率</div>
+            <div class="stat-value">{{ pct(classPortrait?.activeRate) }}</div>
+            <p class="stat-hint">近 7 天有作答记录</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">待评阅</div>
+            <div class="stat-value">{{ pendingTotal ?? "—" }}</div>
+            <p class="stat-hint">AI 讲解待教师抽样</p>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">薄弱 Top</div>
+            <div class="stat-value">{{ weakest.length }}</div>
+            <p class="stat-hint">样本 ≥3 且有过错，最多 5 个</p>
+          </div>
+        </div>
+      </el-card>
 
       <div class="two-col">
         <el-card class="section-card" shadow="never">
           <template #header>
             <div class="section-head">
               <span>本课程最该讲的知识点</span>
-              <span class="section-sub">Top {{ weakest.length }}</span>
+              <span class="section-sub">{{ weakest.length ? `Top ${weakest.length}` : "样本不足" }}</span>
             </div>
           </template>
           <div v-if="weakest.length" class="kp-list">
@@ -78,21 +87,23 @@
         <el-card class="section-card" shadow="never">
           <template #header>
             <div class="section-head">
-              <span>需要关注的学生</span>
+              <span>本页需要关注的学生</span>
               <button type="button" class="link-btn" @click="router.push('/teacher/class')">
                 查看全部
               </button>
             </div>
           </template>
-          <div v-if="students.length" class="student-list">
-            <div v-for="student in students" :key="student.userId" class="student-row">
+          <div v-if="attentionStudents.length" class="student-list">
+            <div v-for="student in attentionStudents" :key="student.userId" class="student-row">
               <span class="student-name">{{ student.displayName || "学生" }}</span>
               <span class="student-meta">练习 {{ student.practiceCount ?? 0 }} 次</span>
               <span class="student-meta">掌握度 {{ pct(student.avgMastery) }}</span>
               <span class="student-time">{{ (student.lastActiveAt || "").slice(0, 10) || "暂无活跃" }}</span>
             </div>
           </div>
-          <div v-else class="muted">暂无学生作答记录</div>
+          <div v-else class="muted">
+            {{ students.length ? "本页暂无低于 75% 的学生" : "暂无学生作答记录" }}
+          </div>
         </el-card>
       </div>
 
@@ -100,7 +111,7 @@
         <template #header>
           <div class="section-head">
             <span>班级错因分布</span>
-            <span class="section-sub">按已确认错题统计</span>
+            <span class="section-sub">按练习中的错误作答统计</span>
           </div>
         </template>
         <div v-if="errorRows.length" class="error-bars">
@@ -145,8 +156,27 @@ const ERROR_LABELS: Record<string, string> = {
 const pct = (value?: number | null) =>
   typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
 
+const ATTENTION_THRESHOLD = 0.75;
 const weakest = computed(() => classPortrait.value?.weakestKpTop ?? []);
+const attentionStudents = computed(() =>
+  students.value
+    .filter((student) => (student.avgMastery ?? 0) < ATTENTION_THRESHOLD)
+    .slice(0, 5)
+);
+const weakestTop = computed(() => weakest.value[0] ?? null);
 const isEmpty = computed(() => (classPortrait.value?.studentCount ?? 0) === 0);
+const overviewTitle = computed(() =>
+  weakestTop.value
+    ? `本课程最该讲：${weakestTop.value.name || weakestTop.value.kpId || "未命名知识点"}`
+    : "本课程暂无足够样本"
+);
+const overviewSub = computed(() => {
+  const head = weakestTop.value;
+  if (!head) {
+    return `当前覆盖 ${classPortrait.value?.studentCount ?? 0} 名学生；样本达到 3 次后会给出薄弱点排名。`;
+  }
+  return `平均掌握度 ${pct(head.avgMastery)} · 错误 ${head.errorCount ?? 0} 次 · 覆盖 ${classPortrait.value?.studentCount ?? 0} 名学生 · 待评阅 ${pendingTotal.value ?? "—"} 条`;
+});
 
 const errorRows = computed(() => {
   const dist = classPortrait.value?.errorDist ?? {};
@@ -180,7 +210,7 @@ const load = async () => {
     listCourseStudents({
       courseId: DEFAULT_COURSE_ID,
       page: 1,
-      size: 5,
+      size: 20,
       sort: "masteryAsc"
     }).catch(() => null)
   ]);
@@ -210,14 +240,31 @@ onMounted(load);
   gap: 8px;
   flex-wrap: wrap;
 }
+.overview-brief {
+  border-radius: var(--app-radius-lg);
+  margin-bottom: 16px;
+}
+.overview-brief :deep(.el-card__body) {
+  padding: var(--app-space-6);
+}
 .stat-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  margin-top: var(--app-space-5);
+  padding-top: var(--app-space-4);
+  border-top: 1px solid var(--app-hairline);
 }
 .stat-card {
-  border-radius: var(--app-radius-md);
+  min-width: 0;
+  padding: 0 var(--app-space-6);
+  border-left: 1px solid var(--app-hairline);
+}
+.stat-card:first-child {
+  padding-left: 0;
+  border-left: none;
+}
+.stat-card:last-child {
+  padding-right: 0;
 }
 .stat-label {
   color: var(--app-text-muted);
@@ -386,6 +433,11 @@ onMounted(load);
 @media (max-width: 1024px) {
   .stat-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--app-space-4) 0;
+  }
+  .stat-card:nth-child(odd) {
+    padding-left: 0;
+    border-left: none;
   }
   .two-col {
     grid-template-columns: 1fr;
@@ -403,6 +455,18 @@ onMounted(load);
   }
   .stat-row {
     grid-template-columns: 1fr;
+  }
+  .stat-card {
+    padding: var(--app-space-3) 0;
+    border-left: none;
+    border-top: 1px solid var(--app-hairline);
+  }
+  .stat-card:first-child {
+    padding-top: 2px;
+    border-top: none;
+  }
+  .stat-card:last-child {
+    padding-bottom: 2px;
   }
   .student-row {
     grid-template-columns: 1fr 1fr;

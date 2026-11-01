@@ -45,6 +45,15 @@ export interface KnowledgePointDetail {
   dimensionKey?: string | null;
 }
 
+/** 按知识点列题的简要视图；不含答案与解析 */
+export interface QuestionBrief {
+  qId?: string;
+  primaryKpId?: string;
+  questionType?: string;
+  questionText?: string;
+  difficulty?: number;
+}
+
 export const listCourses = () => api.get<Course[]>("/api/courses");
 
 export const getKnowledgeGraph = (courseId: number) =>
@@ -52,3 +61,8 @@ export const getKnowledgeGraph = (courseId: number) =>
 
 export const getKnowledgePoint = (kpId: string) =>
   api.get<KnowledgePointDetail>(`/api/course/kp/${encodeURIComponent(kpId)}`);
+
+export const listQuestionsByKp = (kpId: string, limit = 20) =>
+  api.get<QuestionBrief[]>(
+    `/api/questions?kpId=${encodeURIComponent(kpId)}&limit=${Math.max(1, Math.min(limit, 50))}`
+  );

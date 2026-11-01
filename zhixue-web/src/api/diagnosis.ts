@@ -96,10 +96,11 @@ export const getOcrTask = (taskId: string) =>
 export const mapKnowledgePoint = (text: string, courseId = DEFAULT_COURSE_ID) =>
   api.post<MapResult>("/api/diagnosis/map", { text, courseId });
 
-/** 创建 DRAFT 错题记录 */
+/** 创建 DRAFT 错题记录；qId 在有题库来源时传入，错题本才能直接练习 */
 export const createErrorRecord = (payload: {
   courseId: number;
   clientToken: string;
+  qId?: string | null;
   kpId: string;
   errorType: string;
   correctedText: string;

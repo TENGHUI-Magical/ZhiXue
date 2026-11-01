@@ -234,17 +234,9 @@ html[data-theme="glass-dark"] .main::-webkit-scrollbar {
   }
   html[data-theme="glass"] .login-page,
   html[data-theme="glass-dark"] .login-page {
-    align-items: center;
+    align-items: start;
     justify-content: center;
     padding: 20px;
-  }
-  html[data-theme="glass"] .login-foot,
-  html[data-theme="glass-dark"] .login-foot {
-    text-align: center;
-  }
-  html[data-theme="glass"] .login-page::after,
-  html[data-theme="glass-dark"] .login-page::after {
-    display: none;
   }
 }
 
@@ -607,10 +599,8 @@ html[data-theme="glass-dark"] .upload-sub {
 html[data-theme="glass"] .login-page,
 html[data-theme="glass-dark"] .login-page {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   min-height: 100vh;
   padding: clamp(24px, 4vw, 56px);
   background:
@@ -625,21 +615,6 @@ html[data-theme="glass-dark"] .login-page {
     linear-gradient(180deg, #0a101b, var(--app-wall-base));
 }
 
-@media (max-width: 1024px) {
-  html[data-theme="glass"] .login-page,
-  html[data-theme="glass-dark"] .login-page {
-    align-items: center;
-    justify-content: center;
-  }
-  html[data-theme="glass"] .login-page::after,
-  html[data-theme="glass-dark"] .login-page::after {
-    display: none;
-  }
-  html[data-theme="glass"] .login-foot,
-  html[data-theme="glass-dark"] .login-foot {
-    text-align: center;
-  }
-}
 html[data-theme="glass"] .login-page::before,
 html[data-theme="glass-dark"] .login-page::before {
   content: "";
@@ -651,27 +626,10 @@ html[data-theme="glass-dark"] .login-page::before {
 html[data-theme="glass-dark"] .login-page::before {
   background: radial-gradient(90% 70% at 50% 34%, transparent 34%, rgba(0, 0, 0, 0.42));
 }
-html[data-theme="glass"] .login-page::after,
-html[data-theme="glass-dark"] .login-page::after {
-  content: "";
-  position: absolute;
-  left: 6vw;
-  top: 50%;
-  width: min(46vw, 640px);
-  height: 56vh;
-  transform: translateY(-50%);
-  background: url("/login-graph.svg") center / contain no-repeat;
-  opacity: 0.55;
-  pointer-events: none;
-}
-html[data-theme="glass-dark"] .login-page::after {
-  opacity: 0.35;
-}
 html[data-theme="glass"] .login-card,
 html[data-theme="glass-dark"] .login-card {
   position: relative;
   z-index: 1;
-  width: min(420px, 90vw);
   border: 1px solid var(--app-glass-edge);
   border-radius: var(--app-radius-lg);
   background:
@@ -680,11 +638,6 @@ html[data-theme="glass-dark"] .login-card {
   -webkit-backdrop-filter: blur(32px) saturate(150%);
   backdrop-filter: blur(32px) saturate(150%);
   box-shadow: var(--app-shell-shadow), inset 0 1px 0 var(--app-glass-hi);
-}
-html[data-theme="glass"] .login-foot,
-html[data-theme="glass-dark"] .login-foot {
-  width: min(420px, 90vw);
-  text-align: right;
 }
 html[data-theme="glass"] .login-card {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.64));

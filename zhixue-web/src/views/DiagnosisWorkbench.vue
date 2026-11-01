@@ -105,6 +105,35 @@
             </el-radio-group>
           </div>
           <el-empty v-else description="录入题干后开始知识点匹配" :image-size="72" />
+
+          <div v-if="selectedKpId" class="linked-question">
+            <div class="label">关联题库题目（可选）</div>
+            <el-select
+              v-model="linkedQId"
+              clearable
+              filterable
+              class="full-select"
+              :loading="linkedLoading"
+              :disabled="!!logId"
+              placeholder="选择一道题库题目，错题本即可直接练习"
+            >
+              <el-option
+                v-for="(item, index) in linkedQuestions"
+                :key="item.qId ?? index"
+                :label="`${item.qId} · ${shortText(item.questionText)}`"
+                :value="item.qId ?? ''"
+              />
+            </el-select>
+            <p v-if="logId" class="linked-hint">
+              错题记录已创建，关联题目已固定；如需更换，请修改题干或知识点后重新分析。
+            </p>
+            <p v-else-if="!linkedLoading && !linkedQuestions.length" class="linked-hint">
+              该知识点暂无题目；可先保存错题，之后在错题本查看。
+            </p>
+            <p v-else class="linked-hint">
+              当前列出该知识点最多 20 道题；若没有原题，可暂不关联。
+            </p>
+          </div>
         </el-card>
       </el-col>
 
@@ -154,6 +183,28 @@
             讲解编号 {{ explainId }} · 生成耗时 {{ (latencyMs / 1000).toFixed(1) }} 秒
           </div>
         </el-card>
+
+        <el-card class="diagnosis-state" shadow="never">
+          <template #header>
+            <div class="card-head"><span>本次诊断</span><span class="card-sub">实时状态</span></div>
+          </template>
+          <ul class="state-list">
+            <li :class="{ done: !!questionText.trim() }">
+              <span>题干</span><strong>{{ questionText.trim() ? "已录入" : "待录入" }}</strong>
+            </li>
+            <li :class="{ done: !!selectedKpId }">
+              <span>知识点</span><strong>{{ selectedKpId || "待确认" }}</strong>
+            </li>
+            <li :class="{ done: !!linkedQId }">
+              <span>关联题目</span><strong>{{ linkedQId || "可选" }}</strong>
+            </li>
+            <li :class="{ done: !!explainText }">
+              <span>讲解</span>
+              <strong>{{ explainText ? "已生成" : explaining ? "生成中" : "未生成" }}</strong>
+            </li>
+          </ul>
+          <p class="state-note">讲解生成后，下方会按巩固、变式、进阶给出练习。</p>
+        </el-card>
       </el-col>
     </el-row>
 
@@ -161,11 +212,26 @@
       <template #header>
         <div class="card-head"><span>03 · 分层练习推荐</span><span class="card-sub">巩固 / 变式 / 进阶</span></div>
       </template>
-      <el-empty
-        v-if="!questions.length"
-        description="完成讲解后，系统按巩固、变式、进阶推荐练习。"
-        :image-size="72"
-      />
+      <div v-if="!questions.length" class="recommend-empty">
+        <div class="recommend-copy">
+          <strong>{{ recommendLoading ? "正在生成分层练习…" : explainText ? "本次暂未生成推荐" : "还差一次讲解" }}</strong>
+          <p>
+            {{
+              recommendLoading
+                ? "讲解已生成，正在按巩固、变式、进阶取题。"
+                : explainText
+                  ? "推荐接口本次未返回结果；可稍后重试，或先去错题本查看已确认错题。"
+                  : "确认知识点并生成讲解后，系统会按三层给出练习，而不是一次堆题。"
+            }}
+          </p>
+        </div>
+        <div class="layer-preview">
+          <div v-for="(label, key) in LAYER_LABELS" :key="key" class="layer-chip">
+            <span>{{ label }}</span>
+            <small>{{ LAYER_HINTS[key] }}</small>
+          </div>
+        </div>
+      </div>
       <div v-else>
         <div v-for="question in questions" :key="question.qId" class="question">
           <div class="q-head">
@@ -182,10 +248,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@element-plus/icons-vue";
 import { ApiError } from "../api/request";
+import { listQuestionsByKp, type QuestionBrief } from "../api/course";
 import {
   DEFAULT_COURSE_ID,
   LOW_CONFIDENCE_THRESHOLD,
@@ -216,13 +283,23 @@ const LAYER_LABELS: Record<string, string> = {
   VARIANT: "变式迁移",
   ADVANCE: "进阶挑战"
 };
+const LAYER_HINTS: Record<string, string> = {
+  CONSOLIDATE: "先把同一知识点练稳",
+  VARIANT: "换条件，迁移方法",
+  ADVANCE: "再往前一步挑战"
+};
 
 const router = useRouter();
+const route = useRoute();
 const questionText = ref("");
 const errorType = ref("CONCEPT_CONFUSION");
 const matching = ref(false);
 const mapResult = ref<MapResult | null>(null);
 const selectedKpId = ref("");
+/** 可选关联题库题目：有 qId 错题本才能直接进入练习（FR-05） */
+const linkedQId = ref("");
+const linkedQuestions = ref<QuestionBrief[]>([]);
+const linkedLoading = ref(false);
 
 const candidates = computed(() => mapResult.value?.candidates.slice(0, 3) ?? []);
 const decisionLabel = computed(() => {
@@ -251,6 +328,7 @@ const logId = ref("");
 const draftLogId = ref("");
 const latencyMs = ref(0);
 const questions = ref<Recommendation[]>([]);
+const recommendLoading = ref(false);
 const errorMsg = ref("");
 
 const parsing = ref(false);
@@ -336,11 +414,52 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 const sourceKey = (source: SourceRef) =>
   `${source.kpId}|${source.textbookPage ?? ""}|${source.title ?? ""}`;
 const layerLabel = (layer: string) => LAYER_LABELS[layer] ?? layer;
+const shortText = (text?: string | null) => {
+  const value = (text ?? "").replace(/\s+/g, " ").trim();
+  return value.length > 24 ? `${value.slice(0, 24)}…` : value || "（无题干）";
+};
+/** 题干归一化：去空白/标点后比较，降低 OCR 空格与标点差异对自动匹配的影响 */
+const normalizeQuestionText = (text?: string | null) =>
+  (text ?? "").replace(/\s+/g, "").replace(/[^\w\u4e00-\u9fa5]/g, "").toLowerCase();
+
+let linkedSeq = 0;
+/** 选定知识点后拉该点题库题目；高置信唯一匹配时自动选中，失败只清空候选 */
+const loadLinkedQuestions = async () => {
+  const kp = selectedKpId.value;
+  linkedQId.value = "";
+  linkedQuestions.value = [];
+  if (!kp) return;
+  const seq = ++linkedSeq;
+  linkedLoading.value = true;
+  try {
+    const data = await listQuestionsByKp(kp, 20);
+    if (seq !== linkedSeq) return;
+    linkedQuestions.value = data ?? [];
+    const target = normalizeQuestionText(questionText.value);
+    if (target.length >= 10) {
+      const matches = linkedQuestions.value.filter((item) => {
+        const candidate = normalizeQuestionText(item.questionText);
+        return candidate && (candidate === target || candidate.includes(target) || target.includes(candidate));
+      });
+      if (matches.length === 1) {
+        linkedQId.value = matches[0].qId ?? "";
+      }
+    }
+  } catch {
+    if (seq === linkedSeq) linkedQuestions.value = [];
+  } finally {
+    if (seq === linkedSeq) linkedLoading.value = false;
+  }
+};
+watch(selectedKpId, loadLinkedQuestions);
 const degradeLabel = computed(() =>
   degradeLevel.value ? `降级 ${degradeLevel.value}` : "已降级"
 );
 
+let recSeq = 0;
 const resetExplainState = () => {
+  recSeq += 1;
+  recommendLoading.value = false;
   explainText.value = "";
   sources.value = [];
   degraded.value = false;
@@ -372,7 +491,12 @@ const analyze = async () => {
   try {
     const data = await mapKnowledgePoint(questionText.value);
     mapResult.value = data;
-    if (data.candidates.length) {
+    // 从错题本“去诊断”带入 kpId 时优先选中该知识点，避免用户重新找一遍
+    const preferredKp = typeof route.query.kpId === "string" ? route.query.kpId : "";
+    const preferred = data.candidates.find((item) => item.kpId === preferredKp);
+    if (preferred) {
+      selectedKpId.value = preferred.kpId;
+    } else if (data.candidates.length) {
       selectedKpId.value = data.candidates[0].kpId;
     }
     if (data.decision === "FAILED") {
@@ -489,6 +613,7 @@ const ensureRecord = async (): Promise<string> => {
     const created = await createErrorRecord({
       courseId: DEFAULT_COURSE_ID,
       clientToken: newClientToken(),
+      qId: linkedQId.value || undefined,
       kpId: selectedKpId.value,
       errorType: errorType.value,
       correctedText: questionText.value
@@ -508,29 +633,39 @@ const ensureRecord = async (): Promise<string> => {
 };
 
 const loadRecommend = async () => {
+  const seq = ++recSeq;
+  recommendLoading.value = true;
   try {
     // 契约参数是 logId；没有记录时才退回 kpId（理论上不会发生）
     const params = logId.value
       ? { logId: logId.value }
       : { kpId: selectedKpId.value };
-    questions.value = await getRecommendations({ ...params, courseId: DEFAULT_COURSE_ID });
+    const data = await getRecommendations({ ...params, courseId: DEFAULT_COURSE_ID });
+    if (seq === recSeq) questions.value = data;
   } catch {
     // request.ts 已统一提示；推荐失败不影响讲解展示
+  } finally {
+    if (seq === recSeq) recommendLoading.value = false;
   }
 };
 
-// 题干、知识点或错因变化后，旧错题记录不再对应当前内容，必须重新建记录；
-// 若讲解仍在流式输出，旧内容已失效，一并中止，避免半截旧讲解留在新记录上
-watch([questionText, selectedKpId, errorType], () => {
+// 题干/知识点变化后，旧错题记录与旧关联题目都不再对应当前内容；
+// 只改错因时记录需重建，但关联题目仍有效，不能静默清空。
+const resetForChange = (clearLinkedQuestion: boolean) => {
   logId.value = "";
   draftLogId.value = "";
+  if (clearLinkedQuestion) {
+    linkedQId.value = "";
+  }
   if (explaining.value) {
     controller?.abort();
     controller = null;
     explaining.value = false;
     resetExplainState();
   }
-});
+};
+watch([questionText, selectedKpId], () => resetForChange(true));
+watch(errorType, () => resetForChange(false));
 // 低置信门禁（契约 §4）：只认“手动改题干”或“显式点我已核对”，
 // 不能靠改错因/重选知识点绕过；否则用户没看 OCR 文本也能继续。
 
@@ -687,7 +822,7 @@ onBeforeUnmount(() => {
   margin-top: 12px;
 }
 .label {
-  font-size: clamp(11px, 0.3vw + 10px, 12px);
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
   margin-bottom: 8px;
 }
@@ -708,6 +843,17 @@ onBeforeUnmount(() => {
   white-space: normal;
   overflow-wrap: anywhere;
   line-height: 1.6;
+}
+.linked-question {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-divider);
+}
+.linked-hint {
+  margin: 6px 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  line-height: 1.5;
 }
 .explain-text {
   margin-top: 12px;
@@ -764,7 +910,7 @@ onBeforeUnmount(() => {
   margin-top: 16px;
   padding-top: 12px;
   border-top: 1px solid var(--app-border);
-  font-size: clamp(11px, 0.3vw + 10px, 12px);
+  font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
 }
 .source-item {
@@ -772,11 +918,89 @@ onBeforeUnmount(() => {
 }
 .meta-line {
   margin-top: 8px;
-  font-size: clamp(11px, 0.3vw + 10px, 12px);
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
+}
+.diagnosis-state {
+  margin-top: 16px;
+}
+.state-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.state-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--app-hairline);
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+}
+.state-list li:last-child {
+  border-bottom: none;
+}
+.state-list strong {
+  color: var(--app-text);
+  font-weight: 600;
+}
+.state-list li.done strong {
+  color: var(--app-success);
+}
+.state-note {
+  margin: 10px 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  line-height: 1.6;
 }
 .recommend-card {
   margin-top: 16px;
+}
+.recommend-empty {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 1.1fr);
+  align-items: center;
+  gap: var(--app-space-6);
+  padding: 6px 0;
+}
+.recommend-copy strong {
+  display: block;
+  color: var(--app-text);
+  font-size: var(--app-fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.recommend-copy p {
+  margin: 8px 0 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  line-height: 1.65;
+}
+.layer-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--app-space-3);
+}
+.layer-chip {
+  padding: var(--app-space-3);
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface-muted);
+}
+.layer-chip span {
+  display: block;
+  color: var(--app-text);
+  font-size: var(--app-fs-xs);
+  font-weight: 600;
+}
+.layer-chip small {
+  display: block;
+  margin-top: 4px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  line-height: 1.5;
 }
 .question {
   padding: 12px 0;
@@ -792,7 +1016,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .q-id {
-  font-size: clamp(11px, 0.3vw + 10px, 12px);
+  font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
 }
 .q-text {
@@ -800,9 +1024,18 @@ onBeforeUnmount(() => {
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
+@media (max-width: 1024px) {
+  .recommend-empty {
+    grid-template-columns: 1fr;
+    gap: var(--app-space-4);
+  }
+}
 @media (max-width: 767px) {
   .workspace-row {
     row-gap: 12px;
+  }
+  .layer-preview {
+    grid-template-columns: 1fr;
   }
   .actions > .el-button {
     flex: 1 1 auto;
