@@ -355,6 +355,14 @@ try {
   const afterSecondPointer = await page.locator('.graph-viewport').getAttribute('transform')
   check('图谱：第二触点不劫持拖拽', panTransform === afterSecondPointer,
     `${panTransform} -> ${afterSecondPointer}`)
+  // 合成第二触点必须收尾；否则残留 pointerId 会污染后续节点点击
+  await page.evaluate(({ x, y }) => {
+    const svg = document.querySelector('.graph-svg')
+    svg.dispatchEvent(new PointerEvent('pointerup', {
+      bubbles: true, cancelable: true, pointerId: 99, pointerType: 'touch',
+      isPrimary: false, button: 0, buttons: 0, clientX: x + 80, clientY: y + 80
+    }))
+  }, { x: px + 40, y: py + 40 })
   await page.mouse.up()
   await page.locator('.graph-controls button').last().click() // 恢复视图，避免影响后续节点点击
   await sleep(300)

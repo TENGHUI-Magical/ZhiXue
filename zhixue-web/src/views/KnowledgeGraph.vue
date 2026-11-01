@@ -355,7 +355,8 @@ const pointDistance = (a: PointerPoint, b: PointerPoint) => Math.hypot(a.x - b.x
 
 const onPointerDown = (event: PointerEvent) => {
   const target = event.target as Element | null;
-  if (target?.closest(".graph-node")) return; // 节点点击不触发拖拽
+  // 首指落在节点上视为点击，不启动拖拽；第二指落在节点上仍应参与双指缩放
+  if (pointers.size === 0 && target?.closest(".graph-node")) return;
   if (event.button !== 0) return;
   if (pointers.size >= 2) return; // 最多两指；第三指忽略
   const anchor = clientToViewBox(event.clientX, event.clientY);
