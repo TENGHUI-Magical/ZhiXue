@@ -85,5 +85,5 @@ mysql -u root -p --default-character-set=utf8mb4 zhixue < sql\generated\seed-que
 ## 6. 当前状态
 
 - 第 2、3 章：已入库 20 知识点 / 60 题。
-- 第 1 章：已产出**知识点骨架**（`spark-output/content/ch01/ch01-kp-draft.csv`，仅标题/维度，概念与页码待 OCR 核对）。
+- 第 1 章：已产出 **10 知识点 / 25 题初稿**（`spark-output/content/ch01/`，含 OCR 证据、coverage、签核单与 SQL），`--strict` 结构校验通过；**待人工签核，未入库**。
 - 其余 5 章：待按本流程产出。

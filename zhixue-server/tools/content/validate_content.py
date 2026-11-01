@@ -130,11 +130,12 @@ def load_questions(path, kp_ids, strict):
                 options = []
             if len(options) < 4:
                 err(f"{where} 选择题至少 4 个选项（当前 {len(options)}）")
-            raw_keys = [str(o.get("key")).strip().upper() for o in options
+            raw_keys = [str(o.get("key")).strip() for o in options
                         if isinstance(o, dict) and str(o.get("key") or "").strip()]
             keys = set(raw_keys)
             if len(keys) != len(raw_keys):
                 err(f"{where} 选项 key 重复")
+            # 先校验原始 key，再比较答案；不允许先把 a 归一化成 A 而放过非法 key
             if any(not re.fullmatch(r"[A-Z]", key) for key in raw_keys):
                 err(f"{where} 选项 key 必须为单个大写字母（A/B/C/D）")
             answer_raw = (row.get("answerText") or "").strip()
