@@ -269,6 +269,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 按知识点列出题目（不含答案与解析；供错题关联/练习选择） */
+        get: {
+            parameters: {
+                query: {
+                    kpId: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description 成功 */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuestionBriefListResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/questions/{qId}": {
         parameters: {
             query?: never;
@@ -962,7 +1001,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** 打卡（完成一道计划题） */
+        /** 打卡（完成一道计划题；支持“已作答”与“仅记录进度”） */
         post: {
             parameters: {
                 query?: never;
@@ -977,18 +1016,27 @@ export interface paths {
                     "application/json": {
                         qId: string;
                         clientToken: string;
+                        /** @description 是否已完成作答；false = 仅记录进度（不计正确率/不入可信闭环） */
+                        answered: boolean;
+                        /** @description answered=true 时必填 */
+                        myAnswer?: string | null;
+                        /** @description answered=true 时必填 */
+                        isCorrect?: boolean | null;
+                        costSeconds?: number | null;
+                        /** @enum {string|null|null} */
+                        errorType?: "CONCEPT_CONFUSION" | "METHOD_MISSING" | "STEP_OMISSION" | "CALCULATION_ERROR" | "BOUNDARY_ERROR" | null;
                         note?: string;
                     };
                 };
             };
             responses: {
-                /** @description 成功 */
+                /** @description 成功（业务错误仍 HTTP 200 + code≠0） */
                 200: {
                     headers: {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["EmptyResponse"];
+                        "application/json": components["schemas"]["CheckinResponse"];
                     };
                 };
             };
@@ -1006,12 +1054,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 待评阅队列（教师） */
+        /** 评阅队列（教师；支持状态/知识点/时间筛选） */
         get: {
             parameters: {
                 query?: {
                     page?: number;
                     size?: number;
+                    status?: "PENDING" | "REVIEWED" | "ALL";
+                    kpId?: string;
+                    from?: string;
+                    to?: string;
                 };
                 header?: never;
                 path?: never;
@@ -1062,6 +1114,12 @@ export interface paths {
                     "application/json": {
                         score: number;
                         comment: string;
+                        /**
+                         * @description 评阅结论；RETURN 时必须填写评语
+                         * @default PASS
+                         * @enum {string}
+                         */
+                        result?: "PASS" | "RETURN";
                     };
                 };
             };
@@ -1083,102 +1141,21 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/teacher/knowledge-points": {
+    "/api/teacher/students": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** 新建知识点 */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["KpUpsert"];
-                };
-            };
-            responses: {
-                /** @description 成功 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["KpResponse"];
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/teacher/knowledge-points/{kpId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** 更新知识点 */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    kpId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["KpUpsert"];
-                };
-            };
-            responses: {
-                /** @description 成功 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["KpResponse"];
-                    };
-                };
-            };
-        };
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/teacher/questions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** 题库列表 */
+        /** 课程学生列表（教师，聚合；C12） */
         get: {
             parameters: {
-                query?: {
+                query: {
+                    courseId: number;
                     page?: number;
                     size?: number;
-                    kpId?: string;
+                    sort?: "lastActiveDesc" | "masteryAsc" | "practiceDesc";
                 };
                 header?: never;
                 path?: never;
@@ -1192,70 +1169,43 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["QuestionPageResponse"];
+                        "application/json": components["schemas"]["TeacherStudentPageResponse"];
                     };
                 };
             };
         };
         put?: never;
-        /** 新建题目 */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["QuestionUpsert"];
-                };
-            };
-            responses: {
-                /** @description 成功 */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["QuestionResponse"];
-                    };
-                };
-            };
-        };
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/teacher/questions/import": {
+    "/api/teacher/students/{userId}/learning-records": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** 批量导入题目（Excel） */
-        post: {
+        /** 单个学生学习记录详情（教师；C12） */
+        get: {
             parameters: {
-                query?: never;
+                query: {
+                    courseId: number;
+                    from?: string;
+                    to?: string;
+                    page?: number;
+                    size?: number;
+                };
                 header?: never;
-                path?: never;
+                path: {
+                    userId: number;
+                };
                 cookie?: never;
             };
-            requestBody: {
-                content: {
-                    "multipart/form-data": {
-                        /** Format: binary */
-                        file: string;
-                        /** Format: int64 */
-                        courseId?: number;
-                    };
-                };
-            };
+            requestBody?: never;
             responses: {
                 /** @description 成功 */
                 200: {
@@ -1263,11 +1213,13 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ImportResultResponse"];
+                        "application/json": components["schemas"]["StudentLearningRecordResponse"];
                     };
                 };
             };
         };
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1356,6 +1308,21 @@ export interface components {
         };
         EmptyResponse: components["schemas"]["ApiEnvelope"] & {
             data?: null;
+        };
+        CheckinResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: {
+                /** Format: int64 */
+                planId?: number;
+                qId?: string;
+                doneCount?: number;
+                planCount?: number;
+                /** @description 是否计入可信闭环（answered=true 才为 true） */
+                verified?: boolean;
+                isCorrect?: boolean | null;
+                /** Format: int64 */
+                practiceId?: number | null;
+                duplicate?: boolean;
+            };
         };
         HealthResponse: components["schemas"]["ApiEnvelope"] & {
             data?: components["schemas"]["Health"];
@@ -1713,6 +1680,93 @@ export interface components {
             content?: string;
             sources?: components["schemas"]["SourceRef"][];
             createdAt?: string;
+            /** @description 题干；为空表示证据不完整 */
+            questionText?: string | null;
+            questionType?: string | null;
+            options?: {
+                key?: string;
+                text?: string;
+            }[] | null;
+            correctAnswer?: string | null;
+            analysisText?: string | null;
+            /** @description 学生笔记/错因说明（非“学生原答”，数据模型无该字段） */
+            studentNote?: string | null;
+            /** @description 提交至今等待秒数 */
+            waitingSeconds?: number;
+            /** @enum {string|null} */
+            reviewResult?: "PASS" | "RETURN" | null;
+            /** @enum {string} */
+            reviewStatus?: "PENDING" | "REVIEWED";
+        };
+        TeacherStudentPageResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: {
+                page?: number;
+                size?: number;
+                total?: number;
+                records?: components["schemas"]["TeacherStudentItem"][];
+            };
+        };
+        TeacherStudentItem: {
+            /** Format: int64 */
+            userId?: number;
+            /** @description 脱敏，如“张*” */
+            displayName?: string;
+            practiceCount?: number;
+            /** @description 样本<3 时为 null */
+            correctRate?: number | null;
+            avgCostSeconds?: number | null;
+            avgMastery?: number | null;
+            errorCount?: number;
+            planDone?: number;
+            planTotal?: number;
+            lastActiveAt?: string | null;
+        };
+        StudentLearningRecordResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: {
+                summary?: components["schemas"]["TeacherStudentItem"];
+                practices?: {
+                    page?: number;
+                    size?: number;
+                    total?: number;
+                    records?: components["schemas"]["StudentPracticeItem"][];
+                };
+                errors?: components["schemas"]["StudentErrorItem"][];
+                kpMastery?: components["schemas"]["StudentKpMastery"][];
+            };
+        };
+        StudentPracticeItem: {
+            /** Format: int64 */
+            practiceId?: number;
+            qId?: string;
+            questionText?: string | null;
+            kpId?: string;
+            kpName?: string | null;
+            isCorrect?: boolean | null;
+            myAnswer?: string | null;
+            correctAnswer?: string | null;
+            costSeconds?: number | null;
+            errorType?: string | null;
+            /** @enum {string} */
+            source?: "PLAN" | "SELF" | "RECOMMEND";
+            createdAt?: string;
+        };
+        StudentErrorItem: {
+            logId?: string;
+            qId?: string | null;
+            kpId?: string;
+            kpName?: string | null;
+            /** @enum {string} */
+            status?: "DRAFT" | "CONFIRMED";
+            errorType?: string | null;
+            ocrConfidence?: number | null;
+            createdAt?: string;
+        };
+        StudentKpMastery: {
+            kpId?: string;
+            name?: string | null;
+            mastery?: number;
+            sampleCount?: number;
+            errorCount?: number;
         };
         QuestionPageResponse: components["schemas"]["ApiEnvelope"] & {
             data?: components["schemas"]["QuestionPage"];
@@ -1728,6 +1782,19 @@ export interface components {
         };
         QuestionDetailResponse: components["schemas"]["ApiEnvelope"] & {
             data?: components["schemas"]["QuestionDetail"];
+        };
+        QuestionBriefListResponse: components["schemas"]["ApiEnvelope"] & {
+            data?: components["schemas"]["QuestionBrief"][];
+        };
+        QuestionBrief: {
+            /** @example Q_0201 */
+            qId?: string;
+            /** @example KP0201 */
+            primaryKpId?: string;
+            /** @enum {string} */
+            questionType?: "单选" | "多选" | "填空" | "简答" | "编程";
+            questionText?: string;
+            difficulty?: number;
         };
         QuestionDetail: {
             /** @example Q_0201 */
