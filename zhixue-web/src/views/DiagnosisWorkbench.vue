@@ -31,7 +31,7 @@
             :show-file-list="false"
             :http-request="handleUpload"
           >
-            <UploadIcon class="upload-icon" />
+            <UploadIcon class="upload-icon" :size="26" />
             <div class="upload-title">上传错题图片</div>
             <div class="upload-sub">JPG / PNG，单张不超过 5MB；识别结果可手动校正</div>
           </el-upload>
@@ -250,7 +250,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
-import { Upload as UploadIcon } from "@element-plus/icons-vue";
+import { Upload as UploadIcon } from "@lucide/vue";
 import { ApiError } from "../api/request";
 import { listQuestionsByKp, type QuestionBrief } from "../api/course";
 import {
@@ -770,7 +770,6 @@ onBeforeUnmount(() => {
 .upload-icon {
   display: block;
   margin: 0 auto 8px;
-  font-size: var(--app-fs-xl);
   color: var(--app-text-muted);
 }
 .upload-sub {

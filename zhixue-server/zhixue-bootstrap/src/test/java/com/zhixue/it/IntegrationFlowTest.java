@@ -589,6 +589,27 @@ class IntegrationFlowTest {
     }
 
     @Test
+    void questionsListByKpIsSafeAndClamped() throws Exception {
+        assertThat(code(getJson("/api/questions?kpId=KP0201", null))).isEqualTo(40100);
+
+        String token = login();
+        HttpResponse<String> list = getJson("/api/questions?kpId=KP0201&limit=5", token);
+        assertThat(code(list)).isZero();
+        List<?> rows = JsonPath.read(body(list), "$.data");
+        assertThat(rows).isNotEmpty();
+        for (Object item : rows) {
+            Map row = (Map) item;
+            assertThat(row.keySet()).contains("qId", "primaryKpId", "questionType", "questionText", "difficulty");
+            assertThat(row.keySet()).doesNotContain("answerText", "analysisText", "optionsJson");
+            assertThat(row.get("primaryKpId")).isEqualTo("KP0201");
+        }
+
+        assertThat(code(getJson("/api/questions?kpId=KP0201&limit=999", token))).isZero();
+        assertThat(code(getJson("/api/questions?kpId=KP_NOT_EXIST", token))).isEqualTo(40400);
+        assertThat(code(getJson("/api/questions", token))).isEqualTo(40000);
+    }
+
+    @Test
     void explainLogReadableByOwnerForReview() throws Exception {
         String token = login();
         String logId = createAndConfirm(token, "ct-review");
