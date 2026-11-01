@@ -72,12 +72,9 @@
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </el-card>
@@ -100,12 +97,9 @@
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </div>
@@ -255,10 +249,6 @@ const load = async () => {
   }
 };
 
-const handleSizeChange = () => {
-  page.value = 1;
-  load();
-};
 
 const loadDetail = async () => {
   if (selectedUserId.value == null) return;

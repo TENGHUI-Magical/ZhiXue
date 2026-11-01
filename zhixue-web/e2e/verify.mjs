@@ -97,6 +97,48 @@ function check(name, condition, detail = '') {
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
+/** 轮询等待条件成立：冷启动/首次编译时固定 sleep 不可靠 */
+async function waitFor(fn, timeout = 12000, interval = 250) {
+  const start = Date.now()
+  let last
+  while (Date.now() - start < timeout) {
+    try {
+      last = await fn()
+      if (last) return true
+    } catch (e) {
+      last = e
+    }
+    await sleep(interval)
+  }
+  return false
+}
+
+/** 打开页面并等到路由内容挂载、骨架屏结束 */
+async function open(page, pathname) {
+  await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('#main-content', { state: 'attached', timeout: 20000 }).catch(() => {})
+  await page
+    .waitForFunction(
+      () => {
+        const main = document.querySelector('#main-content')
+        return !!main && !!main.querySelector('.page, .state-code, .el-result, .el-empty')
+      },
+      null,
+      { timeout: 20000 }
+    )
+    .catch(() => {})
+  await page
+    .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
+    .catch(() => {})
+  await sleep(150)
+}
+
+/** 动态数据断言：轮询到条件成立或超时 */
+async function checkNext(name, fn, detail = '', timeout = 12000) {
+  const ok = await waitFor(fn, timeout)
+  check(name, ok, ok ? detail : `${detail}${detail ? ' | ' : ''}等待超时 ${timeout}ms`)
+}
+
 async function newContext(browser, role, theme, viewport) {
   const ctx = await browser.newContext({ viewport, locale: 'zh-CN' })
   await ctx.addInitScript(({ role, theme }) => {
@@ -116,14 +158,28 @@ async function newContext(browser, role, theme, viewport) {
 }
 
 async function axeScan(page) {
-  await page.addScriptTag({ content: axeSource })
-  const result = await page.evaluate(async () => {
-    // @ts-ignore
-    return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] })
-  })
-  return result.violations
-    .filter(v => ['serious', 'critical'].includes(v.impact))
-    .map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+  // Vite 首次访问新依赖时可能整页 reload，导致执行上下文被销毁：重试两次
+  let lastError
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await page.waitForLoadState('load').catch(() => {})
+      await page.addScriptTag({ content: axeSource })
+      const result = await page.evaluate(async () => {
+        // @ts-ignore
+        return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] })
+      })
+      return result.violations
+        .filter(v => ['serious', 'critical'].includes(v.impact))
+        .map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+    } catch (e) {
+      lastError = e
+      // 页面被 reload 后重新等待内容挂载，避免扫到空白页
+      await page.waitForSelector('#main-content .page', { timeout: 8000 }).catch(() => {})
+      await page.waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 8000 }).catch(() => {})
+      await sleep(800)
+    }
+  }
+  throw lastError
 }
 
 const server = await ensureServer()
@@ -134,79 +190,83 @@ try {
   const studentCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   const page = await studentCtx.newPage()
 
-  await page.goto(BASE + '/today', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('今日：主结论存在', await page.locator('.hero-title').count() === 1)
-  check('今日：一个主动作', await page.locator('.hero-actions .el-button--primary').count() === 1)
-  check('今日：三张指标卡', await page.locator('.metric-card').count() === 3)
+  await open(page, '/today')
+  await checkNext('今日：主结论存在', async () => (await page.locator('.hero-title').count()) === 1)
+  await checkNext('今日：一个主动作', async () => (await page.locator('.hero-actions .el-button--primary').count()) === 1)
+  await checkNext('今日：三张指标卡', async () => (await page.locator('.metric-card').count()) === 3)
   check('今日：无横向溢出', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
 
-  await page.goto(BASE + '/error-book', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('错题本：两行记录', await page.locator('.el-table__row').count() >= 2)
-  check('错题本：缺 qId 显示待关联', await page.getByText('待关联题目').count() >= 1)
+  await open(page, '/error-book')
+  await checkNext('错题本：两行记录', async () => (await page.locator('.el-table__row').count()) >= 2)
+  await checkNext('错题本：缺 qId 显示待关联', async () => (await page.getByText('待关联题目').count()) >= 1)
 
-  await page.goto(BASE + '/portrait', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('画像：同基线三条', await page.locator('.baseline-row').count() === 3)
+  await open(page, '/portrait')
+  await checkNext('画像：同基线三条', async () => (await page.locator('.baseline-row').count()) === 3)
   check('画像：三环已移除', await page.locator('.rings').count() === 0)
-  check('画像：薄弱点可点击', await page.locator('button.weak-item').count() >= 1)
-  check('画像：结论含掌握度', (await page.locator('.hero-title').innerText()).includes('掌握度'))
+  await checkNext('画像：薄弱点可点击', async () => (await page.locator('button.weak-item').count()) >= 1)
+  await checkNext('画像：结论含掌握度', async () => (await page.locator('.hero-title').innerText()).includes('掌握度'))
 
-  await page.goto(BASE + '/plan', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('计划：7 天卡片', await page.locator('.day-card').count() === 7)
-  await page.getByRole('button', { name: '去打卡' }).first().click(); await sleep(800)
-  check('计划：打卡先打开练习抽屉', await page.locator('.practice-drawer.open').isVisible())
+  await open(page, '/plan')
+  await checkNext('计划：7 天卡片', async () => (await page.locator('.day-card').count()) === 7)
+  await page.getByRole('button', { name: '去打卡' }).first().click()
+  await checkNext('计划：打卡先打开练习抽屉', async () => await page.locator('.practice-drawer.open').isVisible())
   const practiceBox = await page.locator('.practice-drawer.open').boundingBox()
   check('抽屉：铺满视口', !!practiceBox && practiceBox.height > 800, JSON.stringify(practiceBox))
   await page.keyboard.press('Escape'); await sleep(500)
 
-  await page.goto(BASE + '/knowledge-graph', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('图谱：缩放控件 3 个', await page.locator('.graph-controls button').count() === 3)
+  await open(page, '/knowledge-graph')
+  await checkNext('图谱：缩放控件 3 个', async () => (await page.locator('.graph-controls button').count()) === 3)
+  await checkNext('图谱：节点已渲染', async () => (await page.locator('.graph-node').count()) >= 1)
   const before = await page.locator('.graph-viewport').getAttribute('transform')
   await page.locator('.graph-controls button').first().click(); await sleep(400)
   const after = await page.locator('.graph-viewport').getAttribute('transform')
   check('图谱：放大改变视图', before !== after, `${before} -> ${after}`)
-  await page.locator('.graph-node').first().click(); await sleep(800)
-  check('图谱：节点打开详情', await page.locator('.kp-drawer').isVisible())
+  await page.locator('.graph-node').first().click()
+  await checkNext('图谱：节点打开详情', async () => await page.locator('.kp-drawer').isVisible())
   await page.keyboard.press('Escape'); await sleep(400)
 
-  await page.goto(BASE + '/knowledge-graph?kpId=KP0012', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('图谱：kpId 深链打开详情', await page.locator('.kp-drawer').isVisible())
+  await open(page, '/knowledge-graph?kpId=KP0012')
+  await checkNext('图谱：kpId 深链打开详情', async () => await page.locator('.kp-drawer').isVisible())
   await page.keyboard.press('Escape'); await sleep(400)
 
-  await page.goto(BASE + '/profile', { waitUntil: 'domcontentloaded' }); await sleep(1000)
-  check('个人中心：快捷入口', await page.locator('.quick-links .el-button').count() >= 3)
+  await open(page, '/profile')
+  await checkNext('个人中心：快捷入口', async () => (await page.locator('.quick-links .el-button').count()) >= 3)
 
-  await page.goto(BASE + '/not-exist', { waitUntil: 'domcontentloaded' }); await sleep(800)
-  check('404：未知路径兜底', (await page.locator('.state-code').innerText()).trim() === '404')
+  await open(page, '/not-exist')
+  await checkNext('404：未知路径兜底', async () => (await page.locator('.state-code').innerText()).trim() === '404')
 
   // 角色守卫
   const teacherGuard = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tp = await teacherGuard.newPage()
-  await tp.goto(BASE + '/today', { waitUntil: 'domcontentloaded' }); await sleep(800)
-  check('守卫：教师访问学生页回教师首页', tp.url().includes('/teacher/reviews'))
+  await tp.goto(BASE + '/today', { waitUntil: 'domcontentloaded' })
+  await tp.waitForURL((url) => new URL(url).pathname === '/teacher', { timeout: 15000 }).catch(() => {})
+  check('守卫：教师访问学生页回教师首页', new URL(tp.url()).pathname === '/teacher', tp.url())
   await teacherGuard.close()
 
   const studentGuard = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   const sp = await studentGuard.newPage()
-  await sp.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' }); await sleep(800)
-  check('守卫：学生访问教师页回今日', sp.url().includes('/today'))
+  await sp.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' })
+  await sp.waitForURL('**/today', { timeout: 15000 }).catch(() => {})
+  check('守卫：学生访问教师页回今日', sp.url().includes('/today'), sp.url())
   await studentGuard.close()
 
   // ---------- 教师桌面 ----------
   const teacherCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tpage = await teacherCtx.newPage()
-  await tpage.goto(BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  await tpage.getByRole('button', { name: '评阅' }).nth(1).click(); await sleep(800)
-  check('评阅：无证据提示', await tpage.getByText('证据不完整').count() >= 1)
+  await open(tpage, '/teacher/reviews')
+  await checkNext('评阅：队列已渲染', async () => (await tpage.locator('.el-table__row').count()) >= 2)
+  await tpage.getByRole('button', { name: '评阅' }).nth(1).click()
+  await checkNext('评阅：无证据提示', async () => (await tpage.getByText('证据不完整').count()) >= 1)
   check('评阅：无证据禁用通过', await tpage.locator('.el-radio-button').first().evaluate(el => el.className.includes('is-disabled')))
   check('评阅：默认退回', await tpage.locator('.el-radio-button').nth(1).evaluate(el => el.className.includes('is-active')))
   const reviewBox = await tpage.locator('.review-drawer').boundingBox()
   check('评阅：抽屉铺满视口', !!reviewBox && reviewBox.height > 800, JSON.stringify(reviewBox))
   await tpage.keyboard.press('Escape'); await sleep(500)
 
-  await tpage.goto(BASE + '/teacher/class', { waitUntil: 'domcontentloaded' }); await sleep(1500)
-  check('班级：两名学生', await tpage.locator('.el-table__row').count() >= 2)
-  await tpage.getByRole('button', { name: '学习记录' }).first().click(); await sleep(900)
-  check('班级：学习记录抽屉', await tpage.locator('.student-drawer').isVisible())
+  await open(tpage, '/teacher/class')
+  await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)
+  await tpage.getByRole('button', { name: '学习记录' }).first().click()
+  await checkNext('班级：学习记录抽屉', async () => await tpage.locator('.student-drawer').isVisible())
   await tpage.keyboard.press('Escape'); await sleep(400)
   await teacherCtx.close()
 
@@ -214,7 +274,10 @@ try {
   const mobileCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
   const mp = await mobileCtx.newPage()
   for (const [name, pathname] of [['today','/today'],['plan','/plan'],['portrait','/portrait']]) {
-    await mp.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1200)
+    await open(mp, pathname)
+    const ready = { today: '.metric-card', plan: '.day-card', portrait: '.baseline-row' }[name]
+    await mp.waitForSelector(ready, { timeout: 10000 }).catch(() => {})
+    await sleep(150)
     const info = await mp.evaluate(() => {
       const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
       let small = 0
@@ -237,7 +300,8 @@ try {
     const ctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 })
     const p = await ctx.newPage()
     for (const [name, pathname] of STUDENT) {
-      await p.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1000)
+      await open(p, pathname)
+      await sleep(300)
       const v = await axeScan(p)
       a11y.push({ theme, page: name, violations: v })
       check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
@@ -246,7 +310,8 @@ try {
     const tctx = await newContext(browser, 'TEACHER', theme, { width: 1440, height: 900 })
     const tp2 = await tctx.newPage()
     for (const [name, pathname] of TEACHER) {
-      await tp2.goto(BASE + pathname, { waitUntil: 'domcontentloaded' }); await sleep(1000)
+      await open(tp2, pathname)
+      await sleep(300)
       const v = await axeScan(tp2)
       a11y.push({ theme, page: name, violations: v })
       check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))

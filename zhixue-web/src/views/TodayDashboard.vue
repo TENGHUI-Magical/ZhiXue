@@ -20,8 +20,18 @@
     <el-skeleton v-if="loading" :rows="6" animated />
 
     <template v-else>
+      <div v-if="fatalError" class="fatal-state">
+        <el-alert
+          type="error"
+          :closable="false"
+          show-icon
+          :title="`今日建议加载失败：${planError}；${portraitError}`"
+        />
+        <el-button type="primary" @click="loadAll">重试</el-button>
+      </div>
+
       <!-- 首次使用：三步启动 -->
-      <el-card v-if="isFirstUse" class="hero-card" shadow="never">
+      <el-card v-else-if="isFirstUse" class="hero-card" shadow="never">
         <div class="hero-eyebrow">开始使用</div>
         <h3 class="hero-title">还没有学习数据？用三步跑通第一条闭环</h3>
         <p class="hero-desc">上传一道错题，生成本周计划，完成第一次练习。之后这里会每天告诉你最值得做什么。</p>
@@ -163,7 +173,7 @@ const loading = ref(true);
 const planError = ref("");
 const portraitError = ref("");
 const recError = ref("");
-const plans = ref<StudyPlan[]>([]);
+const allPlans = ref<StudyPlan[]>([]);
 const portrait = ref<Portrait | null>(null);
 const latestError = ref<ErrorRecordItem | null>(null);
 const recommendations = ref<Recommendation[]>([]);
@@ -190,14 +200,21 @@ const mondayOf = (date: Date) => {
 const today = formatDate(new Date());
 const weekStart = formatDate(mondayOf(new Date()));
 const weekEnd = formatDate(addDays(mondayOf(new Date()), 6));
+// 逾期可能来自更早的周，向后多取 4 周；本周指标只统计本周区间
+const overdueStart = formatDate(addDays(mondayOf(new Date()), -28));
 const todayLabel = (() => {
   const names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
   const now = new Date();
   return `${now.getMonth() + 1} 月 ${now.getDate()} 日 ${names[now.getDay()]}`;
 })();
 
+const weekPlans = computed(() =>
+  allPlans.value.filter(
+    (plan) => !!plan.planDate && plan.planDate >= weekStart && plan.planDate <= weekEnd
+  )
+);
 const overduePlans = computed(() =>
-  plans.value.filter((plan) => {
+  allPlans.value.filter((plan) => {
     const remaining = Math.max(0, (plan.planCount ?? 0) - (plan.doneCount ?? 0));
     if (remaining === 0) return false;
     if (plan.status === "OVERDUE") return true;
@@ -210,15 +227,15 @@ const overdueCount = computed(() =>
     0
   )
 );
-const todayPlan = computed(() => plans.value.find((plan) => plan.planDate === today));
+const todayPlan = computed(() => weekPlans.value.find((plan) => plan.planDate === today));
 const todayRemaining = computed(() =>
   Math.max(0, (todayPlan.value?.planCount ?? 0) - (todayPlan.value?.doneCount ?? 0))
 );
 const weekDone = computed(() =>
-  plans.value.reduce((sum, plan) => sum + (plan.doneCount ?? 0), 0)
+  weekPlans.value.reduce((sum, plan) => sum + (plan.doneCount ?? 0), 0)
 );
 const weekTotal = computed(() =>
-  plans.value.reduce((sum, plan) => sum + (plan.planCount ?? 0), 0)
+  weekPlans.value.reduce((sum, plan) => sum + (plan.planCount ?? 0), 0)
 );
 const weekPct = computed(() =>
   weekTotal.value === 0 ? 0 : Math.round((weekDone.value / weekTotal.value) * 100)
@@ -288,13 +305,15 @@ const isFirstUse = computed(
   () =>
     !planError.value &&
     !portraitError.value &&
-    plans.value.length === 0 &&
+    allPlans.value.length === 0 &&
     !portrait.value &&
     !latestError.value
 );
 const hasPartialError = computed(
   () => !!planError.value || !!portraitError.value || !!recError.value
 );
+// 计划与画像都拿不到时，不能把失败写成“今天没有紧急任务”
+const fatalError = computed(() => !!planError.value && !!portraitError.value);
 const partialErrorText = computed(() =>
   ["部分数据暂不可用", planError.value, portraitError.value, recError.value]
     .filter(Boolean)
@@ -322,10 +341,10 @@ const layerLabel = (layer?: string) => {
 const loadPlans = async () => {
   planError.value = "";
   try {
-    plans.value = await listPlans(weekStart, weekEnd);
+    allPlans.value = await listPlans(overdueStart, weekEnd);
   } catch (e) {
     planError.value = (e as Error).message || "计划加载失败";
-    plans.value = [];
+    allPlans.value = [];
   }
 };
 
@@ -419,6 +438,14 @@ onMounted(loadAll);
 }
 .partial-alert {
   margin-bottom: 12px;
+}
+.fatal-state {
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 .hero-card {
   max-width: 960px;

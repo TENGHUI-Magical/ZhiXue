@@ -73,12 +73,9 @@
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </el-card>
@@ -101,18 +98,15 @@
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" append-to-body @closed="resetForm">
+    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" append-to-body @closed="onReviewClosed">
       <template v-if="selected">
         <div class="review-meta">
           <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
@@ -300,17 +294,14 @@ const load = async () => {
   }
 };
 
-const handleSizeChange = () => {
-  page.value = 1;
-  load();
-};
 
 const openReview = (row: ReviewItem) => {
   selected.value = row;
   score.value = null;
   comment.value = "";
-  // 证据缺失时只能退回；有题干默认通过
-  result.value = (row.questionText ?? "").trim() ? "PASS" : "RETURN";
+  // 题干与参考答案齐全才能默认通过；缺任一只能退回
+  const complete = !!(row.questionText ?? "").trim() && !!(row.correctAnswer ?? "").trim();
+  result.value = complete ? "PASS" : "RETURN";
   drawerVisible.value = true;
 };
 
@@ -319,6 +310,11 @@ const resetForm = () => {
   score.value = null;
   comment.value = "";
   result.value = "PASS";
+};
+
+/** 关闭动画结束时可能已切到下一条，确实关闭才清空 */
+const onReviewClosed = () => {
+  if (!drawerVisible.value) resetForm();
 };
 
 const submit = async () => {

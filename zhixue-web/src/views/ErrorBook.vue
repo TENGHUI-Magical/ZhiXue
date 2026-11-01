@@ -84,21 +84,26 @@
               >
                 开始练习
               </el-button>
-              <span v-else class="pending-link" title="该错题尚未关联题库题目，暂不能直接练习；可在诊断台重新关联">
+              <span v-else class="pending-link" title="该错题尚未关联题库题目，暂不能直接练习">
                 待关联题目
               </span>
+              <el-button
+                v-if="!row.qId || !row.kpId"
+                link
+                type="primary"
+                @click="goDiagnosis(row as ErrorRecordItem)"
+              >
+                去诊断
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </el-card>
@@ -126,17 +131,22 @@
               开始练习
             </el-button>
             <span v-else class="pending-link">待关联题目</span>
+            <el-button
+              v-if="!row.qId || !row.kpId"
+              link
+              type="primary"
+              @click="goDiagnosis(row)"
+            >
+              去诊断
+            </el-button>
           </div>
         </el-card>
         <div class="pager">
           <el-pagination
             v-model:current-page="page"
-            v-model:page-size="size"
             :total="total"
-            :page-sizes="[10, 20, 50]"
             layout="total, prev, pager, next"
             @current-change="load"
-            @size-change="handleSizeChange"
           />
         </div>
       </div>
@@ -223,10 +233,6 @@ const resetFilters = () => {
   load();
 };
 
-const handleSizeChange = () => {
-  page.value = 1;
-  load();
-};
 
 const openPractice = (row: ErrorRecordItem) => {
   if (!row.qId || !row.kpId) {
@@ -236,6 +242,14 @@ const openPractice = (row: ErrorRecordItem) => {
   activeQId.value = row.qId;
   activeKpId.value = row.kpId;
   drawerVisible.value = true;
+};
+
+/** 未关联题库题目的错题：去诊断台重新录入并选择关联题目 */
+const goDiagnosis = (row: ErrorRecordItem) => {
+  router.push({
+    path: "/diagnosis",
+    query: row.kpId ? { kpId: row.kpId } : undefined
+  });
 };
 
 const loadKpOptions = async () => {

@@ -166,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
 import {
@@ -361,6 +361,7 @@ const adjacentIds = computed(() => {
 
 watch(chapterFilter, () => {
   activeId.value = "";
+  drawerVisible.value = false;
   resetView();
 });
 
@@ -411,6 +412,8 @@ const applyQuery = async () => {
   const chapter = typeof chapterRaw === "string" ? Number(chapterRaw) : NaN;
   if (Number.isFinite(chapter) && chapter > 0) {
     chapterFilter.value = chapter;
+    // 等筛选 watch 执行完（会清 activeId/关抽屉）再打开深链节点
+    await nextTick();
   }
   const kpRaw = route.query.kpId;
   const kpId = typeof kpRaw === "string" ? kpRaw.trim() : "";
@@ -494,8 +497,8 @@ onMounted(load);
 .graph-svg {
   display: block;
   width: 100%;
+  aspect-ratio: 4 / 3;
   height: auto;
-  min-height: 420px;
   background: var(--app-surface-muted);
   border-radius: var(--app-radius-sm);
   touch-action: none;
@@ -607,7 +610,7 @@ onMounted(load);
     width: 100%;
   }
   .graph-svg {
-    min-height: 320px;
+    min-height: 0;
   }
   .graph-controls button {
     min-width: 44px;

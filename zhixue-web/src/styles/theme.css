@@ -422,7 +422,10 @@ a {
     display: inline-flex;
     align-items: center;
   }
-  .weak-item,
+  .weak-item {
+    width: 100%;
+    min-height: 44px;
+  }
   .step {
     width: 100%;
     min-height: 44px;
