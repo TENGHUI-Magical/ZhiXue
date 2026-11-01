@@ -126,10 +126,11 @@
         </div>
         <div class="graph-note">
           点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选第 {{ chapterFilter }} 章）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
+          <a class="mobile-list-jump" href="#kp-list">节点太小？按清单浏览</a>
         </div>
       </el-card>
 
-      <el-card v-if="visibleNodes.length" header="知识点清单" class="list-card">
+      <el-card v-if="visibleNodes.length" id="kp-list" header="知识点清单" class="list-card">
         <div class="node-list">
           <el-tag
             v-for="node in visibleNodes"
@@ -581,6 +582,9 @@ onMounted(load);
   font-size: var(--app-fs-xs);
   line-height: 1.5;
 }
+.mobile-list-jump {
+  display: none;
+}
 .list-card {
   margin-top: 16px;
 }
@@ -631,6 +635,15 @@ onMounted(load);
   }
   .node-label {
     display: none;
+  }
+  .mobile-list-jump {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    margin-top: 6px;
+    color: var(--app-primary);
+    font-size: var(--app-fs-sm);
+    text-decoration: none;
   }
   /* 图谱节点随 SVG 缩放，无法稳定达到 44px；用下方清单提供等价大目标 */
   .node-tag {

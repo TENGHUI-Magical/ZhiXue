@@ -385,6 +385,8 @@ try {
         tagHeights.length >= 12 && tagHeights.every((h) => h >= 44),
         `tags=${tagHeights.length} min=${tagHeights.length ? Math.min(...tagHeights) : 0}`
       )
+      const jumpBox = await mp.locator('.mobile-list-jump').boundingBox()
+      check('移动端/图谱：清单跳转≥44', !!jumpBox && jumpBox.height >= 44, JSON.stringify(jumpBox))
     }
   }
   await mobileCtx.close()
