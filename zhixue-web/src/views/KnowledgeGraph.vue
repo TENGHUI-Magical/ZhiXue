@@ -293,20 +293,41 @@ const edgeLines = computed(() =>
     .filter((edge): edge is NonNullable<typeof edge> => !!edge)
 );
 
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 2.5;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const viewportTransform = computed(
   () => `translate(${tx.value} ${ty.value}) scale(${scale.value})`
 );
 
-/** 以 viewBox 坐标 (cx,cy) 为锚点缩放，保证光标下的点不漂移 */
-const zoomAt = (factor: number, cx = 400, cy = 300) => {
-  const next = clamp(scale.value * factor, 0.6, 2.5);
-  if (next === scale.value) return;
-  const ratio = next / scale.value;
+/** 屏幕坐标 → SVG viewBox 坐标；getScreenCTM 自动处理 viewBox、letterbox 与容器缩放 */
+const clientToViewBox = (clientX: number, clientY: number) => {
+  const svg = svgRef.value;
+  if (!svg) return null;
+  const ctm = svg.getScreenCTM();
+  if (ctm && ctm.a && ctm.d) {
+    const point = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+    return { x: point.x, y: point.y };
+  }
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    x: ((clientX - rect.left) / rect.width) * 800,
+    y: ((clientY - rect.top) / rect.height) * 600
+  };
+};
+
+/** 把 scale 设到 next，并让 viewBox 坐标 (cx,cy) 保持不动 */
+const applyScale = (next: number, cx = 400, cy = 300) => {
+  const target = clamp(next, MIN_SCALE, MAX_SCALE);
+  if (target === scale.value) return false;
+  const ratio = target / scale.value;
   tx.value = cx - (cx - tx.value) * ratio;
   ty.value = cy - (cy - ty.value) * ratio;
-  scale.value = next;
+  scale.value = target;
+  return true;
 };
+const zoomAt = (factor: number, cx = 400, cy = 300) => applyScale(scale.value * factor, cx, cy);
 const zoomBy = (factor: number) => zoomAt(factor);
 const resetView = () => {
   scale.value = 1;
@@ -315,47 +336,88 @@ const resetView = () => {
 };
 
 const onWheel = (event: WheelEvent) => {
-  const svg = svgRef.value;
-  if (!svg) return;
-  const rect = svg.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
-  const cx = ((event.clientX - rect.left) / rect.width) * 800;
-  const cy = ((event.clientY - rect.top) / rect.height) * 600;
+  const anchor = clientToViewBox(event.clientX, event.clientY);
+  if (!anchor) return;
   const factor = event.deltaY < 0 ? 1.15 : 0.87;
-  const next = clamp(scale.value * factor, 0.6, 2.5);
+  const next = clamp(scale.value * factor, MIN_SCALE, MAX_SCALE);
   // 已到缩放边界时把滚轮还给页面，避免整页卡在图谱上
   if (next === scale.value) return;
   event.preventDefault();
-  zoomAt(factor, cx, cy);
+  applyScale(next, anchor.x, anchor.y);
 };
 
+type PointerPoint = { x: number; y: number };
+const pointers = new Map<number, PointerPoint>();
 let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
-// 只认第一根按下的指针：第二根手指不能重置拖拽起点，否则双指操作会跳图
 let activePointerId: number | null = null;
+let pinchStart: { distance: number; scale: number } | null = null;
+const pointDistance = (a: PointerPoint, b: PointerPoint) => Math.hypot(a.x - b.x, a.y - b.y);
+
 const onPointerDown = (event: PointerEvent) => {
-  if (activePointerId !== null) return;
   const target = event.target as Element | null;
   if (target?.closest(".graph-node")) return; // 节点点击不触发拖拽
   if (event.button !== 0) return;
-  activePointerId = event.pointerId;
-  dragging.value = true;
-  panStart = { x: event.clientX, y: event.clientY, tx: tx.value, ty: ty.value };
+  if (pointers.size >= 2) return; // 最多两指；第三指忽略
+  const anchor = clientToViewBox(event.clientX, event.clientY);
+  if (!anchor) return;
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   (event.currentTarget as SVGSVGElement).setPointerCapture?.(event.pointerId);
-};
-const onPointerMove = (event: PointerEvent) => {
-  if (!dragging.value || event.pointerId !== activePointerId) return;
-  const svg = svgRef.value;
-  if (!svg) return;
-  const rect = svg.getBoundingClientRect();
-  if (!rect.width || !rect.height) return;
-  tx.value = panStart.tx + ((event.clientX - panStart.x) / rect.width) * 800;
-  ty.value = panStart.ty + ((event.clientY - panStart.y) / rect.height) * 600;
-};
-const onPointerUp = (event: PointerEvent) => {
-  if (!dragging.value || event.pointerId !== activePointerId) return;
+  if (pointers.size === 1) {
+    activePointerId = event.pointerId;
+    dragging.value = true;
+    panStart = { x: anchor.x, y: anchor.y, tx: tx.value, ty: ty.value };
+    return;
+  }
+  // 第二指按下：停止单指拖拽，进入双指缩放；双指不重置 panStart
+  const [first, second] = [...pointers.values()];
+  pinchStart = { distance: Math.max(pointDistance(first, second), 1), scale: scale.value };
   dragging.value = false;
   activePointerId = null;
+};
+
+const onPointerMove = (event: PointerEvent) => {
+  if (!pointers.has(event.pointerId)) return;
+  pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pinchStart && pointers.size === 2) {
+    const [first, second] = [...pointers.values()];
+    const anchor = clientToViewBox((first.x + second.x) / 2, (first.y + second.y) / 2);
+    if (!anchor) return;
+    // 每次从“按下时的 scale”算目标，避免多次 pointermove 累积误差
+    applyScale(pinchStart.scale * (pointDistance(first, second) / pinchStart.distance),
+      anchor.x, anchor.y);
+    return;
+  }
+  if (!dragging.value || event.pointerId !== activePointerId) return;
+  const current = clientToViewBox(event.clientX, event.clientY);
+  if (!current) return;
+  tx.value = panStart.tx + (current.x - panStart.x);
+  ty.value = panStart.ty + (current.y - panStart.y);
+};
+
+const onPointerUp = (event: PointerEvent) => {
+  if (!pointers.has(event.pointerId)) return;
+  pointers.delete(event.pointerId);
   (event.currentTarget as SVGSVGElement).releasePointerCapture?.(event.pointerId);
+  if (pinchStart && pointers.size === 1) {
+    // 双指变单指：剩下那根手指继续平移，避免松手后跳回
+    const [remainingId, remaining] = [...pointers.entries()][0];
+    const anchor = clientToViewBox(remaining.x, remaining.y);
+    pinchStart = null;
+    if (anchor) {
+      activePointerId = remainingId;
+      dragging.value = true;
+      panStart = { x: anchor.x, y: anchor.y, tx: tx.value, ty: ty.value };
+    } else {
+      activePointerId = null;
+      dragging.value = false;
+    }
+    return;
+  }
+  if (pointers.size === 0) {
+    pinchStart = null;
+    activePointerId = null;
+    dragging.value = false;
+  }
 };
 
 const isEdgeActive = (edge: { sourceId: string; targetId: string }) =>

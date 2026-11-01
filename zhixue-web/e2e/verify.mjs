@@ -158,8 +158,8 @@ async function checkNext(name, fn, detail = '', timeout = 12000) {
 }
 
 async function newContext(browser, role, theme, viewport, options = {}) {
-  const { token = true, storedRole = role } = options
-  const ctx = await browser.newContext({ viewport, locale: 'zh-CN' })
+  const { token = true, storedRole = role, hasTouch = false } = options
+  const ctx = await browser.newContext({ viewport, locale: 'zh-CN', hasTouch })
   await ctx.addInitScript(({ role, theme, token, storedRole }) => {
     if (token) localStorage.setItem('satoken', 'mock')
     localStorage.setItem('zhixue_user', JSON.stringify({ userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: 'x', role: storedRole }))
@@ -296,6 +296,38 @@ try {
   const wheelAtMax = await wheelProbe()
   check('图谱：到缩放上限后滚轮放行页面滚动',
     !wheelAtMax.prevented && wheelAtMax.scale >= 2.4, JSON.stringify(wheelAtMax))
+
+  // 真实滚动：0.6 下限时滚轮必须交给 .main；非边界时必须阻止页面滚动
+  await page.locator('.graph-controls button').last().click()
+  await sleep(300)
+  for (let i = 0; i < 8; i++) {
+    await page.locator('.graph-controls button').nth(1).click()
+  }
+  await sleep(400)
+  const minGraphBox = await page.locator('.graph-svg').boundingBox()
+  if (!minGraphBox) throw new Error('图谱 SVG 未渲染')
+  await page.mouse.move(minGraphBox.x + minGraphBox.width / 2, minGraphBox.y + minGraphBox.height / 2)
+  const mainScrollBefore = await page.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+  await page.mouse.wheel(0, 300)
+  await sleep(500)
+  const mainScrollAfter = await page.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+  check('图谱：缩放下限滚轮真实滚动页面', mainScrollAfter > mainScrollBefore,
+    `${mainScrollBefore}->${mainScrollAfter}`)
+
+  await page.locator('.graph-controls button').last().click()
+  await sleep(300)
+  await page.locator('.graph-svg').scrollIntoViewIfNeeded()
+  const normalGraphBox = await page.locator('.graph-svg').boundingBox()
+  if (!normalGraphBox) throw new Error('图谱 SVG 未渲染')
+  await page.mouse.move(normalGraphBox.x + normalGraphBox.width / 2, normalGraphBox.y + normalGraphBox.height / 2)
+  const mainScrollBefore2 = await page.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+  await page.mouse.wheel(0, 300)
+  await sleep(500)
+  const mainScrollAfter2 = await page.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+  check('图谱：非边界滚轮不滚动页面', mainScrollAfter2 === mainScrollBefore2,
+    `${mainScrollBefore2}->${mainScrollAfter2}`)
+  await page.locator('.graph-controls button').last().click()
+  await sleep(300)
 
   // P0 回归：第二触点不得重置拖拽起点（双指时不能跳图）
   await page.locator('.graph-controls button').last().click() // 重置
@@ -451,6 +483,45 @@ try {
       )
       const jumpBox = await mp.locator('.mobile-list-jump').boundingBox()
       check('移动端/图谱：清单跳转≥44', !!jumpBox && jumpBox.height >= 44, JSON.stringify(jumpBox))
+
+      // 真实双指：用 CDP touch 模拟，避免合成 PointerEvent 的自欺
+      const pinchCtx = await newContext(browser, 'STUDENT', 'glass',
+        { width: 390, height: 844 }, { hasTouch: true })
+      const pinchPage = await pinchCtx.newPage()
+      await open(pinchPage, '/knowledge-graph')
+      await pinchPage.locator('.graph-svg').scrollIntoViewIfNeeded()
+      await sleep(300)
+      const pinchBox = await pinchPage.locator('.graph-svg').boundingBox()
+      if (!pinchBox) throw new Error('移动端图谱未渲染')
+      const scaleBefore = await pinchPage.evaluate(() => {
+        const t = document.querySelector('.graph-viewport').getAttribute('transform') || ''
+        return Number(t.match(/scale\(([^)]+)\)/)?.[1] || 1)
+      })
+      const scrollBeforePinch = await pinchPage.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+      const cdp = await pinchCtx.newCDPSession(pinchPage)
+      const cx = pinchBox.x + pinchBox.width / 2
+      const cy = pinchBox.y + pinchBox.height / 2
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchStart',
+        touchPoints: [{ x: cx - 40, y: cy, id: 1 }, { x: cx + 40, y: cy, id: 2 }]
+      })
+      await sleep(100)
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: cx - 80, y: cy, id: 1 }, { x: cx + 80, y: cy, id: 2 }]
+      })
+      await sleep(250)
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      await sleep(300)
+      const scaleAfter = await pinchPage.evaluate(() => {
+        const t = document.querySelector('.graph-viewport').getAttribute('transform') || ''
+        return Number(t.match(/scale\(([^)]+)\)/)?.[1] || 1)
+      })
+      const scrollAfterPinch = await pinchPage.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
+      check('移动端/图谱：双指 pinch 放大', scaleAfter >= 1.8, `${scaleBefore}->${scaleAfter}`)
+      check('移动端/图谱：双指不滚动页面', scrollAfterPinch === scrollBeforePinch,
+        `${scrollBeforePinch}->${scrollAfterPinch}`)
+      await pinchCtx.close()
     }
   }
   await mobileCtx.close()
