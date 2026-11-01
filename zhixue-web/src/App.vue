@@ -476,7 +476,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   min-width: 0;
 }
-.title {
+html[data-theme] .title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

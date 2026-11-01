@@ -32,13 +32,11 @@
     <el-card v-if="plans.length" class="week-brief" shadow="never">
       <div class="brief-main">
         <div>
-          <div class="brief-eyebrow">本周进度</div>
+          <div class="brief-eyebrow">{{ isCurrentWeek ? "本周进度" : "该周进度" }}</div>
           <h3 class="brief-title">
             {{ weekDone }} / {{ weekTotal }} 已完成<span v-if="overdueCount"> · {{ overdueCount }} 题逾期</span>
           </h3>
-          <p class="brief-sub">
-            {{ todayRemaining > 0 ? `今天还有 ${todayRemaining} 题待完成；完成后逐题打卡。` : "今天的计划已完成，可以按节奏预习或补弱。" }}
-          </p>
+          <p class="brief-sub">{{ briefSub }}</p>
         </div>
         <div class="brief-progress">
           <strong>{{ weekPct }}%</strong>
@@ -50,7 +48,7 @@
     <el-card class="section-card">
       <template #header>
         <div class="card-head">
-          <span>本周打卡清单</span>
+          <span>{{ isCurrentWeek ? "本周打卡清单" : "该周打卡清单" }}</span>
           <span class="head-right">
             <el-tag v-if="plans.length" type="success" size="small">计划已生成</el-tag>
             <el-button
@@ -59,7 +57,7 @@
               :loading="generating"
               @click="generate"
             >
-              生成本周计划
+              {{ isCurrentWeek ? "生成本周计划" : "生成该周计划" }}
             </el-button>
           </span>
         </div>
@@ -68,11 +66,13 @@
         :loading="loading"
         :error="error"
         :empty="!loading && !error && plans.length === 0"
-        empty-text="本周尚未生成练习计划。"
+        :empty-text="emptyText"
         @retry="loadPlans"
       >
         <template #empty-action>
-          <el-button type="primary" :loading="generating" @click="generate">生成本周计划</el-button>
+          <el-button type="primary" :loading="generating" @click="generate">
+            {{ isCurrentWeek ? "生成本周计划" : "生成该周计划" }}
+          </el-button>
         </template>
 
         <div class="day-grid">
@@ -218,11 +218,24 @@ const overdueCount = computed(() =>
     return sum + (plan.status === "OVERDUE" ? remaining : 0);
   }, 0)
 );
-const todayRemaining = computed(() => {
+const todayPlan = computed(() => {
   const today = formatDate(new Date());
-  const plan = plans.value.find((item) => item.planDate === today);
-  return Math.max(0, (plan?.planCount ?? 0) - (plan?.doneCount ?? 0));
+  return plans.value.find((item) => item.planDate === today) ?? null;
 });
+const todayRemaining = computed(() =>
+  Math.max(0, (todayPlan.value?.planCount ?? 0) - (todayPlan.value?.doneCount ?? 0))
+);
+const briefSub = computed(() => {
+  if (!isCurrentWeek.value) {
+    if (!weekTotal.value) return "该周尚未生成计划。";
+    return `该周共 ${Math.max(0, weekTotal.value - weekDone.value)} 题未完成；历史进度只读。`;
+  }
+  if (!weekTotal.value) return "本周尚未生成计划，生成后按天完成打卡。";
+  if (!todayPlan.value) return "今天暂无计划；可检查本周安排。";
+  if (todayRemaining.value > 0) return `今天还有 ${todayRemaining.value} 题待完成；完成后逐题打卡。`;
+  return "今天的计划已完成，可以按节奏预习或补弱。";
+});
+const emptyText = computed(() => (isCurrentWeek.value ? "本周尚未生成练习计划。" : "该周尚未生成练习计划。"));
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -417,32 +430,10 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 .week-brief :deep(.el-card__body) {
-  padding: 20px 24px;
+  padding: var(--app-space-5) var(--app-space-6);
 }
-.brief-main {
-  display: grid;
+.week-brief .brief-main {
   grid-template-columns: minmax(0, 1fr) 260px;
-  align-items: center;
-  gap: 28px;
-}
-.brief-eyebrow {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-  letter-spacing: 0.04em;
-}
-.brief-title {
-  margin: 6px 0 6px;
-  font-size: var(--app-fs-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--app-text);
-}
-.brief-sub {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
-  line-height: 1.6;
 }
 .brief-progress {
   display: flex;
@@ -577,11 +568,12 @@ onMounted(() => {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-@media (max-width: 768px) {
-  .brief-main {
+@media (max-width: 1024px) {
+  .week-brief .brief-main {
     grid-template-columns: 1fr;
-    gap: 14px;
   }
+}
+@media (max-width: 768px) {
   .week-actions {
     width: 100%;
     justify-content: space-between;

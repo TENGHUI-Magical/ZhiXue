@@ -265,6 +265,15 @@ html[data-theme="glass-dark"] .el-card__header {
   font-weight: 600;
   color: var(--app-text);
 }
+/* 内容层细分：区块卡/指标带/表格卡用 12px，主 hero/结论带保持 16px */
+html[data-theme="glass"] .section-card,
+html[data-theme="glass-dark"] .section-card,
+html[data-theme="glass"] .metric-band,
+html[data-theme="glass-dark"] .metric-band,
+html[data-theme="glass"] .table-card,
+html[data-theme="glass-dark"] .table-card {
+  border-radius: var(--app-radius-md);
+}
 html[data-theme="glass"] .el-card__body,
 html[data-theme="glass-dark"] .el-card__body {
   padding: 14px 16px 16px;
@@ -614,6 +623,22 @@ html[data-theme="glass-dark"] .login-page {
     radial-gradient(58vw 52vw at 14% 32%, rgba(77, 141, 255, 0.12), transparent 62%),
     radial-gradient(64vw 52vw at 88% 106%, rgba(77, 141, 255, 0.06), transparent 66%),
     linear-gradient(180deg, #0a101b, var(--app-wall-base));
+}
+
+@media (max-width: 1024px) {
+  html[data-theme="glass"] .login-page,
+  html[data-theme="glass-dark"] .login-page {
+    align-items: center;
+    justify-content: center;
+  }
+  html[data-theme="glass"] .login-page::after,
+  html[data-theme="glass-dark"] .login-page::after {
+    display: none;
+  }
+  html[data-theme="glass"] .login-foot,
+  html[data-theme="glass-dark"] .login-foot {
+    text-align: center;
+  }
 }
 html[data-theme="glass"] .login-page::before,
 html[data-theme="glass-dark"] .login-page::before {

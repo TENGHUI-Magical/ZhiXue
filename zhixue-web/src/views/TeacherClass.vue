@@ -18,24 +18,16 @@
     <el-card class="class-brief" shadow="never">
       <div class="brief-main">
         <div class="brief-copy">
-          <div class="brief-eyebrow">班级结论</div>
-          <h3 class="brief-title">
-            {{ attentionStudent ? `本周最需关注：${attentionStudent.displayName || "学生"}` : "本班暂无足够样本" }}
-          </h3>
-          <p class="brief-sub">
-            {{
-              attentionStudent
-                ? `掌握度 ${pct(attentionStudent.avgMastery)} · 练习 ${attentionStudent.practiceCount ?? 0} 次 · 最近 ${attentionStudent.lastActiveAt || "暂无活跃"}`
-                : "学生完成练习或打卡后，这里会给出班级层面最该关注的人。"
-            }}
-          </p>
+          <div class="brief-eyebrow">本页结论</div>
+          <h3 class="brief-title">{{ classTitle }}</h3>
+          <p class="brief-sub">{{ classSub }}</p>
           <el-button v-if="attentionStudent" link type="primary" @click="openDetail(attentionStudent)">
             查看学习记录
           </el-button>
         </div>
         <div class="brief-stats">
           <div><span>学生数</span><strong>{{ total }}</strong></div>
-          <div><span>平均掌握度</span><strong>{{ avgMasteryText }}</strong></div>
+          <div><span>本页平均掌握度</span><strong>{{ avgMasteryText }}</strong></div>
           <div><span>本页记录</span><strong>{{ records.length }}</strong></div>
         </div>
       </div>
@@ -71,7 +63,9 @@
           <el-table-column label="本周进度" width="100">
             <template #default="{ row }">{{ row.planDone ?? 0 }} / {{ row.planTotal ?? 0 }}</template>
           </el-table-column>
-          <el-table-column prop="lastActiveAt" label="最近活跃" width="160" show-overflow-tooltip />
+          <el-table-column label="最近活跃" width="160" show-overflow-tooltip>
+            <template #default="{ row }">{{ shortTime(row.lastActiveAt) }}</template>
+          </el-table-column>
           <el-table-column label="操作" width="90" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" @click="openDetail(row as TeacherStudentItem)">
@@ -101,7 +95,7 @@
           </div>
           <div class="mobile-meta">错题 {{ row.errorCount ?? 0 }} · 本周 {{ row.planDone ?? 0 }}/{{ row.planTotal ?? 0 }}</div>
           <div class="mobile-foot">
-            <span class="muted">{{ row.lastActiveAt || "暂无活跃" }}</span>
+            <span class="muted">{{ shortTime(row.lastActiveAt) }}</span>
             <el-button type="primary" size="small" @click="openDetail(row)">学习记录</el-button>
           </div>
         </el-card>
@@ -227,13 +221,31 @@ const avgMasteryText = computed(() => {
   return pct(values.reduce((sum, value) => sum + value, 0) / values.length);
 });
 
-/** 班级结论：本页有练习的学生里掌握度最低者 */
+/** 本页有练习的学生里掌握度最低者；低于 75% 才称为“需关注” */
 const attentionStudent = computed<TeacherStudentItem | null>(() => {
   const candidates = records.value.filter(
     (row) => (row.practiceCount ?? 0) > 0 && typeof row.avgMastery === "number"
   );
   if (!candidates.length) return null;
   return [...candidates].sort((a, b) => (a.avgMastery ?? 1) - (b.avgMastery ?? 1))[0];
+});
+const ATTENTION_THRESHOLD = 0.75;
+const needsAttention = computed(
+  () => !!attentionStudent.value && (attentionStudent.value.avgMastery ?? 0) < ATTENTION_THRESHOLD
+);
+const classTitle = computed(() => {
+  if (!attentionStudent.value) return "本页暂无足够样本";
+  if (!needsAttention.value) return "本页学生整体掌握良好";
+  return `本页掌握度最低：${attentionStudent.value.displayName || "学生"}`;
+});
+const shortTime = (value?: string | null) => (value ? value.slice(0, 16).replace("T", " ") : "暂无活跃");
+const classSub = computed(() => {
+  const row = attentionStudent.value;
+  if (!row) return "学生完成练习或打卡后，这里会给出本页最需要关注的人。";
+  if (!needsAttention.value) {
+    return `本页最低掌握度 ${pct(row.avgMastery)}；暂无低于 ${pct(ATTENTION_THRESHOLD)} 的学生，建议继续观察样本。`;
+  }
+  return `掌握度 ${pct(row.avgMastery)} · 练习 ${row.practiceCount ?? 0} 次 · 最近 ${shortTime(row.lastActiveAt)}`;
 });
 
 const pct = (value?: number | null) =>
@@ -324,36 +336,14 @@ onMounted(load);
   margin-bottom: 16px;
 }
 .class-brief :deep(.el-card__body) {
-  padding: 22px 24px;
+  padding: var(--app-space-6);
 }
-.brief-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 28px;
-}
-.brief-eyebrow {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-  letter-spacing: 0.04em;
-}
-.brief-title {
-  margin: 6px 0 6px;
-  font-size: var(--app-fs-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--app-text);
-}
-.brief-sub {
-  margin: 0 0 8px;
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
-  line-height: 1.6;
+.class-brief .brief-sub {
+  margin-bottom: var(--app-space-2);
 }
 .brief-stats {
   display: flex;
-  gap: 28px;
+  gap: var(--app-space-6);
 }
 .brief-stats span {
   display: block;
@@ -368,25 +358,6 @@ onMounted(load);
   font-weight: 600;
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
-}
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.stat-card {
-  border-radius: var(--app-radius-md);
-}
-.stat-label {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-}
-.stat-value {
-  margin-top: 6px;
-  font-size: var(--app-fs-xl);
-  font-weight: 600;
-  color: var(--app-text);
 }
 .table-card {
   border-radius: var(--app-radius-md);
@@ -499,16 +470,9 @@ onMounted(load);
   .page-head {
     flex-direction: column;
   }
-  .brief-main {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
   .brief-stats {
     gap: 18px;
     justify-content: space-between;
-  }
-  .stat-row {
-    grid-template-columns: 1fr;
   }
   .kp-row {
     grid-template-columns: 1fr;

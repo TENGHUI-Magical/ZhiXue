@@ -80,12 +80,6 @@
                 <el-button v-if="overdueCount > 0" @click="router.push('/plan')">查看计划</el-button>
                 <el-button v-else @click="router.push('/portrait')">查看画像</el-button>
               </div>
-              <details v-if="evidence.length" class="evidence-detail">
-                <summary>为什么是它</summary>
-                <ul>
-                  <li v-for="item in evidence" :key="item">{{ item }}</li>
-                </ul>
-              </details>
             </div>
             <div class="hero-focus">
               <div
@@ -95,11 +89,13 @@
                 :aria-label="`本周完成 ${weekPct}%`"
               >
                 <div class="progress-ring-inner">
-                  <strong>{{ weekPct }}%</strong>
-                  <span>本周完成</span>
+                  <strong>{{ weekTotal ? weekPct + "%" : "—" }}</strong>
+                  <span>{{ weekTotal ? "本周完成" : "暂无计划" }}</span>
                 </div>
               </div>
-              <p class="focus-caption">{{ weekDone }} / {{ weekTotal }} 题</p>
+              <p class="focus-caption">
+                {{ weekTotal ? `${weekDone} / ${weekTotal} 题` : "去计划页生成" }}
+              </p>
             </div>
           </div>
         </el-card>
@@ -109,7 +105,9 @@
             <div class="metric-card">
               <div class="metric-label">今日待完成</div>
               <div class="metric-value">{{ todayRemaining }} <small>题</small></div>
-              <p class="metric-hint">{{ todayPlan ? "完成后可打卡" : "今天暂无计划" }}</p>
+              <p class="metric-hint">
+                {{ todayPlan ? (todayRemaining > 0 ? "完成后可打卡" : "今天的题已完成") : "今天暂无计划" }}
+              </p>
               <button type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
             </div>
             <div class="metric-card">
@@ -471,7 +469,7 @@ onMounted(loadAll);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 168px;
   align-items: center;
-  gap: 28px;
+  gap: var(--app-space-6);
 }
 .hero-copy {
   min-width: 0;
@@ -512,19 +510,6 @@ onMounted(loadAll);
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-}
-.evidence-detail {
-  margin-top: 14px;
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-}
-.evidence-detail summary {
-  cursor: pointer;
-}
-.evidence-detail ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  line-height: 1.7;
 }
 .hero-focus {
   display: flex;
@@ -642,9 +627,6 @@ onMounted(loadAll);
   color: var(--app-text-muted);
   font-weight: 400;
 }
-.metric-progress {
-  margin-top: 10px;
-}
 .metric-hint {
   margin: 8px 0 0;
   color: var(--app-text-muted);
@@ -748,8 +730,18 @@ onMounted(loadAll);
     width: 86px;
     height: 86px;
   }
-  .metric-grid,
   .rec-grid {
+    grid-template-columns: 1fr;
+  }
+  .start-step {
+    grid-template-columns: 32px 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .page-head {
+    flex-direction: column;
+  }
+  .metric-grid {
     grid-template-columns: 1fr;
   }
   .metric-card {
@@ -763,14 +755,6 @@ onMounted(loadAll);
   }
   .metric-card:last-child {
     padding-bottom: 2px;
-  }
-  .start-step {
-    grid-template-columns: 32px 1fr;
-  }
-}
-@media (max-width: 768px) {
-  .page-head {
-    flex-direction: column;
   }
   .hero-main {
     grid-template-columns: 1fr;

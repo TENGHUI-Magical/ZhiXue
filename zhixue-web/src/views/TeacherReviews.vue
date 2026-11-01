@@ -18,22 +18,12 @@
     <el-card class="review-brief" shadow="never">
       <div class="brief-main">
         <div>
-          <div class="brief-eyebrow">{{ statusFilter === "REVIEWED" ? "评阅记录" : "评阅队列" }}</div>
-          <h3 class="brief-title">
-            {{ statusFilter === "REVIEWED" ? `已评阅 ${total} 条` : `待评阅 ${total} 条` }}
-          </h3>
-          <p class="brief-sub">
-            {{
-              statusFilter === "REVIEWED"
-                ? "评阅结论会同步回写讲解质量，供后续抽样与复盘。"
-                : oldestWaitingText
-                  ? `最早一条已等待 ${oldestWaitingText}；建议先处理等待最久的讲解。`
-                  : "队列为空时，学生生成的新讲解会自动进入这里。"
-            }}
-          </p>
+          <div class="brief-eyebrow">{{ queueEyebrow }}</div>
+          <h3 class="brief-title">{{ queueTitle }}</h3>
+          <p class="brief-sub">{{ queueSub }}</p>
         </div>
         <div class="brief-stats">
-          <div><span>{{ statusFilter === "REVIEWED" ? "已评阅" : "待评阅" }}</span><strong>{{ total }}</strong></div>
+          <div><span>{{ firstStatLabel }}</span><strong>{{ total }}</strong></div>
           <div><span>本页记录</span><strong>{{ records.length }}</strong></div>
           <div><span>评分标准</span><strong>1—5</strong></div>
         </div>
@@ -252,6 +242,29 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? (value || "—");
+const queueEyebrow = computed(() =>
+  statusFilter.value === "ALL" ? "全部评阅" : statusFilter.value === "REVIEWED" ? "评阅记录" : "评阅队列"
+);
+const queueTitle = computed(() =>
+  statusFilter.value === "ALL"
+    ? `共 ${total.value} 条`
+    : statusFilter.value === "REVIEWED"
+      ? `已评阅 ${total.value} 条`
+      : `待评阅 ${total.value} 条`
+);
+const firstStatLabel = computed(() =>
+  statusFilter.value === "ALL" ? "全部" : statusFilter.value === "REVIEWED" ? "已评阅" : "待评阅"
+);
+const queueSub = computed(() => {
+  if (statusFilter.value === "ALL") return "全部评阅记录；切换到“待评阅”处理未评阅队列。";
+  if (statusFilter.value === "REVIEWED") return "评阅结论会同步回写讲解质量，供后续抽样与复盘。";
+  if (!records.value.length) return "队列为空时，学生生成的新讲解会自动进入这里。";
+  if (oldestWaitingText.value) {
+    return `本页待评阅最长等待 ${oldestWaitingText.value}；建议先处理等待最久的讲解。`;
+  }
+  return "本页暂未读到等待时长。";
+});
+
 const oldestWaitingText = computed(() => {
   const values = records.value
     .map((row) => row.waitingSeconds)
@@ -378,36 +391,11 @@ onMounted(load);
   margin-bottom: 16px;
 }
 .review-brief :deep(.el-card__body) {
-  padding: 22px 24px;
-}
-.brief-main {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 28px;
-}
-.brief-eyebrow {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-  letter-spacing: 0.04em;
-}
-.brief-title {
-  margin: 6px 0 6px;
-  font-size: var(--app-fs-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--app-text);
-}
-.brief-sub {
-  margin: 0;
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
-  line-height: 1.6;
+  padding: var(--app-space-6);
 }
 .brief-stats {
   display: flex;
-  gap: 28px;
+  gap: var(--app-space-6);
 }
 .brief-stats span {
   display: block;
@@ -428,29 +416,6 @@ onMounted(load);
   color: var(--app-text-muted);
   font-weight: 600;
   border-bottom: 1px solid var(--app-hairline);
-}
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.stat-card {
-  text-align: left;
-}
-.stat-label {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-}
-.stat-value {
-  margin-top: 6px;
-  color: var(--app-text);
-  font-size: var(--app-fs-xl);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.stat-value.small {
-  font-size: var(--app-fs-lg);
 }
 .table-card {
   overflow: hidden;
@@ -584,16 +549,9 @@ onMounted(load);
   max-width: 92vw;
 }
 @media (max-width: 1024px) {
-  .brief-main {
-    grid-template-columns: 1fr;
-    gap: 16px;
-  }
   .brief-stats {
     gap: 18px;
     justify-content: space-between;
-  }
-  .stat-row {
-    grid-template-columns: 1fr;
   }
   .desktop-only {
     display: none;
