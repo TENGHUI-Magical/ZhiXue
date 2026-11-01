@@ -136,6 +136,7 @@
             :key="node.id"
             :type="weakIds.has(node.id ?? '') ? 'danger' : 'info'"
             class="node-tag"
+            role="button"
             tabindex="0"
             @click="openNode(node.id)"
             @keydown.enter.prevent="openNode(node.id)"
@@ -618,6 +619,14 @@ onMounted(load);
   }
   .node-label {
     display: none;
+  }
+  /* 图谱节点随 SVG 缩放，无法稳定达到 44px；用下方清单提供等价大目标 */
+  .node-tag {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: var(--app-fs-sm);
   }
   :deep(.el-drawer) {
     width: 92vw !important;

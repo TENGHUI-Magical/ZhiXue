@@ -56,6 +56,7 @@ function reply(method, pathname, role) {
   if (/^\/api\/courses\/\d+\/knowledge-graph$/.test(pathname)) return { code: 0, data: { nodes, edges }, timestamp: Date.now() }
   if (pathname.startsWith('/api/course/kp/')) return { code: 0, data: kpDetail, timestamp: Date.now() }
   if (pathname === '/api/portraits/me') return { code: 0, data: portrait, timestamp: Date.now() }
+  if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [{ kpId: 'KP0012', name: '连接查询', avgMastery: 0.32, errorCount: 4 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, activeRate: 0.5 }, timestamp: Date.now() }
   if (pathname === '/api/error/records') return { code: 0, data: errorPage, timestamp: Date.now() }
   if (pathname === '/api/plans') return { code: 0, data: plans, timestamp: Date.now() }
   if (pathname === '/api/recommendations') return { code: 0, data: recs, timestamp: Date.now() }
@@ -139,13 +140,14 @@ async function checkNext(name, fn, detail = '', timeout = 12000) {
   check(name, ok, ok ? detail : `${detail}${detail ? ' | ' : ''}等待超时 ${timeout}ms`)
 }
 
-async function newContext(browser, role, theme, viewport) {
+async function newContext(browser, role, theme, viewport, options = {}) {
+  const { token = true } = options
   const ctx = await browser.newContext({ viewport, locale: 'zh-CN' })
-  await ctx.addInitScript(({ role, theme }) => {
-    localStorage.setItem('satoken', 'mock')
+  await ctx.addInitScript(({ role, theme, token }) => {
+    if (token) localStorage.setItem('satoken', 'mock')
     localStorage.setItem('zhixue_user', JSON.stringify({ userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: 'x', role }))
     localStorage.setItem('zhixue-theme', theme)
-  }, { role, theme })
+  }, { role, theme, token })
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
     if (u.pathname.startsWith('/api/')) {
@@ -235,6 +237,21 @@ try {
   await open(page, '/not-exist')
   await checkNext('404：未知路径兜底', async () => (await page.locator('.state-code').innerText()).trim() === '404')
 
+  await open(page, '/403')
+  await checkNext('403：无权访问页', async () => (await page.locator('.state-code').innerText()).trim() === '403')
+
+  await open(page, '/diagnosis')
+  await checkNext('诊断台：图片上传入口', async () => (await page.locator('.ocr-upload').count()) === 1)
+
+  // 未登录：回登录并保留站内 returnUrl
+  const anonCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 }, { token: false })
+  const anonPage = await anonCtx.newPage()
+  await anonPage.goto(BASE + '/today', { waitUntil: 'domcontentloaded' })
+  await anonPage.waitForURL((url) => new URL(url).pathname === '/login', { timeout: 15000 }).catch(() => {})
+  const loginUrl = new URL(anonPage.url())
+  check('未登录：回登录并带 returnUrl', loginUrl.pathname === '/login' && loginUrl.searchParams.get('redirect') === '/today', anonPage.url())
+  await anonCtx.close()
+
   // 角色守卫
   const teacherGuard = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tp = await teacherGuard.newPage()
@@ -253,6 +270,8 @@ try {
   // ---------- 教师桌面 ----------
   const teacherCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tpage = await teacherCtx.newPage()
+  await open(tpage, '/teacher')
+  await checkNext('教学概览：四张指标卡', async () => (await tpage.locator('.stat-card').count()) >= 4)
   await open(tpage, '/teacher/reviews')
   await checkNext('评阅：队列已渲染', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await tpage.getByRole('button', { name: '评阅' }).nth(1).click()
@@ -273,29 +292,66 @@ try {
   // ---------- 移动端 ----------
   const mobileCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
   const mp = await mobileCtx.newPage()
-  for (const [name, pathname] of [['today','/today'],['plan','/plan'],['portrait','/portrait']]) {
+  const MOBILE_READY = {
+    today: '.metric-card',
+    diagnosis: '.upload-card, .page-head',
+    'error-book': '.el-table__row',
+    portrait: '.baseline-row',
+    plan: '.day-card',
+    'knowledge-graph': '.graph-node',
+    profile: '.quick-links'
+  }
+  for (const [name, pathname] of STUDENT) {
     await open(mp, pathname)
-    const ready = { today: '.metric-card', plan: '.day-card', portrait: '.baseline-row' }[name]
-    await mp.waitForSelector(ready, { timeout: 10000 }).catch(() => {})
+    await mp.waitForSelector(MOBILE_READY[name], { timeout: 10000 }).catch(() => {})
     await sleep(150)
     const info = await mp.evaluate(() => {
       const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
       let small = 0
+      const sample = []
       for (const el of els) {
-        if (el.matches('.el-select__input')) continue
+        // 图谱 SVG 节点随画布缩放，无法稳定达到 44px；由下方含 role=button 的清单提供等价目标
+        if (el.matches('.el-select__input, .graph-node')) continue
         const r = el.getBoundingClientRect()
         if (r.width === 0 || r.height === 0) continue
-        if (r.width < 44 || r.height < 44) small++
+        if (r.width < 44 || r.height < 44) {
+          small++
+          if (sample.length < 5) {
+            const cls = Array.from(el.classList).slice(0, 2).join('.')
+            sample.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}:${Math.round(r.width)}x${Math.round(r.height)}`)
+          }
+        }
       }
-      return { small, overflow: document.documentElement.scrollWidth > window.innerWidth + 1 }
+      return { small, sample, overflow: document.documentElement.scrollWidth > window.innerWidth + 1 }
     })
     check(`移动端/${name}：无横向溢出`, !info.overflow)
-    check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small}`)
+    check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
+    if (name === 'knowledge-graph') {
+      const tagHeights = await mp.evaluate(() =>
+        Array.from(document.querySelectorAll('.node-tag')).map((el) => Math.round(el.getBoundingClientRect().height))
+      )
+      check(
+        '移动端/图谱：清单替代目标≥44',
+        tagHeights.length >= 12 && tagHeights.every((h) => h >= 44),
+        `tags=${tagHeights.length} min=${tagHeights.length ? Math.min(...tagHeights) : 0}`
+      )
+    }
   }
   await mobileCtx.close()
 
-  // ---------- axe（双主题 × 8 页 + 移动端 3 页） ----------
+  // ---------- axe（双主题 × 9 页 + 移动端 3 页） ----------
   const a11y = []
+  const mobileAxeCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
+  const mobileAxePage = await mobileAxeCtx.newPage()
+  for (const [name, pathname] of [['today', '/today'], ['plan', '/plan'], ['portrait', '/portrait']]) {
+    await open(mobileAxePage, pathname)
+    await sleep(300)
+    const v = await axeScan(mobileAxePage)
+    a11y.push({ theme: 'glass', page: `mobile-${name}`, violations: v })
+    check(`a11y/mobile/${name}`, v.length === 0, JSON.stringify(v))
+  }
+  await mobileAxeCtx.close()
+
   for (const theme of ['glass', 'glass-dark']) {
     const ctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 })
     const p = await ctx.newPage()
