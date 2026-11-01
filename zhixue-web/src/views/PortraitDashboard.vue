@@ -403,7 +403,8 @@ onMounted(load);
 }
 .baseline-track i.mastery { background: var(--app-primary); }
 .baseline-track i.accuracy { background: var(--app-success); }
-.baseline-track i.sample { background: var(--app-warning); }
+/* 样本充分度是信息性指标，高值不应显示为警告色 */
+.baseline-track i.sample { background: var(--app-info); }
 .baseline-value {
   text-align: right;
   color: var(--app-text);

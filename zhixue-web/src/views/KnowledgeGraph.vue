@@ -53,7 +53,7 @@
           viewBox="0 0 800 600"
           role="group"
           aria-label="知识点先修关系图，完整名称见下方节点列表"
-          @wheel.prevent="onWheel"
+          @wheel="onWheel"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
           @pointerup="onPointerUp"
@@ -320,7 +320,12 @@ const onWheel = (event: WheelEvent) => {
   if (!rect.width || !rect.height) return;
   const cx = ((event.clientX - rect.left) / rect.width) * 800;
   const cy = ((event.clientY - rect.top) / rect.height) * 600;
-  zoomAt(event.deltaY < 0 ? 1.15 : 0.87, cx, cy);
+  const factor = event.deltaY < 0 ? 1.15 : 0.87;
+  const next = clamp(scale.value * factor, 0.6, 2.5);
+  // 已到缩放边界时把滚轮还给页面，避免整页卡在图谱上
+  if (next === scale.value) return;
+  event.preventDefault();
+  zoomAt(factor, cx, cy);
 };
 
 let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
