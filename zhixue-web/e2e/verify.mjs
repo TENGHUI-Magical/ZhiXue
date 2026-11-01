@@ -250,6 +250,9 @@ try {
 
   await open(page, '/plan')
   await checkNext('计划：7 天卡片', async () => (await page.locator('.day-card').count()) === 7)
+  await page.getByRole('button', { name: '上一周' }).click(); await sleep(500)
+  await checkNext('计划：非本周使用“该周”文案', async () => (await page.locator('.brief-eyebrow').innerText()).includes('该周'))
+  await page.getByRole('button', { name: '本周' }).click(); await sleep(500)
   await page.getByRole('button', { name: '去打卡' }).first().click()
   await checkNext('计划：打卡先打开练习抽屉', async () => await page.locator('.practice-drawer.open').isVisible())
   const practiceBox = await page.locator('.practice-drawer.open').boundingBox()
@@ -263,6 +266,67 @@ try {
   await page.locator('.graph-controls button').first().click(); await sleep(400)
   const after = await page.locator('.graph-viewport').getAttribute('transform')
   check('图谱：放大改变视图', before !== after, `${before} -> ${after}`)
+
+  // P0 回归：未到缩放上限时滚轮必须 preventDefault；到上限后必须放行页面滚动
+  const wheelProbe = async () => page.evaluate(async () => {
+    const svg = document.querySelector('.graph-svg')
+    const rect = svg.getBoundingClientRect()
+    const ev = new WheelEvent('wheel', {
+      deltaY: -120,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+      bubbles: true,
+      cancelable: true
+    })
+    svg.dispatchEvent(ev)
+    await new Promise((resolve) => requestAnimationFrame(() => resolve()))
+    const scale = Number(
+      (document.querySelector('.graph-viewport').getAttribute('transform') || '')
+        .match(/scale\(([^)]+)\)/)?.[1] || 1
+    )
+    return { prevented: ev.defaultPrevented, scale }
+  })
+  const wheelAtNormal = await wheelProbe()
+  check('图谱：未到上限滚轮拦截页面滚动', wheelAtNormal.prevented && wheelAtNormal.scale > 1,
+    JSON.stringify(wheelAtNormal))
+  for (let i = 0; i < 8; i++) {
+    await page.locator('.graph-controls button').first().click()
+  }
+  await sleep(500)
+  const wheelAtMax = await wheelProbe()
+  check('图谱：到缩放上限后滚轮放行页面滚动',
+    !wheelAtMax.prevented && wheelAtMax.scale >= 2.4, JSON.stringify(wheelAtMax))
+
+  // P0 回归：第二触点不得重置拖拽起点（双指时不能跳图）
+  await page.locator('.graph-controls button').last().click() // 重置
+  await sleep(300)
+  const svgBox = await page.locator('.graph-svg').boundingBox()
+  if (!svgBox) throw new Error('图谱 SVG 未渲染')
+  const px = svgBox.x + svgBox.width / 2
+  const py = svgBox.y + svgBox.height / 2
+  await page.mouse.move(px, py)
+  await page.mouse.down()
+  await page.mouse.move(px + 30, py + 20, { steps: 4 })
+  await sleep(250)
+  const panTransform = await page.locator('.graph-viewport').getAttribute('transform')
+  check('图谱：拖拽平移生效', panTransform !== 'translate(0 0) scale(1)', panTransform)
+  await page.evaluate(({ x, y }) => {
+    const svg = document.querySelector('.graph-svg')
+    const base = {
+      bubbles: true, cancelable: true, pointerId: 99, pointerType: 'touch',
+      isPrimary: false, button: 0, buttons: 1
+    }
+    svg.dispatchEvent(new PointerEvent('pointerdown', { ...base, clientX: x, clientY: y }))
+    svg.dispatchEvent(new PointerEvent('pointermove', { ...base, clientX: x + 80, clientY: y + 80 }))
+  }, { x: px + 40, y: py + 40 })
+  await sleep(250)
+  const afterSecondPointer = await page.locator('.graph-viewport').getAttribute('transform')
+  check('图谱：第二触点不劫持拖拽', panTransform === afterSecondPointer,
+    `${panTransform} -> ${afterSecondPointer}`)
+  await page.mouse.up()
+  await page.locator('.graph-controls button').last().click() // 恢复视图，避免影响后续节点点击
+  await sleep(300)
+
   await page.locator('.graph-node').first().click()
   await checkNext('图谱：节点打开详情', async () => await page.locator('.kp-drawer').isVisible())
   await checkNext('图谱：邻接边高亮', async () => (await page.locator('.graph-edge.active').count()) >= 1)

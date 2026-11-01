@@ -330,16 +330,20 @@ const onWheel = (event: WheelEvent) => {
 };
 
 let panStart = { x: 0, y: 0, tx: 0, ty: 0 };
+// 只认第一根按下的指针：第二根手指不能重置拖拽起点，否则双指操作会跳图
+let activePointerId: number | null = null;
 const onPointerDown = (event: PointerEvent) => {
+  if (activePointerId !== null) return;
   const target = event.target as Element | null;
   if (target?.closest(".graph-node")) return; // 节点点击不触发拖拽
   if (event.button !== 0) return;
+  activePointerId = event.pointerId;
   dragging.value = true;
   panStart = { x: event.clientX, y: event.clientY, tx: tx.value, ty: ty.value };
   (event.currentTarget as SVGSVGElement).setPointerCapture?.(event.pointerId);
 };
 const onPointerMove = (event: PointerEvent) => {
-  if (!dragging.value) return;
+  if (!dragging.value || event.pointerId !== activePointerId) return;
   const svg = svgRef.value;
   if (!svg) return;
   const rect = svg.getBoundingClientRect();
@@ -348,8 +352,9 @@ const onPointerMove = (event: PointerEvent) => {
   ty.value = panStart.ty + ((event.clientY - panStart.y) / rect.height) * 600;
 };
 const onPointerUp = (event: PointerEvent) => {
-  if (!dragging.value) return;
+  if (!dragging.value || event.pointerId !== activePointerId) return;
   dragging.value = false;
+  activePointerId = null;
   (event.currentTarget as SVGSVGElement).releasePointerCapture?.(event.pointerId);
 };
 
