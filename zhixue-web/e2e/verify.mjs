@@ -265,6 +265,9 @@ try {
   check('图谱：放大改变视图', before !== after, `${before} -> ${after}`)
   await page.locator('.graph-node').first().click()
   await checkNext('图谱：节点打开详情', async () => await page.locator('.kp-drawer').isVisible())
+  await checkNext('图谱：邻接边高亮', async () => (await page.locator('.graph-edge.active').count()) >= 1)
+  await checkNext('图谱：邻接节点高亮', async () => (await page.locator('.graph-node.adjacent').count()) >= 1)
+  await checkNext('图谱：非邻接变暗', async () => (await page.locator('.graph-node.dim').count()) >= 1)
   await page.keyboard.press('Escape'); await sleep(400)
 
   await open(page, '/knowledge-graph?kpId=KP0012')

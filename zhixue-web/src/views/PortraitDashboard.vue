@@ -336,7 +336,7 @@ onMounted(load);
   font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
   background: var(--app-surface);
-  border: 0.5px solid var(--app-border);
+  border: 1px solid var(--app-hairline);
 }
 .dash {
   display: grid;
@@ -608,7 +608,7 @@ onMounted(load);
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-top: 0.5px solid var(--app-border);
+  border-top: 1px solid var(--app-hairline);
   padding-top: 10px;
   font-size: var(--app-fs-xs);
   color: var(--app-text-muted);

@@ -10,7 +10,9 @@
     "perf:bundle": "node perf/bench/bundle-budget.mjs",
     "e2e": "node e2e/verify.mjs",
     "preview": "vite preview",
-    "gen:types": "openapi-typescript ../docs/openapi.yaml -o src/api/types.ts"
+    "gen:types": "openapi-typescript ../docs/openapi.yaml -o src/api/types.ts",
+    "e2e:real": "node e2e/real/api-smoke.mjs",
+    "e2e:real:ui": "node e2e/real/ui-real.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
