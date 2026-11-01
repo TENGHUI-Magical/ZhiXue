@@ -64,56 +64,70 @@
       </el-card>
 
       <template v-else>
-        <!-- 今日建议卡 -->
+        <!-- 今日建议卡：结论 + 本周进度环 -->
         <el-card class="hero-card" shadow="never">
-          <div class="hero-eyebrow">今日建议</div>
-          <h3 class="hero-title">{{ conclusion }}</h3>
-          <div class="hero-evidence">
-            <span v-for="item in evidence" :key="item" class="evidence-chip">{{ item }}</span>
+          <div class="hero-main">
+            <div class="hero-copy">
+              <div class="hero-eyebrow">今日建议</div>
+              <h3 class="hero-title">{{ conclusion }}</h3>
+              <div class="hero-evidence">
+                <span v-for="item in evidence" :key="item" class="evidence-chip">{{ item }}</span>
+              </div>
+              <div class="hero-actions">
+                <el-button v-if="primary" type="primary" @click="handlePrimary">
+                  {{ primary.label }}
+                </el-button>
+                <el-button v-if="overdueCount > 0" @click="router.push('/plan')">查看计划</el-button>
+                <el-button v-else @click="router.push('/portrait')">查看画像</el-button>
+              </div>
+              <details v-if="evidence.length" class="evidence-detail">
+                <summary>为什么是它</summary>
+                <ul>
+                  <li v-for="item in evidence" :key="item">{{ item }}</li>
+                </ul>
+              </details>
+            </div>
+            <div class="hero-focus">
+              <div
+                class="progress-ring"
+                :style="{ '--pct': weekPct }"
+                role="img"
+                :aria-label="`本周完成 ${weekPct}%`"
+              >
+                <div class="progress-ring-inner">
+                  <strong>{{ weekPct }}%</strong>
+                  <span>本周完成</span>
+                </div>
+              </div>
+              <p class="focus-caption">{{ weekDone }} / {{ weekTotal }} 题</p>
+            </div>
           </div>
-          <div class="hero-actions">
-            <el-button v-if="primary" type="primary" @click="handlePrimary">
-              {{ primary.label }}
-            </el-button>
-            <el-button v-if="overdueCount > 0" @click="router.push('/plan')">查看计划</el-button>
-            <el-button v-else @click="router.push('/portrait')">查看画像</el-button>
-          </div>
-          <details v-if="evidence.length" class="evidence-detail">
-            <summary>为什么是它</summary>
-            <ul>
-              <li v-for="item in evidence" :key="item">{{ item }}</li>
-            </ul>
-          </details>
         </el-card>
 
-        <div class="metric-grid">
-          <el-card class="metric-card" shadow="never">
-            <div class="metric-label">本周完成</div>
-            <div class="metric-value">{{ weekDone }} <small>/ {{ weekTotal }}</small></div>
-            <el-progress
-              :percentage="weekPct"
-              :stroke-width="8"
-              :show-text="false"
-              class="metric-progress"
-              aria-label="本周完成进度"
-            />
-            <button type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
-          </el-card>
-          <el-card class="metric-card" shadow="never">
-            <div class="metric-label">训练样本</div>
-            <div class="metric-value">{{ sampleCount }} <small>次</small></div>
-            <p class="metric-hint">画像快照 {{ snapshotDate || "尚未生成" }}</p>
-            <button type="button" class="metric-link" @click="router.push('/portrait')">查看画像</button>
-          </el-card>
-          <el-card class="metric-card" shadow="never">
-            <div class="metric-label">最该补</div>
-            <div class="metric-value small">{{ weakest ? weakest.name || weakest.kpId : "暂无" }}</div>
-            <p class="metric-hint">
-              {{ weakest ? `掌握度 ${pct(weakest.mastery)} · 样本 ${weakest.sampleCount ?? 0}` : "样本不足时不排名" }}
-            </p>
-            <button type="button" class="metric-link" @click="router.push('/knowledge-graph')">看知识图谱</button>
-          </el-card>
-        </div>
+        <el-card class="metric-band" shadow="never">
+          <div class="metric-grid">
+            <div class="metric-card">
+              <div class="metric-label">今日待完成</div>
+              <div class="metric-value">{{ todayRemaining }} <small>题</small></div>
+              <p class="metric-hint">{{ todayPlan ? "完成后可打卡" : "今天暂无计划" }}</p>
+              <button type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">训练样本</div>
+              <div class="metric-value">{{ sampleCount }} <small>次</small></div>
+              <p class="metric-hint">画像快照 {{ snapshotDate || "尚未生成" }}</p>
+              <button type="button" class="metric-link" @click="router.push('/portrait')">查看画像</button>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">最该补</div>
+              <div class="metric-value small">{{ weakest ? weakest.name || weakest.kpId : "暂无" }}</div>
+              <p class="metric-hint">
+                {{ weakest ? `掌握度 ${pct(weakest.mastery)} · 样本 ${weakest.sampleCount ?? 0}` : "样本不足时不排名" }}
+              </p>
+              <button type="button" class="metric-link" @click="router.push('/knowledge-graph')">看知识图谱</button>
+            </div>
+          </div>
+        </el-card>
 
         <!-- 推荐练习 -->
         <el-card v-if="recommendations.length" class="section-card" header="接着练这些" shadow="never">
@@ -264,7 +278,6 @@ const conclusion = computed(() => {
 const evidence = computed(() => {
   const items: string[] = [];
   if (overdueCount.value > 0) items.push(`计划：逾期 ${overdueCount.value} 题`);
-  if (weekTotal.value > 0) items.push(`本周：${weekDone.value}/${weekTotal.value} 已完成`);
   if (weakest.value) {
     items.push(
       `薄弱点：${weakest.value.name || weakest.value.kpId} 掌握度 ${pct(weakest.value.mastery)} · 样本 ${weakest.value.sampleCount ?? 0}`
@@ -444,7 +457,6 @@ onMounted(loadAll);
   margin-bottom: 12px;
 }
 .fatal-state {
-  max-width: 960px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -452,9 +464,17 @@ onMounted(loadAll);
   margin-bottom: 16px;
 }
 .hero-card {
-  max-width: 960px;
   border-radius: var(--app-radius-lg);
   margin-bottom: 16px;
+}
+.hero-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 168px;
+  align-items: center;
+  gap: 28px;
+}
+.hero-copy {
+  min-width: 0;
 }
 .hero-eyebrow {
   color: var(--app-text-muted);
@@ -462,9 +482,12 @@ onMounted(loadAll);
   letter-spacing: 0.04em;
 }
 .hero-title {
-  margin: 8px 0 10px;
-  font-size: var(--app-fs-xl);
-  line-height: 1.3;
+  margin: 8px 0 12px;
+  max-width: 760px;
+  font-size: var(--app-fs-hero);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
   color: var(--app-text);
 }
 .hero-desc {
@@ -503,6 +526,50 @@ onMounted(loadAll);
   padding-left: 18px;
   line-height: 1.7;
 }
+.hero-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.progress-ring {
+  width: 136px;
+  height: 136px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(
+    var(--app-primary) calc(var(--pct, 0) * 1%),
+    var(--app-surface-muted) 0
+  );
+}
+.progress-ring-inner {
+  width: 106px;
+  height: 106px;
+  border-radius: 50%;
+  background: var(--app-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.progress-ring-inner strong {
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+.progress-ring-inner span {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.focus-caption {
+  margin: 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  font-variant-numeric: tabular-nums;
+}
 .start-grid {
   display: grid;
   gap: 12px;
@@ -534,14 +601,28 @@ onMounted(loadAll);
   color: #fff;
   font-weight: 600;
 }
+.metric-band {
+  border-radius: var(--app-radius-md);
+  margin-bottom: 16px;
+}
+.metric-band :deep(.el-card__body) {
+  padding: 18px 20px;
+}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
 }
 .metric-card {
-  border-radius: var(--app-radius-md);
+  min-width: 0;
+  padding: 2px 20px;
+  border-left: 1px solid var(--app-hairline);
+}
+.metric-card:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+.metric-card:last-child {
+  padding-right: 0;
 }
 .metric-label {
   color: var(--app-text-muted);
@@ -655,9 +736,33 @@ onMounted(loadAll);
   font-size: var(--app-fs-xs);
 }
 @media (max-width: 1024px) {
+  .hero-main {
+    grid-template-columns: minmax(0, 1fr) 132px;
+    gap: 18px;
+  }
+  .progress-ring {
+    width: 112px;
+    height: 112px;
+  }
+  .progress-ring-inner {
+    width: 86px;
+    height: 86px;
+  }
   .metric-grid,
   .rec-grid {
     grid-template-columns: 1fr;
+  }
+  .metric-card {
+    padding: 12px 0;
+    border-left: none;
+    border-top: 1px solid var(--app-hairline);
+  }
+  .metric-card:first-child {
+    border-top: none;
+    padding-top: 2px;
+  }
+  .metric-card:last-child {
+    padding-bottom: 2px;
   }
   .start-step {
     grid-template-columns: 32px 1fr;
@@ -667,8 +772,16 @@ onMounted(loadAll);
   .page-head {
     flex-direction: column;
   }
+  .hero-main {
+    grid-template-columns: 1fr;
+  }
+  .hero-focus {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 14px;
+  }
   .hero-title {
-    font-size: var(--app-fs-lg);
+    font-size: var(--app-fs-xl);
   }
 }
 </style>

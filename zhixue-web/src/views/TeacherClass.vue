@@ -15,20 +15,31 @@
       </div>
     </div>
 
-    <div class="stat-row">
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">学生数</div>
-        <div class="stat-value">{{ total }}</div>
-      </el-card>
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">本页记录</div>
-        <div class="stat-value">{{ records.length }}</div>
-      </el-card>
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">本页平均掌握度</div>
-        <div class="stat-value">{{ avgMasteryText }}</div>
-      </el-card>
-    </div>
+    <el-card class="class-brief" shadow="never">
+      <div class="brief-main">
+        <div class="brief-copy">
+          <div class="brief-eyebrow">班级结论</div>
+          <h3 class="brief-title">
+            {{ attentionStudent ? `本周最需关注：${attentionStudent.displayName || "学生"}` : "本班暂无足够样本" }}
+          </h3>
+          <p class="brief-sub">
+            {{
+              attentionStudent
+                ? `掌握度 ${pct(attentionStudent.avgMastery)} · 练习 ${attentionStudent.practiceCount ?? 0} 次 · 最近 ${attentionStudent.lastActiveAt || "暂无活跃"}`
+                : "学生完成练习或打卡后，这里会给出班级层面最该关注的人。"
+            }}
+          </p>
+          <el-button v-if="attentionStudent" link type="primary" @click="openDetail(attentionStudent)">
+            查看学习记录
+          </el-button>
+        </div>
+        <div class="brief-stats">
+          <div><span>学生数</span><strong>{{ total }}</strong></div>
+          <div><span>平均掌握度</span><strong>{{ avgMasteryText }}</strong></div>
+          <div><span>本页记录</span><strong>{{ records.length }}</strong></div>
+        </div>
+      </div>
+    </el-card>
 
     <PageState
       :loading="loading"
@@ -216,6 +227,15 @@ const avgMasteryText = computed(() => {
   return pct(values.reduce((sum, value) => sum + value, 0) / values.length);
 });
 
+/** 班级结论：本页有练习的学生里掌握度最低者 */
+const attentionStudent = computed<TeacherStudentItem | null>(() => {
+  const candidates = records.value.filter(
+    (row) => (row.practiceCount ?? 0) > 0 && typeof row.avgMastery === "number"
+  );
+  if (!candidates.length) return null;
+  return [...candidates].sort((a, b) => (a.avgMastery ?? 1) - (b.avgMastery ?? 1))[0];
+});
+
 const pct = (value?: number | null) =>
   typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
 
@@ -299,6 +319,56 @@ onMounted(load);
 .sort-select {
   width: 128px;
 }
+.class-brief {
+  border-radius: var(--app-radius-lg);
+  margin-bottom: 16px;
+}
+.class-brief :deep(.el-card__body) {
+  padding: 22px 24px;
+}
+.brief-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+}
+.brief-eyebrow {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  letter-spacing: 0.04em;
+}
+.brief-title {
+  margin: 6px 0 6px;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--app-text);
+}
+.brief-sub {
+  margin: 0 0 8px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  line-height: 1.6;
+}
+.brief-stats {
+  display: flex;
+  gap: 28px;
+}
+.brief-stats span {
+  display: block;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  white-space: nowrap;
+}
+.brief-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
 .stat-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -320,6 +390,12 @@ onMounted(load);
 }
 .table-card {
   border-radius: var(--app-radius-md);
+}
+.table-card :deep(.el-table th.el-table__cell) {
+  background: transparent;
+  color: var(--app-text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--app-hairline);
 }
 .pager {
   display: flex;
@@ -422,6 +498,14 @@ onMounted(load);
 @media (max-width: 768px) {
   .page-head {
     flex-direction: column;
+  }
+  .brief-main {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .brief-stats {
+    gap: 18px;
+    justify-content: space-between;
   }
   .stat-row {
     grid-template-columns: 1fr;

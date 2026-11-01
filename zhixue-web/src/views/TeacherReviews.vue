@@ -15,20 +15,30 @@
       </div>
     </div>
 
-    <div class="stat-row">
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">{{ statusFilter === "PENDING" ? "待评阅" : statusFilter === "REVIEWED" ? "已评阅" : "记录" }}</div>
-        <div class="stat-value">{{ total }}</div>
-      </el-card>
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">本页记录</div>
-        <div class="stat-value">{{ records.length }}</div>
-      </el-card>
-      <el-card class="stat-card" shadow="never">
-        <div class="stat-label">评分标准</div>
-        <div class="stat-value small">1—5 分</div>
-      </el-card>
-    </div>
+    <el-card class="review-brief" shadow="never">
+      <div class="brief-main">
+        <div>
+          <div class="brief-eyebrow">{{ statusFilter === "REVIEWED" ? "评阅记录" : "评阅队列" }}</div>
+          <h3 class="brief-title">
+            {{ statusFilter === "REVIEWED" ? `已评阅 ${total} 条` : `待评阅 ${total} 条` }}
+          </h3>
+          <p class="brief-sub">
+            {{
+              statusFilter === "REVIEWED"
+                ? "评阅结论会同步回写讲解质量，供后续抽样与复盘。"
+                : oldestWaitingText
+                  ? `最早一条已等待 ${oldestWaitingText}；建议先处理等待最久的讲解。`
+                  : "队列为空时，学生生成的新讲解会自动进入这里。"
+            }}
+          </p>
+        </div>
+        <div class="brief-stats">
+          <div><span>{{ statusFilter === "REVIEWED" ? "已评阅" : "待评阅" }}</span><strong>{{ total }}</strong></div>
+          <div><span>本页记录</span><strong>{{ records.length }}</strong></div>
+          <div><span>评分标准</span><strong>1—5</strong></div>
+        </div>
+      </div>
+    </el-card>
 
     <PageState
       :loading="loading"
@@ -242,6 +252,14 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? (value || "—");
+const oldestWaitingText = computed(() => {
+  const values = records.value
+    .map((row) => row.waitingSeconds)
+    .filter((value): value is number => typeof value === "number" && value > 0);
+  if (!values.length) return "";
+  return waitingText(Math.max(...values));
+});
+
 const waitingText = (seconds?: number) => {
   const s = typeof seconds === "number" ? seconds : 0;
   if (s <= 0) return "—";
@@ -354,6 +372,62 @@ onMounted(load);
 <style scoped>
 .page {
   max-width: var(--app-page-max);
+}
+.review-brief {
+  border-radius: var(--app-radius-lg);
+  margin-bottom: 16px;
+}
+.review-brief :deep(.el-card__body) {
+  padding: 22px 24px;
+}
+.brief-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 28px;
+}
+.brief-eyebrow {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  letter-spacing: 0.04em;
+}
+.brief-title {
+  margin: 6px 0 6px;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--app-text);
+}
+.brief-sub {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  line-height: 1.6;
+}
+.brief-stats {
+  display: flex;
+  gap: 28px;
+}
+.brief-stats span {
+  display: block;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  white-space: nowrap;
+}
+.brief-stats strong {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+.table-card :deep(.el-table th.el-table__cell) {
+  background: transparent;
+  color: var(--app-text-muted);
+  font-weight: 600;
+  border-bottom: 1px solid var(--app-hairline);
 }
 .stat-row {
   display: grid;
@@ -510,6 +584,14 @@ onMounted(load);
   max-width: 92vw;
 }
 @media (max-width: 1024px) {
+  .brief-main {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .brief-stats {
+    gap: 18px;
+    justify-content: space-between;
+  }
   .stat-row {
     grid-template-columns: 1fr;
   }

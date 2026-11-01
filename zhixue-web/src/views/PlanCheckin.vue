@@ -29,6 +29,24 @@
       @close="actionError = ''"
     />
 
+    <el-card v-if="plans.length" class="week-brief" shadow="never">
+      <div class="brief-main">
+        <div>
+          <div class="brief-eyebrow">本周进度</div>
+          <h3 class="brief-title">
+            {{ weekDone }} / {{ weekTotal }} 已完成<span v-if="overdueCount"> · {{ overdueCount }} 题逾期</span>
+          </h3>
+          <p class="brief-sub">
+            {{ todayRemaining > 0 ? `今天还有 ${todayRemaining} 题待完成；完成后逐题打卡。` : "今天的计划已完成，可以按节奏预习或补弱。" }}
+          </p>
+        </div>
+        <div class="brief-progress">
+          <strong>{{ weekPct }}%</strong>
+          <el-progress :percentage="weekPct" :stroke-width="8" :show-text="false" aria-label="本周完成进度" />
+        </div>
+      </div>
+    </el-card>
+
     <el-card class="section-card">
       <template #header>
         <div class="card-head">
@@ -189,6 +207,22 @@ const weekEnd = computed(() => formatDate(addDays(weekStartDate.value, 6)));
 const isCurrentWeek = computed(
   () => formatDate(weekStartDate.value) === formatDate(mondayOf(new Date()))
 );
+const weekDone = computed(() => plans.value.reduce((sum, plan) => sum + (plan.doneCount ?? 0), 0));
+const weekTotal = computed(() => plans.value.reduce((sum, plan) => sum + (plan.planCount ?? 0), 0));
+const weekPct = computed(() =>
+  weekTotal.value === 0 ? 0 : Math.round((weekDone.value / weekTotal.value) * 100)
+);
+const overdueCount = computed(() =>
+  plans.value.reduce((sum, plan) => {
+    const remaining = Math.max(0, (plan.planCount ?? 0) - (plan.doneCount ?? 0));
+    return sum + (plan.status === "OVERDUE" ? remaining : 0);
+  }, 0)
+);
+const todayRemaining = computed(() => {
+  const today = formatDate(new Date());
+  const plan = plans.value.find((item) => item.planDate === today);
+  return Math.max(0, (plan?.planCount ?? 0) - (plan?.doneCount ?? 0));
+});
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -378,6 +412,49 @@ onMounted(() => {
 .action-alert {
   margin-bottom: 12px;
 }
+.week-brief {
+  border-radius: var(--app-radius-lg);
+  margin-bottom: 16px;
+}
+.week-brief :deep(.el-card__body) {
+  padding: 20px 24px;
+}
+.brief-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  align-items: center;
+  gap: 28px;
+}
+.brief-eyebrow {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  letter-spacing: 0.04em;
+}
+.brief-title {
+  margin: 6px 0 6px;
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--app-text);
+}
+.brief-sub {
+  margin: 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  line-height: 1.6;
+}
+.brief-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.brief-progress strong {
+  font-size: var(--app-fs-xl);
+  font-weight: 600;
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
 .section-card {
   margin-bottom: 16px;
 }
@@ -501,6 +578,10 @@ onMounted(() => {
   }
 }
 @media (max-width: 768px) {
+  .brief-main {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
   .week-actions {
     width: 100%;
     justify-content: space-between;

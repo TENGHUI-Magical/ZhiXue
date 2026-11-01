@@ -54,11 +54,11 @@ html[data-theme="glass"] {
   --app-shell-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 18px 40px -18px rgba(16, 24, 40, 0.22),
     0 48px 90px -48px rgba(16, 24, 40, 0.18);
   --app-card-hi: #ffffff;
-  --app-wall-base: #d7e0ec;
-  --app-wall-1: #86b2e6;
-  --app-wall-2: #a9b8df;
-  --app-wall-3: #e3c3a3;
-  --app-wall-4: #8fcabf;
+  --app-wall-base: #e7eef7;
+  --app-wall-1: #93b6dd;
+  --app-wall-2: #b9c9e3;
+  --app-wall-3: #cfdae9;
+  --app-wall-4: #a9c6dc;
 }
 
 /* D · 液态玻璃（深色）：石墨蓝黑 + 低饱和壁纸 */
@@ -102,10 +102,10 @@ html[data-theme="glass-dark"] {
   --app-shell-shadow: 0 1px 0 rgba(255, 255, 255, 0.05), 0 28px 70px -28px rgba(0, 0, 0, 0.85);
   --app-card-hi: rgba(255, 255, 255, 0.04);
   --app-wall-base: #080d17;
-  --app-wall-1: #1e4a8a;
-  --app-wall-2: #2b3f78;
-  --app-wall-3: #5a3620;
-  --app-wall-4: #16544f;
+  --app-wall-1: #1b3760;
+  --app-wall-2: #26365e;
+  --app-wall-3: #1d2a44;
+  --app-wall-4: #173246;
 }
 
 :root {

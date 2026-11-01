@@ -22,8 +22,8 @@ html[data-theme="glass-dark"] .app-wall {
   position: absolute;
   display: block;
   border-radius: 50%;
-  filter: blur(72px);
-  opacity: 0.78;
+  filter: blur(76px);
+  opacity: 0.58;
 }
 .app-wall i:nth-child(1) {
   width: 66vw; height: 66vw; left: -12vw; top: -20vw;
@@ -232,6 +232,20 @@ html[data-theme="glass-dark"] .main::-webkit-scrollbar {
   html[data-theme="glass-dark"] .header {
     padding: 0 12px;
   }
+  html[data-theme="glass"] .login-page,
+  html[data-theme="glass-dark"] .login-page {
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  html[data-theme="glass"] .login-foot,
+  html[data-theme="glass-dark"] .login-foot {
+    text-align: center;
+  }
+  html[data-theme="glass"] .login-page::after,
+  html[data-theme="glass-dark"] .login-page::after {
+    display: none;
+  }
 }
 
 /* ---------- 内容层：实底卡 + 发丝边 ---------- */
@@ -429,7 +443,7 @@ html[data-theme="glass-dark"] .el-form-item__label {
 html[data-theme="glass"] .el-table,
 html[data-theme="glass-dark"] .el-table {
   --el-table-border-color: var(--app-border);
-  --el-table-header-bg-color: var(--app-surface-muted);
+  --el-table-header-bg-color: transparent;
   --el-table-tr-bg-color: transparent;
   --el-table-row-hover-bg-color: var(--app-surface-muted);
   background: transparent;
@@ -440,7 +454,8 @@ html[data-theme="glass-dark"] .el-table th.el-table__cell {
   font-size: var(--app-fs-xs);
   font-weight: 600;
   color: var(--app-text-muted);
-  background: var(--app-surface-muted);
+  background: transparent;
+  border-bottom: 1px solid var(--app-hairline);
 }
 html[data-theme="glass"] .el-table td.el-table__cell,
 html[data-theme="glass-dark"] .el-table td.el-table__cell {
@@ -583,20 +598,21 @@ html[data-theme="glass-dark"] .upload-sub {
 html[data-theme="glass"] .login-page,
 html[data-theme="glass-dark"] .login-page {
   position: relative;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
   min-height: 100vh;
+  padding: clamp(24px, 4vw, 56px);
   background:
-    radial-gradient(54vw 46vw at 8% -8%, #6f97c8, transparent 62%),
-    radial-gradient(44vw 40vw at 94% -2%, #8fa6cf, transparent 62%),
-    radial-gradient(60vw 46vw at 62% 106%, #8fbfb5, transparent 66%),
-    linear-gradient(165deg, #c8d6e8 0%, #e6ecf3 52%, #d5e2e2 100%);
+    radial-gradient(58vw 52vw at 16% 34%, rgba(37, 99, 235, 0.1), transparent 62%),
+    radial-gradient(70vw 60vw at 88% 108%, rgba(37, 99, 235, 0.06), transparent 66%),
+    linear-gradient(165deg, #eef3f9 0%, #f8fafc 54%, #edf3f8 100%);
 }
 html[data-theme="glass-dark"] .login-page {
   background:
-    radial-gradient(58vw 46vw at 10% -4%, var(--app-wall-1), transparent 62%),
-    radial-gradient(46vw 40vw at 92% 2%, var(--app-wall-2), transparent 64%),
-    radial-gradient(64vw 46vw at 64% 104%, var(--app-wall-4), transparent 66%),
+    radial-gradient(58vw 52vw at 14% 32%, rgba(77, 141, 255, 0.12), transparent 62%),
+    radial-gradient(64vw 52vw at 88% 106%, rgba(77, 141, 255, 0.06), transparent 66%),
     linear-gradient(180deg, #0a101b, var(--app-wall-base));
 }
 html[data-theme="glass"] .login-page::before,
@@ -614,25 +630,24 @@ html[data-theme="glass"] .login-page::after,
 html[data-theme="glass-dark"] .login-page::after {
   content: "";
   position: absolute;
-  left: 50%;
+  left: 6vw;
   top: 50%;
-  width: 560px;
-  height: 480px;
-  transform: translate(-24%, -52%);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(37, 99, 235, 0.24), transparent 66%);
-  filter: blur(46px);
+  width: min(46vw, 640px);
+  height: 56vh;
+  transform: translateY(-50%);
+  background: url("/login-graph.svg") center / contain no-repeat;
+  opacity: 0.55;
   pointer-events: none;
 }
 html[data-theme="glass-dark"] .login-page::after {
-  background: radial-gradient(circle, rgba(77, 141, 255, 0.2), transparent 66%);
+  opacity: 0.35;
 }
 html[data-theme="glass"] .login-card,
 html[data-theme="glass-dark"] .login-card {
   position: relative;
   z-index: 1;
-  width: min(384px, 90vw);
-  border: 0.5px solid var(--app-glass-edge);
+  width: min(420px, 90vw);
+  border: 1px solid var(--app-glass-edge);
   border-radius: var(--app-radius-lg);
   background:
     linear-gradient(180deg, var(--app-window-hi), transparent 46%),
@@ -640,6 +655,11 @@ html[data-theme="glass-dark"] .login-card {
   -webkit-backdrop-filter: blur(32px) saturate(150%);
   backdrop-filter: blur(32px) saturate(150%);
   box-shadow: var(--app-shell-shadow), inset 0 1px 0 var(--app-glass-hi);
+}
+html[data-theme="glass"] .login-foot,
+html[data-theme="glass-dark"] .login-foot {
+  width: min(420px, 90vw);
+  text-align: right;
 }
 html[data-theme="glass"] .login-card {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.64));

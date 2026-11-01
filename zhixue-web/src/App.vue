@@ -480,9 +480,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--app-text);
-  font-size: var(--app-fs-md);
-  font-weight: 600;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 .nav-toggle {
   display: none;
