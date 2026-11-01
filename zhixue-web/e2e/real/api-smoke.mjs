@@ -185,6 +185,38 @@ const reviews = await call('GET', '/api/teacher/reviews?status=PENDING&page=1&si
 if (reviews.json?.code === 0) pass('GET /teacher/reviews', `total=${reviews.json?.data?.total ?? 0}`)
 else fail('GET /teacher/reviews', `code=${reviews.json?.code} msg=${reviews.json?.message}`)
 
+
+// OCR（可选）：E2E_OCR_IMAGE 指向一张真实错题图片
+const ocrImage = process.env.E2E_OCR_IMAGE
+if (ocrImage && fs.existsSync(ocrImage)) {
+  const fd = new FormData()
+  fd.append('file', new Blob([fs.readFileSync(ocrImage)], { type: 'image/png' }), path.basename(ocrImage))
+  fd.append('clientToken', 'ocr-' + Date.now())
+  const uploadRes = await fetch(BASE + '/api/error/upload', {
+    method: 'POST', headers: { satoken: studentToken }, body: fd
+  })
+  const uploadJson = await uploadRes.json()
+  const taskId = uploadJson?.data?.taskId
+  if (uploadJson?.code !== 0 || !taskId) {
+    fail('OCR 上传任务', `code=${uploadJson?.code} msg=${uploadJson?.message}`)
+  } else {
+    let task = null
+    for (let i = 0; i < 30; i++) {
+      const r = await call('GET', `/api/error/tasks/${taskId}`, studentToken)
+      task = r.json?.data
+      if (task?.status === 'SUCCESS' || task?.status === 'FAILED') break
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    if (task?.status === 'SUCCESS' && (task.ocrText || '').length >= 20 && (task.confidence ?? 0) >= 0.8) {
+      pass('OCR 真实图片识别', `conf=${task.confidence} text=${task.ocrText.slice(0, 24)}...`)
+    } else {
+      fail('OCR 真实图片识别', `status=${task?.status} conf=${task?.confidence} text=${(task?.ocrText || '').slice(0, 80)}`)
+    }
+  }
+} else {
+  console.log('SKIP OCR（未设置 E2E_OCR_IMAGE）')
+}
+
 const health = await call('GET', '/api/system/health')
 if (health.json?.data?.db === 'UP') pass('health db=UP', `ai=${health.json?.data?.ai}`)
 else fail('health db=UP', JSON.stringify(health.json)?.slice(0, 200))

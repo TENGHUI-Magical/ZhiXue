@@ -32,10 +32,14 @@ $env:E2E_USER='student01'; $env:E2E_PASS='123456'
 $env:E2E_TEACHER_USER='teacher01'; $env:E2E_TEACHER_PASS='123456'
 npm run e2e:real
 npm run e2e:real:ui
+
+# 可选：真实 OCR（指向一张本地错题图片）
+$env:E2E_OCR_IMAGE='D:\path\to\question.png'
+npm run e2e:real
 ```
 
 报告默认写到 `spark-output/qa/2026-11-01-real/`；可用 `E2E_REAL_OUT` 覆盖。  
-SSE 讲解在 AI 服务离线时应出现 `degraded` 事件，但必须仍有 `meta/delta/done`；脚本按这个口径断言。
+AI 服务可选：启动 `zhixue-ai`（uvicorn 8000）后可验证真实 OCR/LLM；不启动时 SSE 应出现 `degraded` 事件，但必须仍有 `meta/delta/done`；脚本按这个口径断言。
 
 ## 已知契约缺口（不是前端 bug）
 
