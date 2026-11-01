@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">ACCOUNT</div>
         <h2>个人中心</h2>
         <p class="sub">账号身份与登录信息来自统一认证，仅供本人查看。</p>
       </div>
@@ -61,6 +60,24 @@
             请勿向他人转借账号；在公共设备使用后，请及时退出登录。
           </p>
         </el-card>
+
+        <el-card class="quick-card" shadow="never">
+          <template #header>
+            <div class="card-head"><span>快捷入口</span><span class="card-sub">按角色</span></div>
+          </template>
+          <div class="quick-links">
+            <template v-if="profile.role === 'TEACHER'">
+              <el-button @click="router.push('/teacher/reviews')">教学评阅</el-button>
+              <el-button @click="router.push('/teacher/class')">班级学情</el-button>
+            </template>
+            <template v-else>
+              <el-button @click="router.push('/today')">今日工作台</el-button>
+              <el-button @click="router.push('/portrait')">学情画像</el-button>
+              <el-button @click="router.push('/plan')">周计划</el-button>
+            </template>
+          </div>
+          <p class="quick-note">主题可在右上角切换（浅色 / 深色）。</p>
+        </el-card>
       </div>
     </PageState>
   </div>
@@ -116,7 +133,7 @@ const load = async () => {
 };
 
 const goHome = () => {
-  router.push(profile.value.role === "TEACHER" ? "/teacher/reviews" : "/diagnosis");
+  router.push(profile.value.role === "TEACHER" ? "/teacher/reviews" : "/today");
 };
 
 const logout = async () => {
@@ -140,12 +157,6 @@ onMounted(() => {
 <style scoped>
 .page {
   max-width: 960px;
-}
-.eyebrow {
-  font-size: var(--app-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--app-text-muted);
 }
 .page-head h2 {
   margin: 6px 0 3px;
@@ -250,6 +261,19 @@ onMounted(() => {
 }
 .security-card .security-note {
   margin-top: 8px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.quick-card {
+  grid-column: 1 / -1;
+}
+.quick-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quick-note {
+  margin: 12px 0 0;
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }

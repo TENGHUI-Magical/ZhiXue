@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">WEEKLY PLAN</div>
         <h2>周计划与打卡</h2>
         <p class="sub">按周生成练习计划，完成后逐题打卡；历史进度自动保留。</p>
       </div>
@@ -358,12 +357,6 @@ onMounted(() => {
 }
 .page-head h2 {
   margin: 0;
-}
-.eyebrow {
-  font-size: var(--app-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--app-text-muted);
 }
 .sub {
   margin: 6px 0 0;

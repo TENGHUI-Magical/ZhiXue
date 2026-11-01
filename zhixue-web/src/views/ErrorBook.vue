@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">ERROR BOOK</div>
         <h2>我的错题本</h2>
         <p class="sub">按知识点与状态筛选错题；建议先独立作答，再查看解析。</p>
       </div>
@@ -270,12 +269,6 @@ onMounted(() => {
 }
 .page-head h2 {
   margin: 0;
-}
-.eyebrow {
-  font-size: var(--app-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--app-text-muted);
 }
 .sub {
   margin: 6px 0 0;

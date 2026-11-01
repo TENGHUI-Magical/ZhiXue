@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">DIAGNOSIS</div>
         <h2>错题诊断工作台</h2>
         <p class="sub">上传或录入错题，匹配知识点后生成启发式讲解与分层练习。</p>
       </div>
@@ -578,12 +577,6 @@ onBeforeUnmount(() => {
     opacity: 1;
     transform: none;
   }
-}
-.eyebrow {
-  font-size: var(--app-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--app-text-muted);
 }
 .page-head h2 {
   margin: 6px 0 3px;

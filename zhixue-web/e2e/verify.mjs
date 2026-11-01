@@ -67,7 +67,7 @@ function reply(method, pathname, role) {
   return { code: 0, data: null, timestamp: Date.now() }
 }
 
-const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/error-book'],['portrait','/portrait'],['plan','/plan'],['knowledge-graph','/knowledge-graph']]
+const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/error-book'],['portrait','/portrait'],['plan','/plan'],['knowledge-graph','/knowledge-graph'],['profile','/profile']]
 const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teacher/class']]
 
 // ---------------- 启动与断言 ----------------
@@ -171,6 +171,9 @@ try {
   await page.goto(BASE + '/knowledge-graph?kpId=KP0012', { waitUntil: 'domcontentloaded' }); await sleep(1500)
   check('图谱：kpId 深链打开详情', await page.locator('.kp-drawer').isVisible())
   await page.keyboard.press('Escape'); await sleep(400)
+
+  await page.goto(BASE + '/profile', { waitUntil: 'domcontentloaded' }); await sleep(1000)
+  check('个人中心：快捷入口', await page.locator('.quick-links .el-button').count() >= 3)
 
   await page.goto(BASE + '/not-exist', { waitUntil: 'domcontentloaded' }); await sleep(800)
   check('404：未知路径兜底', (await page.locator('.state-code').innerText()).trim() === '404')

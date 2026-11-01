@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">ACADEMIC REVIEW</div>
         <h2>教师评阅</h2>
         <p class="sub">对 AI 讲解进行抽样评阅（1—5 分）；每条讲解仅可评阅一次。</p>
       </div>

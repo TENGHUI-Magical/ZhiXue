@@ -2,7 +2,6 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <div class="eyebrow">KNOWLEDGE MAP</div>
         <h2>课程知识图谱</h2>
         <p class="sub">节点按先修关系连接；红色标记当前画像中的薄弱知识点。</p>
       </div>
@@ -437,12 +436,6 @@ onMounted(load);
 .page-head h2 {
   margin: 0;
 }
-.eyebrow {
-  font-size: var(--app-fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--app-text-muted);
-}
 .sub {
   margin: 6px 0 0;
   color: var(--app-text-secondary);
@@ -466,18 +459,6 @@ onMounted(load);
   gap: 6px;
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
-}
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.dot.weak {
-  background: var(--app-danger);
-}
-.dot.normal {
-  background: var(--app-primary);
 }
 .graph-card {
   position: relative;
