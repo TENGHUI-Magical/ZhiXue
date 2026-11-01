@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.2.0
+  version: 2.2.1
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -590,95 +590,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/StudentLearningRecordResponse' }
-  /api/teacher/knowledge-points:
-    post:
-      tags: [teacher]
-      summary: 新建知识点
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/KpUpsert' }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/KpResponse' }
-  /api/teacher/knowledge-points/{kpId}:
-    put:
-      tags: [teacher]
-      summary: 更新知识点
-      parameters:
-        - name: kpId
-          in: path
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/KpUpsert' }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/KpResponse' }
-  /api/teacher/questions:
-    get:
-      tags: [teacher]
-      summary: 题库列表
-      parameters:
-        - name: page
-          in: query
-          schema: { type: integer, default: 1 }
-        - name: size
-          in: query
-          schema: { type: integer, default: 20, maximum: 100 }
-        - name: kpId
-          in: query
-          schema: { type: string }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/QuestionPageResponse' }
-    post:
-      tags: [teacher]
-      summary: 新建题目
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/QuestionUpsert' }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/QuestionResponse' }
-  /api/teacher/questions/import:
-    post:
-      tags: [teacher]
-      summary: 批量导入题目（Excel）
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file]
-              properties:
-                file: { type: string, format: binary }
-                courseId: { type: integer, format: int64 }
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ImportResultResponse' }
   /api/system/health:
     get:
       tags: [system]
