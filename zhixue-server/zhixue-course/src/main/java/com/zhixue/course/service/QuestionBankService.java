@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.QuestionAnswerView;
+import com.zhixue.course.dto.QuestionBriefView;
 import com.zhixue.course.dto.QuestionDetailView;
 import com.zhixue.course.dto.QuestionView;
 import com.zhixue.course.entity.KnowledgePoint;
@@ -46,15 +47,44 @@ public class QuestionBankService {
      * @return 题目视图列表，答案与解析不下发
      */
     public List<QuestionView> recommend(Long courseId, String kpId, int count, Integer difficulty) {
+        int limit = Math.max(1, Math.min(count, 10));
         LambdaQueryWrapper<QuestionBank> query = new LambdaQueryWrapper<QuestionBank>()
                 .eq(QuestionBank::getCourseId, courseId)
                 .eq(QuestionBank::getPrimaryKpId, kpId)
                 .eq(QuestionBank::getIsActive, 1)
                 .eq(difficulty != null, QuestionBank::getDifficulty, difficulty)
                 .orderByAsc(QuestionBank::getDifficulty)
-                .orderByAsc(QuestionBank::getQId)
-                .last("LIMIT " + Math.max(1, Math.min(count, 10)));
-        return questionBankMapper.selectList(query).stream().map(this::toView).toList();
+                .orderByAsc(QuestionBank::getQId);
+        return questionBankMapper.selectByWrapperLimit(query, limit).stream().map(this::toView).toList();
+    }
+
+    /**
+     * 按知识点列出启用题目（简要视图，不含答案与解析）。
+     * 课程归属由知识点解析，避免前端传错 courseId；limit 收敛到 1—50。
+     *
+     * @param kpId 知识点编号
+     * @param count 期望条数
+     * @return 题目简要视图；知识点无题时为空
+     */
+    public List<QuestionBriefView> listBriefByKp(String kpId, int count) {
+        if (kpId == null || kpId.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "kpId 不能为空");
+        }
+        KnowledgePoint kp = knowledgePointService.getById(kpId);
+        if (kp.getCourseId() == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "知识点缺少课程归属: " + kpId);
+        }
+        int limit = Math.max(1, Math.min(count, 50));
+        LambdaQueryWrapper<QuestionBank> query = new LambdaQueryWrapper<QuestionBank>()
+                .eq(QuestionBank::getCourseId, kp.getCourseId())
+                .eq(QuestionBank::getPrimaryKpId, kpId)
+                .eq(QuestionBank::getIsActive, 1)
+                .orderByAsc(QuestionBank::getDifficulty)
+                .orderByAsc(QuestionBank::getQId);
+        return questionBankMapper.selectByWrapperLimit(query, limit).stream()
+                .map(question -> new QuestionBriefView(question.getQId(), question.getPrimaryKpId(),
+                        question.getQuestionType(), question.getQuestionText(), question.getDifficulty()))
+                .toList();
     }
 
     /**

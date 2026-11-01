@@ -14,8 +14,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -79,6 +85,52 @@ class QuestionBankServiceTest {
         when(questionBankMapper.selectById("Q_9999")).thenReturn(null);
         BizException ex = assertThrows(BizException.class, () -> service.getDetail("Q_9999"));
         assertEquals(ErrorCode.NOT_FOUND, ex.getErrorCode());
+    }
+
+    @Test
+    void recommendClampsCountAndBindsLimit() {
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0101");
+        question.setQuestionType("单选");
+        question.setQuestionText("题干");
+        when(questionBankMapper.selectByWrapperLimit(any(), anyInt())).thenReturn(List.of(question));
+
+        service.recommend(1L, "KP0101", 99, null);
+        verify(questionBankMapper).selectByWrapperLimit(any(), eq(10));
+
+        service.recommend(1L, "KP0101", 0, null);
+        verify(questionBankMapper).selectByWrapperLimit(any(), eq(1));
+    }
+
+    @Test
+    void listBriefByKpClampsLimitAndReturnsSafeFields() {
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setKpId("KP0201");
+        kp.setCourseId(1L);
+        when(knowledgePointService.getById("KP0201")).thenReturn(kp);
+
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0201");
+        question.setPrimaryKpId("KP0201");
+        question.setQuestionType("单选");
+        question.setQuestionText("题干");
+        question.setDifficulty(1);
+        question.setAnswerText("A");
+        when(questionBankMapper.selectByWrapperLimit(any(), anyInt())).thenReturn(List.of(question));
+
+        var list = service.listBriefByKp("KP0201", 99);
+
+        assertEquals(1, list.size());
+        assertEquals("Q_0201", list.get(0).qId());
+        assertEquals("题干", list.get(0).questionText());
+        // QuestionBriefView 编译期即没有 answerText/analysisText
+        verify(questionBankMapper).selectByWrapperLimit(any(), eq(50));
+    }
+
+    @Test
+    void listBriefByKpRejectsBlankKpId() {
+        BizException ex = assertThrows(BizException.class, () -> service.listBriefByKp(" ", 20));
+        assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
     }
 
     @Test

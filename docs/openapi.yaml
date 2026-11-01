@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.1.0
+  version: 2.2.0
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -121,6 +121,25 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/KpResponse' }
+  /api/questions:
+    get:
+      tags: [question]
+      summary: 按知识点列出题目（不含答案与解析；供错题关联/练习选择）
+      parameters:
+        - name: kpId
+          in: query
+          required: true
+          schema: { type: string, example: KP0201 }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 20, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuestionBriefListResponse' }
   /api/questions/{qId}:
     get:
       tags: [question]
@@ -1316,6 +1335,22 @@ components:
         - type: object
           properties:
             data: { $ref: '#/components/schemas/QuestionDetail' }
+    QuestionBriefListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/QuestionBrief' }
+    QuestionBrief:
+      type: object
+      properties:
+        qId: { type: string, example: Q_0201 }
+        primaryKpId: { type: string, example: KP0201 }
+        questionType: { type: string, enum: [单选, 多选, 填空, 简答, 编程] }
+        questionText: { type: string }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
     QuestionDetail:
       type: object
       properties:

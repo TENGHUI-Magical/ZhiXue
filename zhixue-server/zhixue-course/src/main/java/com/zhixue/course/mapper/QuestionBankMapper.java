@@ -1,5 +1,6 @@
 package com.zhixue.course.mapper;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.zhixue.course.entity.QuestionBank;
 import org.apache.ibatis.annotations.Param;
@@ -24,4 +25,12 @@ public interface QuestionBankMapper extends BaseMapper<QuestionBank> {
             + "ORDER BY qb.difficulty ASC, qb.q_id ASC")
     List<QuestionBank> selectByKpIncludeSecondary(@Param("courseId") Long courseId,
                                                   @Param("kpId") String kpId);
+
+    /**
+     * 按 wrapper 过滤并限制条数；LIMIT 参数绑定，替代 `.last("LIMIT ...")` 字符串拼接。
+     * `${ew.customSqlSegment}` 为 MyBatis-Plus 生成的 WHERE/ORDER BY 片段，不含 last()。
+     */
+    @Select("SELECT * FROM question_bank ${ew.customSqlSegment} LIMIT #{limit}")
+    List<QuestionBank> selectByWrapperLimit(@Param("ew") Wrapper<QuestionBank> wrapper,
+                                            @Param("limit") int limit);
 }
