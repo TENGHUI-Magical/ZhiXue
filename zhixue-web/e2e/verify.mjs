@@ -62,6 +62,9 @@ const questionDetail = { qId: 'Q_0301', courseId: 1, kpId: 'KP0001', kpName: '�
 const answer = { qId: 'Q_0301', answerText: 'A', analysisText: '解析' }
 
 function reply(method, pathname, role) {
+  if (pathname === '/api/auth/login') {
+    return { code: 0, data: { token: 'mock-login', userId: role === 'TEACHER' ? 1 : 2, username: role === 'TEACHER' ? 'T001' : '2023034743010', role }, timestamp: Date.now() }
+  }
   if (method !== 'GET') return { code: 0, data: null, timestamp: Date.now() }
   if (pathname === '/api/auth/me') return { code: 0, data: { userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: role === 'TEACHER' ? '王老师' : '朱同学', role }, timestamp: Date.now() }
   if (pathname === '/api/courses') return { code: 0, data: courses, timestamp: Date.now() }
@@ -265,6 +268,23 @@ try {
   const loginUrl = new URL(anonPage.url())
   check('未登录：回登录并带 returnUrl', loginUrl.pathname === '/login' && loginUrl.searchParams.get('redirect') === '/today', anonPage.url())
   await anonCtx.close()
+
+  // 登录：填写账号密码后按 returnUrl 回跳，并落 token
+  const loginCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 }, { token: false })
+  const loginPage = await loginCtx.newPage()
+  await loginPage.goto(BASE + '/login?redirect=%2Ferror-book', { waitUntil: 'domcontentloaded' })
+  await loginPage.waitForSelector('.login-card input', { timeout: 15000 })
+  await loginPage.locator('.login-card input').nth(0).fill('2023034743010')
+  await loginPage.locator('.login-card input').nth(1).fill('123456')
+  await loginPage.getByRole('button', { name: '登录' }).click()
+  await loginPage.waitForURL((url) => new URL(url).pathname === '/error-book', { timeout: 15000 }).catch(() => {})
+  const tokenStored = await loginPage.evaluate(() => localStorage.getItem('satoken'))
+  check(
+    '登录：按 returnUrl 回跳并落 token',
+    new URL(loginPage.url()).pathname === '/error-book' && tokenStored === 'mock-login',
+    `${loginPage.url()} token=${tokenStored}`
+  )
+  await loginCtx.close()
 
   // 角色守卫
   const teacherGuard = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
