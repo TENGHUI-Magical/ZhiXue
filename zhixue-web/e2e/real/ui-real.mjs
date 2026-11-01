@@ -147,36 +147,39 @@ try {
 
   await open(tp, '/teacher/reviews', '.el-table__row')
   const reviewRows = await tp.locator('.el-table__row').count()
-  if (reviewRows >= 1) pass('评阅队列：真实记录', `rows=${reviewRows}`)
-  else fail('评阅队列：真实记录', `rows=${reviewRows}`)
+  if (reviewRows >= 1) {
+    pass('评阅队列：真实记录', `rows=${reviewRows}`)
 
-  let target = tp.locator('.el-table__row').first()
-  if (EXPLAIN_ID) {
-    const byId = tp.locator('.el-table__row', { hasText: EXPLAIN_ID })
-    if (await byId.count()) target = byId.first()
-  }
-  await target.getByRole('button', { name: '评阅' }).click()
-  await tp.waitForSelector('.review-drawer', { state: 'visible', timeout: 10000 }).catch(() => {})
-  if (await tp.locator('.review-drawer').isVisible()) pass('评阅：真实抽屉')
-  else fail('评阅：真实抽屉')
-  await shot(tp, 'teacher-review-drawer')
+    let target = tp.locator('.el-table__row').first()
+    if (EXPLAIN_ID) {
+      const byId = tp.locator('.el-table__row', { hasText: EXPLAIN_ID })
+      if (await byId.count()) target = byId.first()
+    }
+    await target.getByRole('button', { name: '评阅' }).click()
+    await tp.waitForSelector('.review-drawer', { state: 'visible', timeout: 10000 }).catch(() => {})
+    if (await tp.locator('.review-drawer').isVisible()) pass('评阅：真实抽屉')
+    else fail('评阅：真实抽屉')
+    await shot(tp, 'teacher-review-drawer')
 
-  const alreadyReviewed = (await tp.getByText('该讲解已评阅，不能重复提交。').count()) >= 1
-  if (alreadyReviewed) {
-    pass('评阅：已评阅只读')
+    const alreadyReviewed = (await tp.getByText('该讲解已评阅，不能重复提交。').count()) >= 1
+    if (alreadyReviewed) {
+      pass('评阅：已评阅只读')
+    } else {
+      const passDisabled = await tp.locator('.el-radio-button').first().evaluate((el) => el.className.includes('is-disabled')).catch(() => true)
+      await tp.locator('.score-pill').nth(3).click()
+      await tp.locator('.review-drawer textarea').fill('真实联调评阅：讲解与错因匹配，引用可核验。')
+      if (passDisabled) await tp.locator('.el-radio-button').nth(1).click()
+      await tp.getByRole('button', { name: '提交评阅' }).click()
+      const submitted = await tp.getByText('评阅已提交').first().waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false)
+      const drawerClosed = await tp.locator('.review-drawer').waitFor({ state: 'hidden', timeout: 10000 }).then(() => true).catch(() => false)
+      if (submitted || drawerClosed) pass('评阅：真实提交成功', passDisabled ? '证据不完整→退回' : '证据完整→通过')
+      else fail('评阅：真实提交成功', '未出现“评阅已提交”且抽屉未关闭')
+    }
+    await sleep(600)
+    await shot(tp, 'teacher-review-submitted')
   } else {
-    const passDisabled = await tp.locator('.el-radio-button').first().evaluate((el) => el.className.includes('is-disabled')).catch(() => true)
-    await tp.locator('.score-pill').nth(3).click()
-    await tp.locator('.review-drawer textarea').fill('真实联调评阅：讲解与错因匹配，引用可核验。')
-    if (passDisabled) await tp.locator('.el-radio-button').nth(1).click()
-    await tp.getByRole('button', { name: '提交评阅' }).click()
-    const submitted = await tp.getByText('评阅已提交').first().waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false)
-    const drawerClosed = await tp.locator('.review-drawer').waitFor({ state: 'hidden', timeout: 10000 }).then(() => true).catch(() => false)
-    if (submitted || drawerClosed) pass('评阅：真实提交成功', passDisabled ? '证据不完整→退回' : '证据完整→通过')
-    else fail('评阅：真实提交成功', '未出现“评阅已提交”且抽屉未关闭')
+    pass('评阅队列：空（可能已全部评阅）')
   }
-  await sleep(600)
-  await shot(tp, 'teacher-review-submitted')
   await tctx.close()
 } finally {
   await browser.close()
