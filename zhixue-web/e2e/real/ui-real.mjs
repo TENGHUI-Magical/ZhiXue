@@ -97,7 +97,12 @@ try {
   await shot(sp, 'student-portrait')
 
   await open(sp, '/plan', '.day-card')
-  const days = await sp.locator('.day-card').count()
+  let days = await sp.locator('.day-card').count()
+  if (days === 0) {
+    await sp.getByRole('button', { name: /生成本周计划|生成该周计划/ }).first().click()
+    await sp.waitForSelector('.day-card', { timeout: 15000 }).catch(() => {})
+    days = await sp.locator('.day-card').count()
+  }
   if (days === 7) pass('计划：7 天', `days=${days}`)
   else fail('计划：7 天', `days=${days}`)
   await shot(sp, 'student-plan')
