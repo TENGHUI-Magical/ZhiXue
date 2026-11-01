@@ -18,3 +18,21 @@ export interface Portrait {
 }
 
 export const getPortrait = () => api.get<Portrait | null>("/api/portraits/me");
+
+export interface ClassWeakestKp {
+  kpId?: string;
+  name?: string | null;
+  avgMastery?: number;
+  errorCount?: number;
+}
+
+export interface ClassPortrait {
+  courseId?: number;
+  studentCount?: number;
+  weakestKpTop?: ClassWeakestKp[];
+  errorDist?: Record<string, number>;
+  activeRate?: number;
+}
+
+export const getClassPortrait = (courseId: number) =>
+  api.get<ClassPortrait>("/api/portraits/class/" + courseId);
