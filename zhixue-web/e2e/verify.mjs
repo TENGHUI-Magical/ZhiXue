@@ -176,6 +176,29 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   return ctx
 }
 
+/** 移动端触控与横向溢出审计；返回越界元素样本 */
+async function mobileAudit(page) {
+  return page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
+    let small = 0
+    const sample = []
+    for (const el of els) {
+      // 图谱 SVG 节点随画布缩放，无法稳定达到 44px；由下方含 role=button 的清单提供等价目标
+      if (el.matches('.el-select__input, .graph-node')) continue
+      const r = el.getBoundingClientRect()
+      if (r.width === 0 || r.height === 0) continue
+      if (r.width < 44 || r.height < 44) {
+        small++
+        if (sample.length < 5) {
+          const cls = Array.from(el.classList).slice(0, 2).join('.')
+          sample.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}:${Math.round(r.width)}x${Math.round(r.height)}`)
+        }
+      }
+    }
+    return { small, sample, overflow: document.documentElement.scrollWidth > window.innerWidth + 1 }
+  })
+}
+
 async function axeScan(page) {
   // Vite 首次访问新依赖时可能整页 reload，导致执行上下文被销毁：重试两次
   let lastError
@@ -347,25 +370,7 @@ try {
     await open(mp, pathname)
     await mp.waitForSelector(MOBILE_READY[name], { timeout: 10000 }).catch(() => {})
     await sleep(150)
-    const info = await mp.evaluate(() => {
-      const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
-      let small = 0
-      const sample = []
-      for (const el of els) {
-        // 图谱 SVG 节点随画布缩放，无法稳定达到 44px；由下方含 role=button 的清单提供等价目标
-        if (el.matches('.el-select__input, .graph-node')) continue
-        const r = el.getBoundingClientRect()
-        if (r.width === 0 || r.height === 0) continue
-        if (r.width < 44 || r.height < 44) {
-          small++
-          if (sample.length < 5) {
-            const cls = Array.from(el.classList).slice(0, 2).join('.')
-            sample.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}:${Math.round(r.width)}x${Math.round(r.height)}`)
-          }
-        }
-      }
-      return { small, sample, overflow: document.documentElement.scrollWidth > window.innerWidth + 1 }
-    })
+    const info = await mobileAudit(mp)
     check(`移动端/${name}：无横向溢出`, !info.overflow)
     check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
     if (name === 'knowledge-graph') {
@@ -381,6 +386,21 @@ try {
   }
   await mobileCtx.close()
 
+  // ---------- 教师移动端：触控与横向溢出 ----------
+  const teacherMobileCtx = await newContext(browser, 'TEACHER', 'glass', { width: 390, height: 844 })
+  const tmp = await teacherMobileCtx.newPage()
+  const TEACHER_MOBILE_READY = { 'teacher-reviews': '.mobile-card', 'teacher-class': '.mobile-card' }
+  for (const [name, pathname] of [['teacher-overview', '/teacher'], ...TEACHER]) {
+    await open(tmp, pathname)
+    const ready = name === 'teacher-overview' ? '.stat-card' : TEACHER_MOBILE_READY[name]
+    await tmp.waitForSelector(ready, { timeout: 10000 }).catch(() => {})
+    await sleep(200)
+    const info = await mobileAudit(tmp)
+    check(`移动端/${name}：无横向溢出`, !info.overflow)
+    check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
+  }
+  await teacherMobileCtx.close()
+
   // ---------- axe（双主题 × 9 页 + 移动端 3 页） ----------
   const a11y = []
   const mobileAxeCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
@@ -393,6 +413,17 @@ try {
     check(`a11y/mobile/${name}`, v.length === 0, JSON.stringify(v))
   }
   await mobileAxeCtx.close()
+
+  const teacherAxeCtx = await newContext(browser, 'TEACHER', 'glass', { width: 390, height: 844 })
+  const teacherAxePage = await teacherAxeCtx.newPage()
+  for (const [name, pathname] of [['teacher-overview', '/teacher'], ...TEACHER]) {
+    await open(teacherAxePage, pathname)
+    await sleep(300)
+    const v = await axeScan(teacherAxePage)
+    a11y.push({ theme: 'glass', page: `mobile-${name}`, violations: v })
+    check(`a11y/mobile/${name}`, v.length === 0, JSON.stringify(v))
+  }
+  await teacherAxeCtx.close()
 
   for (const theme of ['glass', 'glass-dark']) {
     const ctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 })
