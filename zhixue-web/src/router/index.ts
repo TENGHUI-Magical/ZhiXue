@@ -6,7 +6,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: () => (currentRole() === 'TEACHER' ? '/teacher/reviews' : '/today')
+      redirect: () => (currentRole() === 'TEACHER' ? '/teacher' : '/today')
     },
     {
       path: '/login',
@@ -57,6 +57,12 @@ const router = createRouter({
       meta: { title: '个人中心' }
     },
     {
+      path: '/teacher',
+      name: 'teacher-overview',
+      component: () => import('../views/TeacherOverview.vue'),
+      meta: { title: '教学概览', roles: ['TEACHER'] }
+    },
+    {
       path: '/teacher/reviews',
       name: 'teacher-reviews',
       component: () => import('../views/TeacherReviews.vue'),
@@ -105,14 +111,14 @@ router.beforeEach((to) => {
       : '/login'
   }
   if (to.path === '/login' && token) {
-    return currentRole() === 'TEACHER' ? '/teacher/reviews' : '/today'
+    return currentRole() === 'TEACHER' ? '/teacher' : '/today'
   }
   const role = currentRole()
   // 本地有 token 但用户缓存缺失时先放行，App 会回查 /api/auth/me 再补角色；
   // 否则会在角色未知时与默认首页互相重定向。
   if (!role) return true
   if (to.meta.roles && !to.meta.roles.includes(role)) {
-    return role === 'TEACHER' ? '/teacher/reviews' : '/today'
+    return role === 'TEACHER' ? '/teacher' : '/today'
   }
   return true
 })
