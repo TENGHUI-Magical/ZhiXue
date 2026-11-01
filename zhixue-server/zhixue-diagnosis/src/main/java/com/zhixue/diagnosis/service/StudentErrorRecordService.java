@@ -6,7 +6,9 @@ import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
 import com.zhixue.diagnosis.dto.ErrorRecordPageView;
@@ -21,6 +23,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -46,11 +49,14 @@ public class StudentErrorRecordService {
 
     private final StudentErrorRecordMapper mapper;
     private final KnowledgePointService knowledgePointService;
+    private final QuestionBankService questionBankService;
 
     public StudentErrorRecordService(StudentErrorRecordMapper mapper,
-                                     KnowledgePointService knowledgePointService) {
+                                     KnowledgePointService knowledgePointService,
+                                     QuestionBankService questionBankService) {
         this.mapper = mapper;
         this.knowledgePointService = knowledgePointService;
+        this.questionBankService = questionBankService;
     }
 
     /**
@@ -71,6 +77,20 @@ public class StudentErrorRecordService {
         // DRAFT 允许 kpId 为空；一旦非空就必须存在，否则插入后再查知识点会留下无法重试的脏记录
         if (request.kpId() != null && !request.kpId().isBlank()) {
             knowledgePointService.getById(request.kpId());
+        }
+        // qId 决定错题本能否直接练习；传入时必须指向启用中的题目，避免落库后变成死入口
+        if (request.qId() != null && !request.qId().isBlank()) {
+            QuestionBank question = questionBankService.getById(request.qId());
+            if (question == null) {
+                throw new BizException(ErrorCode.NOT_FOUND, "题目不存在: " + request.qId());
+            }
+            if (question.getIsActive() != null && question.getIsActive() != 1) {
+                throw new BizException(ErrorCode.NOT_FOUND, "题目已停用: " + request.qId());
+            }
+            if (question.getCourseId() != null
+                    && !Objects.equals(question.getCourseId(), request.courseId())) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "qId 不属于当前课程");
+            }
         }
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId(nextLogId());
@@ -192,9 +212,8 @@ public class StudentErrorRecordService {
                 .orderByDesc(StudentErrorRecord::getCreatedAt)
                 .orderByDesc(StudentErrorRecord::getLogId);
         long total = mapper.selectCount(query);
-        // last() 只加在列表查询上；count 与 list 共用 wrapper，先 count 后 last
-        List<StudentErrorRecord> rows = mapper.selectList(
-                query.last("LIMIT " + size + " OFFSET " + (long) (page - 1) * size));
+        // count 与 list 共用 wrapper；列表走参数绑定 LIMIT/OFFSET，不再使用 .last() 拼接
+        List<StudentErrorRecord> rows = mapper.selectPageByWrapper(query, size, (long) (page - 1) * size);
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(
                 rows.stream().map(StudentErrorRecord::getKpId).toList());
         List<ErrorRecordView> records = rows.stream()

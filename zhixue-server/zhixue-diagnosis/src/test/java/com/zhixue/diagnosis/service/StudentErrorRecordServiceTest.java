@@ -5,7 +5,9 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
 import com.zhixue.diagnosis.dto.ErrorRecordPageView;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -29,7 +32,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -49,6 +55,9 @@ class StudentErrorRecordServiceTest {
     @Mock
     private KnowledgePointService knowledgePointService;
 
+    @Mock
+    private QuestionBankService questionBankService;
+
     private StudentErrorRecordService service;
 
     /** 纯单测无 SqlSessionFactory，需手动初始化实体 TableInfo 供 LambdaUpdateWrapper 解析列名 */
@@ -60,7 +69,90 @@ class StudentErrorRecordServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new StudentErrorRecordService(mapper, knowledgePointService);
+        service = new StudentErrorRecordService(mapper, knowledgePointService, questionBankService);
+    }
+
+    @Test
+    void createPersistsQIdForPracticeEntry() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        when(mapper.insert(any(StudentErrorRecord.class))).thenReturn(1);
+        when(questionBankService.getById("Q_0201")).thenReturn(question(1L));
+
+        ArgumentCaptor<StudentErrorRecord> captor = ArgumentCaptor.forClass(StudentErrorRecord.class);
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            service.create(new ErrorRecordCreate(1L, "ct-q", "Q_0201", null, null, null,
+                    null, null, null, null));
+        }
+
+        verify(mapper).insert(captor.capture());
+        assertThat(captor.getValue().getQId()).isEqualTo("Q_0201");
+    }
+
+    @Test
+    void createRejectsQidFromAnotherCourse() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        when(questionBankService.getById("Q_0201")).thenReturn(question(2L));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(new ErrorRecordCreate(1L, "ct-q3", "Q_0201",
+                    null, null, null, null, null, null, null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("不属于当前课程");
+        }
+
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
+    }
+
+    @Test
+    void createRejectsNullQidBeforeInsert() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        when(questionBankService.getById("Q_9999")).thenReturn(null);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(new ErrorRecordCreate(1L, "ct-q4", "Q_9999",
+                    null, null, null, null, null, null, null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("题目不存在");
+        }
+
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
+    }
+
+    @Test
+    void createRejectsInactiveQidBeforeInsert() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        QuestionBank inactive = question(1L);
+        inactive.setIsActive(0);
+        when(questionBankService.getById("Q_0201")).thenReturn(inactive);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(new ErrorRecordCreate(1L, "ct-q5", "Q_0201",
+                    null, null, null, null, null, null, null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("题目已停用");
+        }
+
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
+    }
+
+    @Test
+    void createRejectsUnknownQidBeforeInsert() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        when(questionBankService.getById("Q_9999"))
+                .thenThrow(new BizException(com.zhixue.common.api.ErrorCode.NOT_FOUND, "题目不存在"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(new ErrorRecordCreate(1L, "ct-q2", "Q_9999",
+                    null, null, null, null, null, null, null)))
+                    .isInstanceOf(BizException.class);
+        }
+
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
     }
 
     @Test
@@ -212,7 +304,7 @@ class StudentErrorRecordServiceTest {
         draft.setKpId("KP0202");
         draft.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
         when(mapper.selectCount(any())).thenReturn(2L);
-        when(mapper.selectList(any())).thenReturn(List.of(confirmed, draft));
+        when(mapper.selectPageByWrapper(any(), anyInt(), anyLong())).thenReturn(List.of(confirmed, draft));
         when(knowledgePointService.findByIds(any())).thenReturn(
                 Map.of("KP0201", kp("KP0201", "关系模型"),
                         "KP0202", kp("KP0202", "事务")));
@@ -232,6 +324,8 @@ class StudentErrorRecordServiceTest {
                 .containsExactly("关系模型", "事务");
         verify(knowledgePointService, times(1)).findByIds(any());
         verify(knowledgePointService, never()).findById(anyString());
+        // 分页参数必须绑定到 Mapper 方法，而不是拼进 .last("LIMIT ...")
+        verify(mapper).selectPageByWrapper(any(), eq(10), eq(0L));
     }
 
     @Test
@@ -268,6 +362,14 @@ class StudentErrorRecordServiceTest {
 
     private KnowledgePoint kp() {
         return kp("KP0201", "关系模型");
+    }
+
+    private QuestionBank question(long courseId) {
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0201");
+        question.setCourseId(courseId);
+        question.setIsActive(1);
+        return question;
     }
 
     private KnowledgePoint kp(String kpId, String name) {
