@@ -198,6 +198,7 @@
           aria-label="评语"
           :rows="4"
           maxlength="500"
+          :readonly="isReviewed"
           show-word-limit
           placeholder="填写评语：讲解准确性、错因贴合度与后续建议"
         />
@@ -216,6 +217,7 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
+import { getExplain } from "../api/diagnosis";
 import { listReviews, submitReview, type ReviewItem } from "../api/review";
 import { ApiError } from "../api/request";
 
@@ -332,17 +334,32 @@ const load = async () => {
 };
 
 
-const openReview = (row: ReviewItem) => {
+let openReviewSeq = 0;
+const openReview = async (row: ReviewItem) => {
+  const seq = ++openReviewSeq;
   selected.value = row;
   score.value = null;
+  // 先清空上一条评语，再按当前 explainId 回填，避免串数据
   comment.value = "";
   // 题干与参考答案齐全才能默认通过；缺任一只能退回
   const complete = !!(row.questionText ?? "").trim() && !!(row.correctAnswer ?? "").trim();
   result.value = complete ? "PASS" : "RETURN";
   drawerVisible.value = true;
+  if (!row.explainId) return;
+  try {
+    const detail = await getExplain(row.explainId);
+    if (seq !== openReviewSeq || selected.value?.logPk !== row.logPk) return;
+    comment.value = detail?.reviewComment ?? "";
+    if (detail?.reviewResult) result.value = detail.reviewResult;
+  } catch (e) {
+    if (seq === openReviewSeq) {
+      ElMessage.error((e as Error).message || "评阅详情加载失败，请重试");
+    }
+  }
 };
 
 const resetForm = () => {
+  openReviewSeq += 1;
   selected.value = null;
   score.value = null;
   comment.value = "";
