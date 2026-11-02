@@ -32,8 +32,14 @@ U60 才是线上真值的原因：`KnowledgePointService.listMatchProfiles(cours
 | `mapping_eval_offline_all_universe.json` | `python tools/eval_mapping_offline.py --universe all --json tools/testdata/mapping_eval_offline_all_universe.json` | 60 |
 
 两份 JSON 均含：`universe` / `universe_size`(=N) / `chapters` /
-`config{score_scale,auto,floor,margin,use_misconception,...}` / `results[]`（全变体）/
-`gate`（门禁逐条核对）/ `per_case[]`（V0 逐题 `qId/gold/ranked_top3/score/cosine/decision/hit1/hit3`）。
+`config{score_scale,auto,floor,margin,idf_power,name_repeat,recommended_use_misconception}` /
+`recommended{variant,use_misconception,floor}` / `results[]`（全变体，每个变体自带
+`use_misconception` / `chapter_mode` / `autoHits`）/ `gate`（门禁逐条核对，含精确分数）/
+`per_case[]`（**V0 口径**的逐题 `qId/gold/ranked_top3/score/cosine/decision/hit1/hit3`）/
+`per_case_variant` + `per_case_use_misconception` + `per_case_note`（显式标明 per_case 属于哪个变体；
+推荐方案 V2 的逐题明细在 `results[2].per_case`）。
+`config` 只放**所有变体共用**的阈值旋钮，与变体相关的开关不混入，避免
+"config 说开了误区、per_case 却是 V0" 的歧义。
 运行环境：Python 3.13.14；退出码 0；**无服务器 / 数据库依赖**。
 
 ### 2.2 主结果（`confirm-floor = 0.35`，与 `application.yml` 同值）
@@ -43,29 +49,48 @@ U60 才是线上真值的原因：`KnowledgePointService.listMatchProfiles(cours
 | 方案 | top1 | top3 | AUTO | AUTO 精确率 | CONFIRM | FAILED | 覆盖 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | V0 baseline（误区不入语料） | 73.3% | 81.7% | 24 | 95.8% | 30 | 6 | 90.0% |
-| **V2 误区入语料（推荐/已上线）** | 73.3% | **85.0%** | 29 | 93.1% | 26 | **5** | **91.7%** |
+| **V2 误区入语料（推荐 / 待合并）** | 73.3% | **85.0%** | 29 | 93.1% | 26 | **5** | **91.7%** |
 
 **U60（N=60，线上语义）**
 
 | 方案 | top1 | top3 | AUTO | AUTO 精确率 | CONFIRM | FAILED | 覆盖 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | V0 baseline（误区不入语料） | 55.0% | 73.3% | 24 | 87.5% | 29 | 7 | 88.3% |
-| **V2 误区入语料（推荐/已上线）** | **60.0%** | **80.0%** | 23 | **91.3%** | 29 | 8 | **86.7%** |
+| **V2 误区入语料（推荐 / 待合并）** | **60.0%** | **80.0%** | 23 | **91.3%** | 29 | 8 | **86.7%** |
 
-方向一致、无线下退化：两个口径下 top-3 同时改善（+3.3pp / +6.7pp），U60 top-1 +5.0pp，
-U60 top-3 **零丢失**（McNemar 4 升 0 降）。
+**准确性指标无退化，覆盖率有 1 题级退化**（如实记录，不粉饰）：
+
+- top1 / top3 / AUTO 精确率：两个口径均不退化，U60 top-3 **零丢失**（McNemar 4 升 0 降）。
+- U60 覆盖率 `88.3% → 86.7%`（52/60，即 FAILED `7 → 8`，**各退化 1 题**）。
+  这是把 `confirm-floor` 从 0.40 下调到 0.35 并叠加误区入语料后的净结果；
+  **相对改动前的生产配置仍有明显改善**：V0 @floor 0.40 的覆盖率是 **83.3%**、FAILED **10**。
+  即 `83.3%（改动前）→ 86.7%（改动后）`，退出 FAILED 的题减少 2 题。
+- 该 1 题退化的机制是：误区入语料后该题 top1 的余弦降到 0.35 以下（由 CONFIRM 转 FAILED），
+  属可解释的代价；可否接受属产品决策，已列入 §8 待办（扩样后复核）。
 
 ### 2.3 合并门禁核对（V2，floor 0.35）
 
-| 门禁 | U20 要求 | U20 实测 | U60 要求 | U60 实测 |
+| 门禁 | U20 要求 | U20 实测（精确分数） | U60 要求 | U60 实测（精确分数） |
 | --- | --- | --- | --- | --- |
-| top1 | ≥ 73.3% | 73.3% PASS | ≥ 60.0% | 60.0% PASS |
-| top3 | ≥ 85.0% | 85.0% PASS | ≥ 80.0% | 80.0% PASS |
-| AUTO 精确率 | ≥ 90.0% | 93.1% PASS | ≥ 90.0% | 91.3% PASS |
-| 覆盖率（非 FAILED） | ≥ 86.7% | 91.7% PASS | ≥ 86.7% | 86.7% PASS |
+| top1 | ≥ 73.3% | 44/60=73.33% → 73.3% PASS | ≥ 60.0% | 36/60=60.00% PASS |
+| top3 | ≥ 85.0% | 51/60=85.00% PASS | ≥ 80.0% | 48/60=80.00% PASS |
+| AUTO 精确率 | ≥ 90.0% | 27/29=93.10% PASS | ≥ 90.0% | 21/23=91.30% PASS |
+| 覆盖率（非 FAILED） | ≥ 86.7% | 55/60=91.67% → 91.7% PASS | ≥ 86.7% | **52/60=86.67% → 86.7% PASS** |
 | FAILED 题数 | ≤ 8 | 5 PASS | ≤ 8 | 8 PASS |
 
-门禁结论在脚本输出末尾与 JSON 的 `gate` 字段里逐条打印，可复核。
+**门禁比较口径**：实测值与阈值都按**报告精度**（百分比 1 位小数）舍入后再比，阈值一位未下调
+（脚本 `_same_precision`）。所以 `52/60 = 86.6667%` 报为 86.7%，与阈值 86.7% 同精度达标；
+而 86.64% 报为 86.6%，仍然 FAIL。精确分数始终随门禁表打印，便于人工复核。
+
+> ⚠ **本门禁是"零余量锁死型"**：绝大多数阈值**等于实测值**，不是在实测之上留了余量——
+> - **U60：5 条里 4 条恰好压线**（top1 60.0=60.0、top3 80.0=80.0、覆盖率 86.67≈86.7、FAILED 8=8），
+>   只有 AUTO 精确率有 1.3pp 余量（91.3 vs 90.0）。
+> - **U20：5 条里 2 条压线**（top1 73.33≈73.3、top3 85.0=85.0），其余 3 条有余量。
+> 这意味着**任何一题抖动都会直接 FAIL**。它不是"有余量的质量线"，而是
+> "当前算法 + 当前种子下恰好成立的下界"。据此：任何算法 / 种子 / 阈值改动都必须重跑本表，
+> 不得假设门禁会继续通过；也不得以"门禁通过"反推算法有余量。
+
+门禁结论在脚本输出末尾与 JSON 的 `gate` 字段里逐条打印（含 `detail` 精确分数），可复核。
 
 ### 2.4 校准与决策分布（U60 / V2）
 
@@ -172,6 +197,12 @@ python tools/eval_mapping_offline.py --universe all \
 3. `soft` / `oracle` 章模式使用 gold 所属章，输出会强制标注「禁止用于线上效果声明」。
 4. `_KP_PATTERN` 兼容 `sort_no` 带引号（ch01/ch04+）与不带引号（ch02-ch03）两种写法；
    旧版 `\d+` 会静默漏掉 ch01/ch04+ 的 40 个知识点。
+5. **门禁按"同精度"比较**（`_same_precision`）：实测值与阈值都舍入到百分比 1 位小数后再比，
+   阈值一位未下调。**禁止**改成"给实测值加 0.0005 容差"这类写法——容差会把
+   报告值 86.6% 也算达标，等于变相降低门禁（AGENTS §3.2）。精确分数（`52/60=86.67%`）
+   必须随门禁表一起打印。
+6. `--floor` 默认 **0.35**，与 `application.yml` 的 `mapping.confirm-floor` 同值；
+   `--universe` 默认 **all**（线上语义）。改任一默认值等于改口径，必须同步本文件与设计文档。
 
 ---
 
@@ -181,3 +212,6 @@ python tools/eval_mapping_offline.py --universe all \
   同时在门禁里更新 N（语料继续增长会继续压低 top-1，见设计文档 §9-R1）。
 - 扩样到 ≥150 题再谈统计结论（见第 4 节）。
 - 在线 0.0 的具体成因（DB 未种子化 vs 编码不符）需在线环境执行第 6 节的 3 条判定命令。
+- U60 覆盖率 88.3%→86.7%（1 题）的退化是否可接受：扩样后复核；若不可接受，
+  备选是把 floor 回调 0.36~0.40 并接受覆盖率下降，或对"余弦在 0.33—0.36 之间"的题
+  保留 CONFIRM 而非 FAILED（需产品决策，不在本轮）。

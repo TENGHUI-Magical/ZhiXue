@@ -326,4 +326,37 @@ class KpMappingServiceTest {
         assertEquals("AUTO", newService(cosine / 0.60, CONFIRM_FLOOR, true).match(request).decision(),
                 "0.60 且单候选应为 AUTO");
     }
+
+    // ---------- 边界守卫（防止空值把 500 带进接口） ----------
+
+    @Test
+    @DisplayName("UT8 text 为 null 时直接 FAILED，不抛 NPE（画像非空，隔离出空值守卫）")
+    void nullTextReturnsFailed() {
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组的属性组。")));
+
+        MapResult result = service.match(request(null, null));
+
+        assertEquals("FAILED", result.decision());
+        assertNull(result.top1());
+        assertTrue(result.candidates().isEmpty());
+    }
+
+    @Test
+    @DisplayName("UT9 misconception 为 null 与空串等价（覆盖 nullToEmpty，不把字面量 \"null\" 写进语料）")
+    void nullMisconceptionBehavesLikeEmpty() {
+        String concept = "候选码是能唯一标识元组且真子集不能唯一标识的属性组。";
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(List.of(
+                profile("KP0201", "候选码", 2L, concept, null),
+                profile("KP0202", "候选码", 2L, concept, "")));
+
+        // score-scale 取 1.0：暴露原始余弦，语料若因 null 多出一个 "null" 词元会立刻显现
+        MapResult result = newService(1.0, CONFIRM_FLOOR, true)
+                .match(request("候选码的真子集不能唯一标识元组", null));
+
+        assertEquals(2, result.candidates().size());
+        assertEquals(scoreOf(result, "KP0201"), scoreOf(result, "KP0202"), 1e-9,
+                "null 与空串必须产生完全相同的语料");
+        assertEquals("KP0201", result.top1().kpId());
+    }
 }

@@ -361,8 +361,12 @@ def decide(ranked: list[Hit], floor: float) -> str:
 def evaluate(name: str, kps: list[Kp], questions: list[Question],
              ranker, chapter_mode: str = "none", penalty: float = 0.0,
              floor: float = CONFIRM_FLOOR, fallback_below_floor: bool = False,
-             keep_cases: bool = False, note: str = "") -> dict:
+             keep_cases: bool = False, note: str = "",
+             use_misconception: bool = False) -> dict:
     """在给定 ranker 上算 top1 / top3 / 决策分布 / 校准 / 逐题明细。
+
+    ``use_misconception`` 必须由调用方显式传入该变体的真实取值：ranker 常是
+    ``Scorer.rank`` 这种绑定方法，``getattr`` 拿不到开关状态（会静默报 false）。
 
     ``chapter_mode`` 说明（口径必须如实标注，见模块 docstring）：
       - "none"        : 不启用章信息，等价线上（当前生产调用链不传 chapterId）。
@@ -458,12 +462,13 @@ def evaluate(name: str, kps: list[Kp], questions: list[Question],
         "n": n,
         "floor": floor,
         "chapter_mode": chapter_mode,
-        "use_misconception": bool(getattr(ranker, "use_misconception", False)),
+        "use_misconception": bool(use_misconception),
         "top1": round(top1 / n, 4) if n else 0.0,
         "top3": round(top3 / n, 4) if n else 0.0,
         "top1_hits": top1,
         "top3_hits": top3,
         "auto": auto,
+        "autoHits": auto_hits,
         "autoPrecision": round(auto_hits / auto, 4) if auto else 0.0,
         "confirm": confirm,
         "failed": failed,
@@ -489,30 +494,61 @@ GATES = {
             "coverage": 0.867, "failed": 8, "label": "U60"},
 }
 
-# 门禁比率保留 3 位小数，指标保留 4 位；用半个最小刻度做容差，
-# 避免 52/60 = 0.866666… 四舍五入成 0.8667 后被 0.867 误判为不达标。
-_GATE_TOLERANCE = 5e-4
+# 门禁阈值以"百分比 1 位小数"给出（73.3 / 85.0 / 90.0 / 86.7），指标报告也是这个精度。
+_PERCENT_DECIMALS = 1
 
 
-def _meets(actual: float, required: float) -> bool:
-    return actual + _GATE_TOLERANCE >= required
+def _same_precision(actual: float, required: float) -> bool:
+    """门禁**同精度**比较：实测值与阈值都按报告精度（百分比 1 位小数）舍入后再比。
+
+    为什么不能直接比浮点：覆盖率 52/60 = 0.866666…，报告值是 86.7%，与阈值 86.7%
+    属同一精度；直接比浮点会得到 `0.8667 < 0.867` 的**假 FAIL**（2026-11-03 实跑遇到）。
+
+    为什么不是放宽容差：容差会让"报告值 86.6%"也蒙混过关。这里只对齐精度，
+    **阈值一位不动**——舍入后 < 86.7 的实测值仍然 FAIL（86.64% → 86.6% → FAIL）。
+    等价表述：接受边界是 `阈值 − 0.05pp`（半个报告刻度），这就是"按报告精度比较"
+    的数学后果，而不是人为下调阈值。精确分数（52/60=86.67%）始终随门禁表一起打印，
+    便于人工复核。
+    """
+    scale = 10 ** _PERCENT_DECIMALS
+    return round(actual * 100, _PERCENT_DECIMALS) >= round(required * 100, _PERCENT_DECIMALS)
 
 
-def check_gates(cell: dict, universe: str) -> list[tuple[str, str, str, bool]]:
+def check_gates(cell: dict, universe: str) -> list[dict]:
+    """逐条核对门禁，返回带精确分数的明细，供打印与 JSON 落盘。"""
     gate = GATES[universe]
-    rows = [
-        ("top1", f">= {gate['top1']:.1%}", f"{cell['top1']:.1%}",
-         _meets(cell["top1"], gate["top1"])),
-        ("top3", f">= {gate['top3']:.1%}", f"{cell['top3']:.1%}",
-         _meets(cell["top3"], gate["top3"])),
-        ("AUTO 精确率", f">= {gate['autoPrecision']:.1%}",
-         f"{cell['autoPrecision']:.1%}", _meets(cell["autoPrecision"], gate["autoPrecision"])),
-        ("覆盖（非 FAILED）", f">= {gate['coverage']:.1%}",
-         f"{cell['coverage']:.1%}", _meets(cell["coverage"], gate["coverage"])),
-        ("FAILED 题数", f"<= {gate['failed']}", f"{cell['failed']}",
-         cell["failed"] <= gate["failed"]),
+    n = cell["n"]
+    hit1, hit3 = cell["top1_hits"], cell["top3_hits"]
+    auto, auto_hits = cell["auto"], cell["autoHits"]
+    failed = cell["failed"]
+    usable = n - failed
+
+    def ratio_row(name: str, required: float, hits: int, total: int,
+                  required_text: str) -> dict:
+        actual = hits / total if total else 0.0
+        return {
+            "name": name,
+            "required": required_text,
+            "actual": round(actual, 4),
+            "detail": (f"{hits}/{total}={actual * 100:.2f}%" if total else "0/0=n/a"),
+            "pass": _same_precision(actual, required),
+        }
+
+    return [
+        ratio_row("top1", gate["top1"], hit1, n, f"≥ {gate['top1']:.1%}"),
+        ratio_row("top3", gate["top3"], hit3, n, f"≥ {gate['top3']:.1%}"),
+        ratio_row("AUTO 精确率", gate["autoPrecision"], auto_hits, auto,
+                  f"≥ {gate['autoPrecision']:.1%}"),
+        ratio_row("覆盖（非 FAILED）", gate["coverage"], usable, n,
+                  f"≥ {gate['coverage']:.1%}"),
+        {
+            "name": "FAILED 题数",
+            "required": f"≤ {gate['failed']}",
+            "actual": failed,
+            "detail": f"{failed} 题",
+            "pass": failed <= gate["failed"],
+        },
     ]
-    return rows
 
 
 # ---------- 主流程 ----------
@@ -555,28 +591,36 @@ def main() -> None:
     results = [
         evaluate("V0 baseline（TF-IDF, IDF^1.5, 语料=概念+名称）",
                  kps, questions, baseline.rank, floor=args.floor, keep_cases=args.per_case,
+                 use_misconception=False,
                  note="V0 = 现状语义（误区不入语料）"),
-        evaluate("V1 IDF^2.0", kps, questions, Scorer(kps, power=2.0).rank, floor=args.floor),
+        evaluate("V1 IDF^2.0", kps, questions, Scorer(kps, power=2.0).rank, floor=args.floor,
+                 use_misconception=False),
         evaluate("V2 误区入语料（推荐）",
                  kps, questions, mis.rank, floor=args.floor, keep_cases=args.per_case,
+                 use_misconception=True,
                  note="推荐方案：misconception-in-corpus=true"),
         evaluate("V3 章一致性 -0.03", kps, questions, baseline.rank,
-                 chapter_mode="consistency", penalty=0.03, floor=args.floor),
+                 chapter_mode="consistency", penalty=0.03, floor=args.floor,
+                 use_misconception=False),
         evaluate("V4 章一致性 -0.06", kps, questions, baseline.rank,
-                 chapter_mode="consistency", penalty=0.06, floor=args.floor),
+                 chapter_mode="consistency", penalty=0.06, floor=args.floor,
+                 use_misconception=False),
         evaluate("V5 章一致性 -0.10", kps, questions, baseline.rank,
-                 chapter_mode="consistency", penalty=0.10, floor=args.floor),
+                 chapter_mode="consistency", penalty=0.10, floor=args.floor,
+                 use_misconception=False),
         evaluate("V6 章硬过滤（假设调用方传对章）", kps, questions, baseline.rank,
-                 chapter_mode="hard", floor=args.floor,
+                 chapter_mode="hard", floor=args.floor, use_misconception=False,
                  note="线上不可达：生产调用链不传 chapterId（设计文档 §4）"),
         evaluate("V7 误区 + 章硬过滤", kps, questions, mis.rank,
-                 chapter_mode="hard", floor=args.floor,
+                 chapter_mode="hard", floor=args.floor, use_misconception=True,
                  note="线上不可达：生产调用链不传 chapterId（设计文档 §4）"),
         evaluate("V10 章硬过滤 + 低置信回退", kps, questions, baseline.rank,
                  chapter_mode="hard", fallback_below_floor=True, floor=args.floor,
+                 use_misconception=False,
                  note="线上不可达：生产调用链不传 chapterId（设计文档 §4）"),
         evaluate("V11 误区 + 章硬过滤 + 低置信回退", kps, questions, mis.rank,
                  chapter_mode="hard", fallback_below_floor=True, floor=args.floor,
+                 use_misconception=True,
                  note="首次评测组合；线上不可达：生产调用链不传 chapterId（设计文档 §4）"),
     ]
 
@@ -586,18 +630,18 @@ def main() -> None:
         return bm25_rank(kps, bm25_docs, text)
 
     results.append(evaluate("V8 BM25（字符二元组）", kps, questions, bm25_ranker,
-                            floor=args.floor))
+                            floor=args.floor, use_misconception=False))
     results.append(evaluate("V9 RRF(TF-IDF, BM25)", kps, questions,
                             lambda text: rrf_fuse([baseline.rank(text), bm25_ranker(text)]),
-                            floor=args.floor))
+                            floor=args.floor, use_misconception=False))
 
     if extra:
-        # 修 F1：32 题补充集真正纳入评测（历史版本只 print 数量，从未参与任何变体）
+        # 32 题补充集真正纳入评测（历史版本只 print 数量，从未参与任何变体）
         results.append(evaluate("V0-MC32 补充集（误区关）", kps, extra, baseline.rank,
-                                floor=args.floor,
+                                floor=args.floor, use_misconception=False,
                                 note="补充观察集，含选项文本噪声，不作门禁"))
         results.append(evaluate("V2-MC32 补充集（误区开）", kps, extra, mis.rank,
-                                floor=args.floor,
+                                floor=args.floor, use_misconception=True,
                                 note="补充观察集，含选项文本噪声，不作门禁"))
 
     print("\n### 语料口径 universe=%s，N=%d，floor=%.2f，题库 %d 题"
@@ -625,12 +669,17 @@ def main() -> None:
         print(f"  {miss['qId']} gold={miss['gold']} top3={miss['top3']}")
 
     gate_rows = check_gates(results[2], args.universe)
-    gate_pass = all(row[3] for row in gate_rows)
+    gate_pass = all(row["pass"] for row in gate_rows)
     print(f"\n### 门禁核对（{GATES[args.universe]['label']} 口径，V2 推荐方案，N={universe_size}）")
-    print("| 门禁 | 要求 | 实测 | 结果 |")
-    print("| --- | --- | --- | --- |")
-    for name, need, got, ok in gate_rows:
-        print(f"| {name} | {need} | {got} | {'PASS' if ok else 'FAIL'} |")
+    print("| 门禁 | 要求 | 实测（精确分数） | 同精度值 | 结果 |")
+    print("| --- | --- | --- | --- | --- |")
+    for row in gate_rows:
+        shown = (f"{row['actual'] * 100:.1f}%" if row["name"] != "FAILED 题数"
+                 else str(row["actual"]))
+        print(f"| {row['name']} | {row['required']} | {row['detail']} "
+              f"| {shown} | {'PASS' if row['pass'] else 'FAIL'} |")
+    print("\n说明：门禁按**同精度**比较——实测值与阈值都保留到百分比 1 位小数后再比。"
+          "阈值一位未下调。")
     print(f"\nV2 @floor={args.floor:.2f} 门禁结论：{'PASS' if gate_pass else 'FAIL'}")
 
     if extra:
@@ -649,6 +698,8 @@ def main() -> None:
             "chapters": sorted({kp.chapter for kp in kps}),
             "n_questions": len(questions),
             "n_extra": len(extra),
+            # config 只放**所有变体共用**的阈值旋钮，供复算；与变体相关的开关
+            # （misconception）不放在这里，避免"config 说开、per_case 却是 V0"的歧义。
             "config": {
                 "score_scale": SCORE_SCALE,
                 "auto": AUTO_THRESHOLD,
@@ -656,18 +707,27 @@ def main() -> None:
                 "margin": MARGIN,
                 "idf_power": IDF_POWER,
                 "name_repeat": NAME_REPEAT,
-                "use_misconception": True,
+                "recommended_use_misconception": results[2]["use_misconception"],
+            },
+            "recommended": {
+                "variant": results[2]["variant"],
+                "use_misconception": results[2]["use_misconception"],
+                "floor": args.floor,
             },
             "gate": {
                 "label": GATES[args.universe]["label"],
-                "rows": [{"name": n, "required": need, "actual": got, "pass": ok}
-                         for n, need, got, ok in gate_rows],
+                "comparison": "同精度比较：实测值与阈值均保留百分比 1 位小数后再比，阈值未下调",
+                "rows": gate_rows,
                 "pass": gate_pass,
             },
             "results": results,
             "baseline_misses": results[0]["misses"],
+            # 逐题明细来自 V0（误区关）：键名显式带上口径，避免误当成推荐方案明细
             "per_case": results[0].get("per_case", []),
             "per_case_variant": results[0]["variant"],
+            "per_case_use_misconception": results[0]["use_misconception"],
+            "per_case_note": "顶层 per_case 是 V0（误区关）的逐题明细；"
+                             "推荐方案 V2 的逐题明细见 results[2].per_case",
         }
         # 显式 LF：Windows 下默认会写 CRLF，导致证据 JSON 的 diff 变成整文件重写
         out.write_text(json.dumps(payload, ensure_ascii=False, indent=2),
