@@ -71,3 +71,7 @@ perf/bench/last_result.json
 
 # ============ 代码审查/分析工具产物 ============
 .mimosa/
+
+# ============ 生成代码（契约生成物不入库）============
+zhixue-web/src/api/types.generated.ts
+zhixue-web/src/api/types.ts
