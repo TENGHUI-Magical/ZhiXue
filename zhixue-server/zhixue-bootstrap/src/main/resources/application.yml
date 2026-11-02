@@ -48,6 +48,15 @@ mapping:
   # 唯一打分开关：把 knowledge_point.misconception 纳入语料；置 false 即回退到 V0 行为
   misconception-in-corpus: true
 
+# ============ 掌握度与画像聚合参数（契约 05-算法 §2；禁止代码硬编码） ============
+mastery:
+  half-life-days: 30    # 证据时间半衰期
+  min-samples: 3        # 薄弱点最小样本数
+  # 实时聚合时间窗（天）：教师端三个全课程聚合与学生画像只扫窗口内记录，
+  # 跨学年历史走 learning_portrait_snapshot（me() 快照优先已就位）。
+  # 180 = 30 天半衰 × 6，窗口外证据衰减后权重 <1.6%，丢弃不影响口径。
+  aggregate-window-days: 180
+
 # ============ 内部 AI 服务地址 ============
 # zhixue-ai 不对外暴露，仅本服务调用（部署方案 1 节拓扑）
 zhixue:

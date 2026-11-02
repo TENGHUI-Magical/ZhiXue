@@ -44,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
@@ -84,19 +85,49 @@ class PortraitServiceTest {
     private PortraitService newService(int minSamples) {
         return new PortraitService(snapshotMapper, practiceRecordMapper, errorRecordMapper,
                 knowledgePointService, courseService, questionBankService,
-                new ObjectMapper(), 30, minSamples);
+                new ObjectMapper(), 30, minSamples, 180);
     }
 
-    private PracticeRecord practice(String kpId, String qId, int correct, String errorType,
-                                    LocalDateTime at) {
-        PracticeRecord record = new PracticeRecord();
-        record.setKpId(kpId);
-        record.setQId(qId);
-        record.setUserId(2L);
-        record.setIsCorrect(correct);
-        record.setErrorType(errorType);
-        record.setCreatedAt(at);
-        return record;
+    /**
+     * 构造单学生单知识点的聚合行（模拟 SQL 聚合输出，含按事件时间衰减后的权重）。
+     * 画像服务只做 Beta 后验与维度加权，时间衰减由 SQL 完成——
+     * 该口径由 IT（classPortrait...HalfLife / teacherAndStudentMasteryAgreePerKp）在真库上锁定。
+     */
+    private UserKpAgg kpAgg(String kpId, int events, int errors,
+                            double successWeight, double severitySum) {
+        UserKpAgg agg = new UserKpAgg();
+        agg.setUserId(2L);
+        agg.setKpId(kpId);
+        agg.setEvents(events);
+        agg.setErrorCount(errors);
+        agg.setSuccessWeight(successWeight);
+        agg.setSeveritySum(severitySum);
+        return agg;
+    }
+
+    private UserPracticeAgg totals(int practiceCount, int wrongCount) {
+        UserPracticeAgg agg = new UserPracticeAgg();
+        agg.setUserId(2L);
+        agg.setPracticeCount(practiceCount);
+        agg.setWrongCount(wrongCount);
+        return agg;
+    }
+
+    private void mockAggregates(List<UserKpAgg> kpAggs, List<ErrorTypeAgg> errorAggs,
+                                UserPracticeAgg userTotals, List<String> practicedQids) {
+        when(practiceRecordMapper.aggregateByUserKp(isNull(), anyList(), anyDouble(), any(),
+                any())).thenReturn(kpAggs);
+        when(practiceRecordMapper.aggregateErrorType(isNull(), any(), any())).thenReturn(errorAggs);
+        when(practiceRecordMapper.aggregateByUser(isNull(), anyList(), any()))
+                .thenReturn(userTotals == null ? List.of() : List.of(userTotals));
+        when(practiceRecordMapper.selectDistinctQidsByUser(2L)).thenReturn(practicedQids);
+    }
+
+    private ErrorTypeAgg errorAgg(String type, int cnt) {
+        ErrorTypeAgg agg = new ErrorTypeAgg();
+        agg.setErrorType(type);
+        agg.setCnt(cnt);
+        return agg;
     }
 
     private StudentErrorRecord confirmed(String kpId, String qId, String errorType,
@@ -122,7 +153,7 @@ class PortraitServiceTest {
     @Test
     void noSnapshotAndNoPracticeReturnsNull() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
+        mockAggregates(List.of(), List.of(), null, List.of());
         when(errorRecordMapper.selectList(any())).thenReturn(List.of());
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
@@ -157,11 +188,11 @@ class PortraitServiceTest {
     @Test
     void transientPortraitComputesDimensionAndWeakKp() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
+        // SQL 聚合口径：3 事件（1 对 2 错，今日）→ sw=1.0、sev=2.0（概念混淆 1.0×2）
+        mockAggregates(List.of(kpAgg("KP0201", 3, 2, 1.0, 2.0)),
+                List.of(errorAgg("CONCEPT_CONFUSION", 2)),
+                totals(3, 2), List.of("Q_0201", "Q_0202", "Q_0203"));
         when(errorRecordMapper.selectList(any())).thenReturn(List.of());
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of(
-                practice("KP0201", "Q_0201", 1, null, null),
-                practice("KP0201", "Q_0202", 0, "CONCEPT_CONFUSION", null),
-                practice("KP0201", "Q_0203", 0, "CONCEPT_CONFUSION", null)));
 
         when(knowledgePointService.findByIds(any()))
                 .thenReturn(Map.of("KP0201", kp("KP0201", "关系模型", "concept")));
@@ -173,7 +204,7 @@ class PortraitServiceTest {
             PortraitView view = service.me();
             assertEquals(3, view.totalPractice());
             assertEquals(2, view.totalError());
-            // Beta(2+1, 2+2) 均值 = 3/7 ≈ 0.429（时间缺失视为不衰减）
+            // 手算：Beta(2+1, 2+2) 均值 = 3/7 ≈ 0.429
             assertEquals(0.429, view.dimensionScores().get("concept"));
             assertEquals(1, view.weakestKps().size());
             assertEquals(0.429, view.weakestKps().get(0).mastery());
@@ -184,8 +215,9 @@ class PortraitServiceTest {
     @Test
     void confirmedUploadWithoutPracticeIsMergedAsOneErrorEvent() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of(
-                practice("KP0201", "Q_0201", 1, null, null)));
+        // 练习侧聚合：1 对（今日）→ sw=1.0；错题 Q_0999 无对应练习，将补一条错误事件
+        mockAggregates(List.of(kpAgg("KP0201", 1, 0, 1.0, 0.0)),
+                List.of(), totals(1, 0), List.of("Q_0201"));
         when(errorRecordMapper.selectList(any())).thenReturn(List.of(
                 confirmed("KP0201", "Q_0999", "CONCEPT_CONFUSION", null)));
         when(knowledgePointService.findByIds(any()))
@@ -195,7 +227,7 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = newService(1).me();
-            // 事件 2 条：1 对 + 1 错（严重度 1.0），掌握度 1 - 1/2 = 0.5
+            // 手算：补 1 条错（sev +1.0）后 Beta(2+1, 2+1) = 3/6 = 0.5
             assertEquals(0.5, view.weakestKps().get(0).mastery());
             assertEquals(2, view.weakestKps().get(0).sampleCount());
             assertEquals(2, view.totalPractice());
@@ -207,8 +239,9 @@ class PortraitServiceTest {
     @Test
     void errorUploadedTwiceIsCountedOnce() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of(
-                practice("KP0201", "Q_0201", 0, "CONCEPT_CONFUSION", null)));
+        // 练习侧已含 Q_0201 的错误；错题同 qId → 跳过，不重复计入
+        mockAggregates(List.of(kpAgg("KP0201", 1, 1, 0.0, 1.0)),
+                List.of(errorAgg("CONCEPT_CONFUSION", 1)), totals(1, 1), List.of("Q_0201"));
         when(errorRecordMapper.selectList(any())).thenReturn(List.of(
                 confirmed("KP0201", "Q_0201", "CONCEPT_CONFUSION", null)));
         when(knowledgePointService.findByIds(any()))
@@ -220,7 +253,7 @@ class PortraitServiceTest {
             PortraitView view = newService(1).me();
             assertEquals(1, view.weakestKps().get(0).sampleCount());
             assertEquals(1, view.totalError());
-            // 新 Beta 后验：单条错误 + 无正确证据，均值回到 0.4 附近
+            // 手算：单条错误 + 无正确证据 → Beta(2, 3) = 0.4
             assertEquals(0.4, view.weakestKps().get(0).mastery());
         }
     }
@@ -228,10 +261,10 @@ class PortraitServiceTest {
     @Test
     void oldErrorDecaysByHalfLife() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
-        LocalDateTime now = LocalDateTime.now(ZONE);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of(
-                practice("KP0201", "Q_0201", 1, null, now),
-                practice("KP0201", "Q_0202", 0, "CONCEPT_CONFUSION", now.minusDays(30).minusHours(1))));
+        // SQL 半衰后的聚合：今日 1 对（sw=1.0）+ 30 天前的错误（sev=1.0×0.5=0.5）。
+        // 半衰由 SQL 完成，此处给聚合结果；真库口径由 IT classPortrait...HalfLife 锁定
+        mockAggregates(List.of(kpAgg("KP0201", 2, 1, 1.0, 0.5)),
+                List.of(errorAgg("CONCEPT_CONFUSION", 1)), totals(2, 1), List.of("Q_0201", "Q_0202"));
         when(errorRecordMapper.selectList(any())).thenReturn(List.of());
         when(knowledgePointService.findByIds(any()))
                 .thenReturn(Map.of("KP0201", kp("KP0201", "关系模型", "concept")));
@@ -240,7 +273,7 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = newService(1).me();
-            // 30 天半衰后错误权重 0.5，Beta 均值约 0.545（不再逼近 1.0）
+            // 手算：Beta(2+1, 2+0.5) = 3/5.5 ≈ 0.545（错误衰减后不再逼近 1.0）
             assertEquals(0.545, view.weakestKps().get(0).mastery());
         }
     }
@@ -248,9 +281,9 @@ class PortraitServiceTest {
     @Test
     void severityDiffersByErrorType() {
         when(snapshotMapper.selectOne(any())).thenReturn(null);
-        when(practiceRecordMapper.selectList(any())).thenReturn(List.of(
-                practice("KP0201", "Q_0201", 0, "CALCULATION_ERROR", null),
-                practice("KP0201", "Q_0202", 1, null, null)));
+        // SQL 聚合：1 错（计算失误 sev=0.6）+ 1 对（sw=1.0）
+        mockAggregates(List.of(kpAgg("KP0201", 2, 1, 1.0, 0.6)),
+                List.of(errorAgg("CALCULATION_ERROR", 1)), totals(2, 1), List.of("Q_0201", "Q_0202"));
         when(errorRecordMapper.selectList(any())).thenReturn(List.of());
         when(knowledgePointService.findByIds(any()))
                 .thenReturn(Map.of("KP0201", kp("KP0201", "关系模型", "concept")));
@@ -259,7 +292,7 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = newService(1).me();
-            // 计算失误权重 0.6；Beta 均值约 0.536
+            // 手算：计算失误权重 0.6 → Beta(2+1, 2+0.6) = 3/5.6 ≈ 0.536
             assertEquals(0.536, view.weakestKps().get(0).mastery());
         }
     }
@@ -280,7 +313,8 @@ class PortraitServiceTest {
         s11.setUserId(11L);
         s11.setPracticeCount(1);
         s11.setLastActiveAt(LocalDateTime.now(ZONE));
-        when(practiceRecordMapper.aggregateByUser(anyList(), any())).thenReturn(List.of(s10, s11));
+        when(practiceRecordMapper.aggregateByUser(anyList(), any(), any()))
+                .thenReturn(List.of(s10, s11));
 
         UserKpAgg k10 = new UserKpAgg();
         k10.setUserId(10L);
@@ -296,12 +330,12 @@ class PortraitServiceTest {
         k11.setErrorCount(1);
         k11.setSuccessWeight(0.0);
         k11.setSeveritySum(1.0);
-        when(practiceRecordMapper.aggregateByUserKp(anyList(), any(), anyDouble(), any()))
+        when(practiceRecordMapper.aggregateByUserKp(anyList(), any(), anyDouble(), any(), any()))
                 .thenReturn(List.of(k10, k11));
         ErrorTypeAgg confusion = new ErrorTypeAgg();
         confusion.setErrorType("CONCEPT_CONFUSION");
         confusion.setCnt(2);
-        when(practiceRecordMapper.aggregateErrorTypeByCourse(anyList()))
+        when(practiceRecordMapper.aggregateErrorType(anyList(), any(), any()))
                 .thenReturn(List.of(confusion));
 
         when(knowledgePointService.findByIds(any()))

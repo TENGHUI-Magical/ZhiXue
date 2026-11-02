@@ -56,7 +56,11 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
     LocalDateTime selectLastPracticedAt(@Param("userId") long userId, @Param("kpId") String kpId);
 
     /**
-     * 按用户聚合练习统计（C12 学生列表；SQL GROUP BY，避免把明细拉进 JVM）。
+     * 按用户聚合练习统计（C12 学生列表 / 学生画像总量；SQL GROUP BY，避免把明细拉进 JVM）。
+     * <p>
+     * 时间窗：since 非空时只聚合窗口内记录，避免学期末全量历史回表（180 天 ≈ 6 个半衰期，
+     * 窗口外证据衰减后权重 &lt;1.6%，丢弃不影响口径）；窗口更早的历史走快照，不实时算。
+     * qIds 为空表示不按课程过滤（学生画像场景，行数受该生记录数约束）。
      * userIds 为空表示课程内全部学生。返回行数受学生数约束。
      */
     @Select("""
@@ -68,23 +72,30 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                    AVG(cost_seconds) AS avgCostSeconds,
                    MAX(created_at) AS lastActiveAt
             FROM practice_record
-            WHERE q_id IN
-              <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+            WHERE 1 = 1
+              <if test="qIds != null and qIds.size() > 0">
+                AND q_id IN
+                <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+              </if>
               <if test="userIds != null and userIds.size() > 0">
                 AND user_id IN
                 <foreach collection="userIds" item="u" open="(" separator="," close=")">#{u}</foreach>
               </if>
+              <if test="since != null">AND created_at &gt;= #{since}</if>
             GROUP BY user_id
             </script>
             """)
     List<UserPracticeAgg> aggregateByUser(@Param("qIds") List<String> qIds,
-                                          @Param("userIds") Collection<Long> userIds);
+                                          @Param("userIds") Collection<Long> userIds,
+                                          @Param("since") LocalDateTime since);
 
     /**
-     * 按（用户, 知识点）聚合掌握度所需的正确权重、错误严重度和与事件数（C12）。
+     * 按（用户, 知识点）聚合掌握度所需的正确权重、错误严重度和与事件数（C12 / 学生画像）。
      * <p>
      * successWeight 与 severitySum 都按每条事件自己的 created_at 衰减后求和（docs/05 §2.3），
      * 教师端与学生端共用同一 SQL 口径，不再使用“最后证据时间”统一衰减。
+     * 时间窗：since 非空时只聚合窗口内记录（跨学年历史走快照，见 aggregateByUser javadoc）；
+     * qIds 为空表示不按课程过滤（学生画像场景，行数受该生记录数约束）。
      * severitySum 的权重与时间半衰与 MasteryCalculator.severity/decay 保持一致（docs/05 §2.2）：
      * <ul>
      *   <li>{@code TIMESTAMPDIFF(DAY, created_at, now)} 取“满 24 小时天数”，与
@@ -115,20 +126,24 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                        ELSE 0 END) AS severitySum,
                    SUM(CASE WHEN is_correct = 0 THEN 1 ELSE 0 END) AS errorCount
             FROM practice_record
-            WHERE q_id IN
-              <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
-              AND kp_id IS NOT NULL AND kp_id &lt;&gt; ''
+            WHERE kp_id IS NOT NULL AND kp_id &lt;&gt; ''
+              <if test="qIds != null and qIds.size() > 0">
+                AND q_id IN
+                <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+              </if>
               <if test="userIds != null and userIds.size() > 0">
                 AND user_id IN
                 <foreach collection="userIds" item="u" open="(" separator="," close=")">#{u}</foreach>
               </if>
+              <if test="since != null">AND created_at &gt;= #{since}</if>
             GROUP BY user_id, kp_id
             </script>
             """)
     List<UserKpAgg> aggregateByUserKp(@Param("qIds") List<String> qIds,
                                       @Param("userIds") Collection<Long> userIds,
                                       @Param("halfLifeDays") double halfLifeDays,
-                                      @Param("now") LocalDateTime now);
+                                      @Param("now") LocalDateTime now,
+                                      @Param("since") LocalDateTime since);
 
     /** 单学生作答明细计数（C12 详情分页，参数绑定，不拼接 LIMIT）。 */
     @Select("""
@@ -196,20 +211,39 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                            @Param("courseId") long courseId);
 
     /**
-     * 课程维度错因分布（班级画像 errorDist）：SQL GROUP BY error_type，行数受错因类型数约束，
-     * 只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
+     * 错因分布（班级画像 errorDist / 学生画像 errorDist）：SQL GROUP BY error_type，
+     * 行数受错因类型数约束，只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
      * 历史 null/空错因统一归入 UNCLASSIFIED，避免老数据从分布里消失。
+     * qIds 非空 = 课程维度（教师端）；userId 非空 = 单学生维度；两者互斥使用。
+     * since 非空时只统计窗口内记录（跨学年历史走快照）。
      */
     @Select("""
             <script>
             SELECT COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED') AS errorType, COUNT(*) AS cnt
             FROM practice_record
             WHERE is_correct = 0
-              AND q_id IN
-              <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
               AND kp_id IS NOT NULL AND kp_id &lt;&gt; ''
+              <if test="qIds != null and qIds.size() > 0">
+                AND q_id IN
+                <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+              </if>
+              <if test="userId != null">AND user_id = #{userId}</if>
+              <if test="since != null">AND created_at &gt;= #{since}</if>
             GROUP BY COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED')
             </script>
             """)
-    List<ErrorTypeAgg> aggregateErrorTypeByCourse(@Param("qIds") List<String> qIds);
+    List<ErrorTypeAgg> aggregateErrorType(@Param("qIds") List<String> qIds,
+                                          @Param("userId") Long userId,
+                                          @Param("since") LocalDateTime since);
+
+    /**
+     * 该生练过的题目编号集合（DISTINCT 投影，不拉明细）。
+     * 供学生画像判断“错题记录是否已由练习计入”，行数受该生做过的题目数约束。
+     * 不加时间窗：错题与练习可能分属窗口内外，按 qId 全局去重保持原互斥语义。
+     */
+    @Select("""
+            SELECT DISTINCT q_id FROM practice_record
+            WHERE user_id = #{userId} AND q_id IS NOT NULL AND q_id &lt;&gt; ''
+            """)
+    List<String> selectDistinctQidsByUser(@Param("userId") long userId);
 }

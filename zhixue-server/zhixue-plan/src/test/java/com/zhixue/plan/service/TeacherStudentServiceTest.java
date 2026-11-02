@@ -76,7 +76,7 @@ class TeacherStudentServiceTest {
     void setUp() {
         service = new TeacherStudentService(courseService, questionBankService,
                 knowledgePointService, practiceRecordMapper, errorRecordMapper,
-                studyPlanMapper, userQueryService, 30, 3);
+                studyPlanMapper, userQueryService, 30, 3, 180);
     }
 
     @Test
@@ -112,7 +112,7 @@ class TeacherStudentServiceTest {
             assertEquals(0, result.total());
             assertTrue(result.records().isEmpty());
         }
-        verify(practiceRecordMapper, never()).aggregateByUser(anyList(), any());
+        verify(practiceRecordMapper, never()).aggregateByUser(anyList(), any(), any());
     }
 
     @Test
@@ -120,7 +120,7 @@ class TeacherStudentServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of());
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of());
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             TeacherStudentViews.Page result = service.page(1L, 1, 20, "lastActiveDesc");
@@ -133,10 +133,10 @@ class TeacherStudentServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1", "Q_2");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
                 agg(2L, 18, 6, 5, 52.4, LocalDateTime.of(2026, 10, 30, 21, 10)),
                 agg(3L, 6, 2, 2, 35.0, LocalDateTime.of(2026, 10, 28, 12, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 4.0, 4),
                 kp(2L, "KP02", 8, 1.0, 1),
                 kp(3L, "KP01", 6, 2.0, 2)));
@@ -159,11 +159,11 @@ class TeacherStudentServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
                 agg(3L, 10, 1, 1, 30.0, LocalDateTime.of(2026, 10, 30, 21, 0)),
                 agg(2L, 10, 5, 5, 30.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
         // user2 mastery=0.2；user3 mastery=0.9 → masteryAsc 应把 user2 排在前
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 8.0, 5),
                 kp(3L, "KP01", 10, 1.0, 1)));
         when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
@@ -184,13 +184,13 @@ class TeacherStudentServiceTest {
         List<String> qIds = List.of("Q_1");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
         // 用户今天在 kpA 活跃；kpB 的证据都在 90 天前，不应被 kpA 的 lastActive 续命
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
                 agg(2L, 4, 1, 1, 30.0, LocalDateTime.of(2026, 10, 30, 21, 0))));
         UserKpAgg kpA = kp(2L, "KP01", 1, 0.0, 0);
         kpA.setSuccessWeight(1.0);
         UserKpAgg kpB = kp(2L, "KP02", 3, 2.125, 1);
         kpB.setSuccessWeight(0.25);
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any()))
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any()))
                 .thenReturn(List.of(kpA, kpB));
         when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
         when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三"));
@@ -208,9 +208,9 @@ class TeacherStudentServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
                 agg(2L, 4, 2, 2, 45.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
                 kp(2L, "KP01", 4, 2.0, 2)));
         UserPlanAgg plan = new UserPlanAgg();
         plan.setUserId(2L);
@@ -232,7 +232,7 @@ class TeacherStudentServiceTest {
     void learningRecordsNotFoundWhenStudentHasNoPractice() {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         when(questionBankService.listQidsByCourse(1L)).thenReturn(List.of("Q_1"));
-        when(practiceRecordMapper.aggregateByUser(anyList(), any())).thenReturn(List.of());
+        when(practiceRecordMapper.aggregateByUser(anyList(), any(), any())).thenReturn(List.of());
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             BizException ex = assertThrows(BizException.class,
@@ -246,9 +246,9 @@ class TeacherStudentServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1");
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
-        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
                 agg(2L, 10, 3, 2, 40.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 3.0, 3)));
         when(practiceRecordMapper.countByUserPaged(eq(2L), eq(qIds), any(), any())).thenReturn(1L);
         PracticeRecord record = new PracticeRecord();

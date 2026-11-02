@@ -68,6 +68,8 @@ public class TeacherStudentService {
     private final MasteryCalculator masteryCalculator;
     private final int minSamples;
     private final double halfLifeDays;
+    /** 聚合时间窗（天）：与掌握度半衰期共用配置组，窗口外历史不实时算 */
+    private final int aggregateWindowDays;
 
     public TeacherStudentService(CourseService courseService,
                                  QuestionBankService questionBankService,
@@ -77,7 +79,8 @@ public class TeacherStudentService {
                                  StudyPlanMapper studyPlanMapper,
                                  UserQueryService userQueryService,
                                  @Value("${mastery.half-life-days:30}") double halfLifeDays,
-                                 @Value("${mastery.min-samples:3}") int minSamples) {
+                                 @Value("${mastery.min-samples:3}") int minSamples,
+                                 @Value("${mastery.aggregate-window-days:180}") int aggregateWindowDays) {
         this.courseService = courseService;
         this.questionBankService = questionBankService;
         this.knowledgePointService = knowledgePointService;
@@ -88,6 +91,12 @@ public class TeacherStudentService {
         this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
         this.masteryCalculator = new MasteryCalculator(this.halfLifeDays);
         this.minSamples = Math.max(1, minSamples);
+        this.aggregateWindowDays = Math.max(1, aggregateWindowDays);
+    }
+
+    /** 聚合窗口起点：教师端全课程聚合只扫窗口内记录，跨学年历史走快照。 */
+    private LocalDateTime aggregateSince() {
+        return LocalDateTime.now(ZONE).minusDays(aggregateWindowDays);
     }
 
     /** 课程学生聚合列表。 */
@@ -104,14 +113,16 @@ public class TeacherStudentService {
         if (qIds.isEmpty()) {
             return new TeacherStudentViews.Page(page, size, 0, List.of());
         }
-        List<UserPracticeAgg> aggregates = practiceRecordMapper.aggregateByUser(qIds, null);
+        List<UserPracticeAgg> aggregates = practiceRecordMapper.aggregateByUser(qIds, null,
+                aggregateSince());
         if (aggregates.isEmpty()) {
             return new TeacherStudentViews.Page(page, size, 0, List.of());
         }
         Set<Long> userIds = aggregates.stream().map(UserPracticeAgg::getUserId)
                 .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, List<UserKpAgg>> kpByUser = practiceRecordMapper
-                .aggregateByUserKp(qIds, userIds, halfLifeDays, LocalDateTime.now(ZONE)).stream()
+                .aggregateByUserKp(qIds, userIds, halfLifeDays, LocalDateTime.now(ZONE),
+                        aggregateSince()).stream()
                 .filter(item -> item.getUserId() != null)
                 .collect(Collectors.groupingBy(UserKpAgg::getUserId));
         Map<Long, int[]> planProgress = loadPlanProgress(userIds);
@@ -147,14 +158,15 @@ public class TeacherStudentService {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
         List<Long> single = List.of(userId);
-        List<UserPracticeAgg> aggregateList = practiceRecordMapper.aggregateByUser(qIds, single);
+        List<UserPracticeAgg> aggregateList = practiceRecordMapper.aggregateByUser(qIds, single,
+                aggregateSince());
         if (aggregateList.isEmpty() || aggregateList.get(0).getPracticeCount() == null
                 || aggregateList.get(0).getPracticeCount() <= 0) {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
         UserPracticeAgg aggregate = aggregateList.get(0);
         List<UserKpAgg> kpAggs = practiceRecordMapper.aggregateByUserKp(
-                qIds, single, halfLifeDays, LocalDateTime.now(ZONE));
+                qIds, single, halfLifeDays, LocalDateTime.now(ZONE), aggregateSince());
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(courseKpIds(courseId));
         Map<Long, String> names = userQueryService.findDisplayNames(single);
         Map<Long, int[]> planProgress = loadPlanProgress(Set.of(userId));
