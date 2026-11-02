@@ -35,12 +35,17 @@ sa-token:
   token-style: uuid
 
 # ============ 知识点映射参数（契约 05-算法 第 0 节；禁止代码硬编码） ============
+# 指标口径：离线脚本 tools/eval_mapping_offline.py，两个语料口径必须标 N
+# （ch23 → N=20；all → N=60，线上语义）。当前值对应 V2 = 误区入语料。
 mapping:
   # 词法余弦（TF-IDF）与神经向量的量纲差异，用该系数归一到 0—1；接入 bge 后改为 1.0
   score-scale: 0.3
   auto-threshold: 0.60
   margin: 0.10
-  confirm-floor: 0.40
+  # 0.40 → 0.35：补偿"误区入语料"导致的余弦整体缩小，覆盖率回到基线以上（见设计文档 §6.2）
+  confirm-floor: 0.35
+  # 唯一打分开关：把 knowledge_point.misconception 纳入语料；置 false 即回退到 V0 行为
+  misconception-in-corpus: true
 
 # ============ 内部 AI 服务地址 ============
 # zhixue-ai 不对外暴露，仅本服务调用（部署方案 1 节拓扑）

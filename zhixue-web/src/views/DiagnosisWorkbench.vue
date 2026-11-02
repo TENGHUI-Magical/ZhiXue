@@ -496,7 +496,8 @@ const analyze = async () => {
     const preferred = data.candidates.find((item) => item.kpId === preferredKp);
     if (preferred) {
       selectedKpId.value = preferred.kpId;
-    } else if (data.candidates.length) {
+    } else if (data.decision === "AUTO" && data.candidates.length) {
+      // 只在 AUTO 时预选 top1：CONFIRM 是“必须人工确认”，预选会让低质量候选被惯性接受
       selectedKpId.value = data.candidates[0].kpId;
     }
     if (data.decision === "FAILED") {
