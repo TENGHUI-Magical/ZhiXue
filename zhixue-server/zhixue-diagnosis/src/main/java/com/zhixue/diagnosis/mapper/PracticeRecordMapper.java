@@ -243,7 +243,7 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
      */
     @Select("""
             SELECT DISTINCT q_id FROM practice_record
-            WHERE user_id = #{userId} AND q_id IS NOT NULL AND q_id &lt;&gt; ''
+            WHERE user_id = #{userId} AND q_id IS NOT NULL AND q_id <> ''
             """)
     List<String> selectDistinctQidsByUser(@Param("userId") long userId);
 }

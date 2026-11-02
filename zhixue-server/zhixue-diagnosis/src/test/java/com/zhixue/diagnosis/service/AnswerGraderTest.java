@@ -20,6 +20,15 @@ class AnswerGraderTest {
         assertTrue(AnswerGrader.grade(question("判断", "F"), "错误", null).correct());
     }
 
+    /** 全大写英文 TRUE/FALSE 也按判断题归一：整串别名先于字母数字归一命中，不与 T/F 原样分支打架。 */
+    @Test
+    void judgeAcceptsFullEnglishWords() {
+        assertTrue(AnswerGrader.grade(question("判断", "T"), "TRUE", null).correct());
+        assertTrue(AnswerGrader.grade(question("判断", "对"), "true", null).correct());
+        assertTrue(AnswerGrader.grade(question("判断", "F"), "FALSE", null).correct());
+        assertFalse(AnswerGrader.grade(question("判断", "对"), "FALSE", null).correct());
+    }
+
     @Test
     void judgeWrongAnswerIsRejected() {
         assertFalse(AnswerGrader.grade(question("判断", "对"), "错", null).correct());

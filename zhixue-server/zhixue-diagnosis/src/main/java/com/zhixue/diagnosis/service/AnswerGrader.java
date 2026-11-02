@@ -19,12 +19,14 @@ public final class AnswerGrader {
 
     private static final Set<String> OBJECTIVE_TYPES = Set.of("单选", "多选", "判断", "判断题");
 
-    /** 判断题等价写法 → T/F；先做整串映射，再退回字母数字归一。 */
+    /** 判断题等价写法 → T/F；先做整串映射，再退回字母数字归一。TRUE/FALSE 整串先于字母归一命中。 */
     private static final Map<String, String> JUDGE_ALIASES = Map.ofEntries(
             Map.entry("对", "T"), Map.entry("正确", "T"), Map.entry("√", "T"),
             Map.entry("是", "T"), Map.entry("Y", "T"), Map.entry("YES", "T"),
+            Map.entry("TRUE", "T"),
             Map.entry("错", "F"), Map.entry("错误", "F"), Map.entry("×", "F"),
-            Map.entry("否", "F"), Map.entry("N", "F"), Map.entry("NO", "F"));
+            Map.entry("否", "F"), Map.entry("N", "F"), Map.entry("NO", "F"),
+            Map.entry("FALSE", "F"));
 
     private AnswerGrader() {
     }
