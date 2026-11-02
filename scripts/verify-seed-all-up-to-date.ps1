@@ -38,6 +38,7 @@ try {
     if ($repoHash -eq $regenHash) {
         Write-Host 'UP-TO-DATE：seed-demo-all.sql 与当前源 SQL 一致'
         Write-Host "SHA256=$repoHash"
+        Write-Host '若刚重生成，请重跑 scripts/report-numbers.ps1 更新 docs/numbers-current.md'
         exit 0
     }
 
@@ -90,6 +91,7 @@ try {
         Write-Host '没有源 SQL 比生成文件新；可能是 seed-demo-all.sql 被手改，或生成后尚未提交。'
     }
 
+    Write-Host '修复后请重跑 build-seed-all.ps1，再跑 report-numbers.ps1 更新 docs/numbers-current.md'
     exit 1
 }
 catch {

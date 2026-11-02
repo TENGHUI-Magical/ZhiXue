@@ -46,6 +46,8 @@ pwsh -ExecutionPolicy Bypass -File scripts/seed-demo.ps1
 #     内容线更新种子后，先重新生成合并文件：
 pwsh -ExecutionPolicy Bypass -File scripts/build-seed-all.ps1
 #     账号/口令/RAG 重建/验收数字见 docs/13-演示库恢复.md
+#     对外报数先跑：pwsh -ExecutionPolicy Bypass -File scripts/report-numbers.ps1
+#     再引用 docs/numbers-current.md（由脚本生成，不要手改）
 
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
