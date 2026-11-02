@@ -109,6 +109,14 @@
                 :class="['node-circle', { weak: node.weak }]"
               />
               <text
+                :x="node.x"
+                :y="node.y + 4"
+                text-anchor="middle"
+                class="node-code"
+              >
+                {{ node.codeText }}
+              </text>
+              <text
                 v-if="node.showLabel"
                 :x="node.x"
                 :y="node.y + node.r + 14"
@@ -162,15 +170,29 @@
         <p v-if="detail.misconception" class="kp-text muted">
           <strong>常见误区：</strong>{{ detail.misconception }}
         </p>
+        <el-button type="primary" class="kp-practice" :loading="practiceLoading" @click="startPractice">
+          开始练习
+        </el-button>
       </template>
     </el-drawer>
+
+    <QuestionPracticeDrawer
+      v-model="practiceVisible"
+      :q-id="practiceQId"
+      :kp-id="practiceKpId"
+      :recommendation-id="practiceRecommendationId"
+      @completed="practiceVisible = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
+import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
+import { DEFAULT_COURSE_ID, getRecommendations } from "../api/diagnosis";
 import {
   getKnowledgeGraph,
   getKnowledgePoint,
@@ -192,6 +214,11 @@ const drawerVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref("");
 const detail = ref<KnowledgePointDetail | null>(null);
+const practiceVisible = ref(false);
+const practiceLoading = ref(false);
+const practiceQId = ref("");
+const practiceKpId = ref("");
+const practiceRecommendationId = ref<number | null>(null);
 const chapterFilter = ref<number | null>(null);
 const svgRef = ref<SVGSVGElement | null>(null);
 const scale = ref(1);
@@ -237,10 +264,14 @@ const nodePoints = computed(() => {
   const ringCount = count <= 24 ? 1 : count <= 48 ? 2 : 3;
   const radii = ringCount === 1 ? [210] : ringCount === 2 ? [120, 205] : [95, 155, 215];
   const nodeRadius = count > 48 ? 13 : count > 24 ? 15 : 18;
-  // 标签外置：节点较少时才显示名称（≥12px），密集时靠章节筛选/清单兜底，禁止 <12px 字号
+  // 圆内始终显示章·序号短码；节点较少时再外置名称，禁止 <12px 字号
   const showLabel = count <= 24;
   const truncate = (text: string, max: number) =>
     text.length > max ? `${text.slice(0, max)}…` : text;
+  const compactCode = (id: string) => {
+    const match = /^KP(\d{2})(\d{2})$/i.exec(id);
+    return match ? `${Number(match[1])}·${match[2]}` : id;
+  };
   const totalWeight = radii.reduce((sum, radius) => sum + radius, 0);
   let remaining = count;
   const ringSizes = radii.map((radius, index) => {
@@ -261,6 +292,7 @@ const nodePoints = computed(() => {
       return {
         id,
         name: node.name ?? id,
+        codeText: compactCode(id),
         labelText: truncate(node.name ?? id, 5),
         showLabel,
         x: CENTER.x + Math.cos(angle) * radius,
@@ -487,6 +519,29 @@ const openNode = async (id?: string) => {
   }
 };
 
+const startPractice = async () => {
+  const kpId = activeId.value || detail.value?.kpId || "";
+  if (!kpId || practiceLoading.value) return;
+  practiceLoading.value = true;
+  try {
+    const recommendations = await getRecommendations({ kpId, courseId: DEFAULT_COURSE_ID });
+    const first = recommendations[0];
+    if (!first) {
+      ElMessage.info("该知识点暂无推荐练习");
+      return;
+    }
+    practiceQId.value = first.qId;
+    practiceKpId.value = kpId;
+    practiceRecommendationId.value = first.recommendationId ?? null;
+    drawerVisible.value = false;
+    practiceVisible.value = true;
+  } catch (e) {
+    ElMessage.error((e as Error).message || "练习加载失败，请重试");
+  } finally {
+    practiceLoading.value = false;
+  }
+};
+
 /** 深链：?chapterId=3 先筛选章节；?kpId=KP0301 自动打开节点详情（来自画像/今日的深链） */
 const applyQuery = async () => {
   const chapterRaw = route.query.chapterId;
@@ -613,7 +668,7 @@ onMounted(load);
 }
 .graph-node.active .node-circle {
   stroke: var(--app-warning);
-  stroke-width: 3;
+  stroke-width: 4;
 }
 .graph-node.adjacent .node-circle {
   stroke: var(--app-primary);
@@ -634,9 +689,27 @@ onMounted(load);
 }
 .graph-node:hover .node-circle {
   fill: var(--app-primary-strong);
+  stroke: var(--app-primary-strong);
+  stroke-width: 3;
 }
 .graph-node:hover .node-circle.weak {
   fill: color-mix(in srgb, var(--app-danger) 82%, black);
+}
+.graph-node.active:hover .node-circle {
+  stroke: var(--app-warning);
+  stroke-width: 4;
+}
+.graph-node:hover .node-label,
+.graph-node.active .node-label {
+  fill: var(--app-text);
+  font-weight: 700;
+}
+.node-code {
+  fill: var(--app-surface);
+  font-size: var(--app-fs-xs);
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
 }
 .node-label {
   fill: var(--app-text-secondary);
@@ -680,6 +753,9 @@ onMounted(load);
 }
 .kp-text.muted {
   color: var(--app-text-secondary);
+}
+.kp-practice {
+  margin-top: 16px;
 }
 :deep(.el-drawer) {
   max-width: 92vw;

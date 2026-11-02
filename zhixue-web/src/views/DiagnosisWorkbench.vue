@@ -138,7 +138,7 @@
       </el-col>
 
       <el-col :xs="24" :sm="24" :md="12" :lg="12">
-        <el-card>
+        <el-card class="explain-detail">
           <template #header>
             <div class="card-head card-head-actions">
               <span class="card-title">
@@ -162,6 +162,7 @@
 
           <el-skeleton v-if="explaining && !explainText" :rows="4" animated class="skeleton" />
           <div v-else-if="explainText" class="explain-text">{{ explainText }}</div>
+          <ReviewStatus v-if="explainText" :result="reviewResult" :comment="reviewComment" />
           <div v-else class="explain-empty">
             <p class="empty-title">确认知识点后可生成讲解</p>
             <div class="guide">
@@ -180,7 +181,7 @@
             </div>
           </div>
           <div v-if="explainId" class="meta-line">
-            讲解编号 {{ explainId }} · 生成耗时 {{ (latencyMs / 1000).toFixed(1) }} 秒
+            讲解编号 {{ explainId }}<span v-if="latencyMs > 0"> · 生成耗时 {{ (latencyMs / 1000).toFixed(1) }} 秒</span>
           </div>
         </el-card>
 
@@ -252,12 +253,14 @@ import { useRoute, useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@lucide/vue";
 import { ApiError } from "../api/request";
+import ReviewStatus from "../components/ReviewStatus.vue";
 import { listQuestionsByKp, type QuestionBrief } from "../api/course";
 import {
   DEFAULT_COURSE_ID,
   LOW_CONFIDENCE_THRESHOLD,
   createErrorRecord,
   confirmErrorRecord,
+  getExplain,
   getOcrTask,
   getRecommendations,
   mapKnowledgePoint,
@@ -323,6 +326,8 @@ const degraded = ref(false);
 const degradeLevel = ref("");
 const blocked = ref(false);
 const explainId = ref("");
+const reviewResult = ref<"PASS" | "RETURN" | null>(null);
+const reviewComment = ref<string | null>(null);
 const logId = ref("");
 /** 本轮讲解对应的 DRAFT 记录：confirm 失败重试时复用，不重复建草稿 */
 const draftLogId = ref("");
@@ -457,8 +462,10 @@ const degradeLabel = computed(() =>
 );
 
 let recSeq = 0;
+let explainQuerySeq = 0;
 const resetExplainState = () => {
   recSeq += 1;
+  explainQuerySeq += 1;
   recommendLoading.value = false;
   explainText.value = "";
   sources.value = [];
@@ -466,6 +473,8 @@ const resetExplainState = () => {
   degradeLevel.value = "";
   blocked.value = false;
   explainId.value = "";
+  reviewResult.value = null;
+  reviewComment.value = null;
   latencyMs.value = 0;
   questions.value = [];
   errorMsg.value = "";
@@ -510,6 +519,55 @@ const analyze = async () => {
   }
 };
 
+const loadExplainDetail = async (id: string) => {
+  resetExplainState();
+  const seq = ++explainQuerySeq;
+  explaining.value = true;
+  try {
+    const data = await getExplain(id);
+    if (seq !== explainQuerySeq) return;
+    if (!data) throw new Error("讲解记录不存在");
+    explainText.value = data.content || "";
+    sources.value = data.sources ?? [];
+    degraded.value = !!data.degraded;
+    degradeLevel.value = data.degradeLevel ?? "";
+    blocked.value = !!data.blocked;
+    explainId.value = data.explainId;
+    reviewResult.value = data.reviewResult ?? null;
+    reviewComment.value = data.reviewComment ?? null;
+  } catch (error) {
+    if (seq === explainQuerySeq) {
+      errorMsg.value = error instanceof Error ? error.message : "讲解记录加载失败";
+    }
+  } finally {
+    if (seq === explainQuerySeq) explaining.value = false;
+  }
+};
+
+const loadReviewState = async (id: string) => {
+  const seq = ++explainQuerySeq;
+  try {
+    const data = await getExplain(id);
+    if (seq !== explainQuerySeq || explainId.value !== id) return;
+    reviewResult.value = data?.reviewResult ?? null;
+    reviewComment.value = data?.reviewComment ?? null;
+  } catch {
+    // 讲解正文已生成，复核状态失败时保留正文且不制造已评阅标记
+    if (seq === explainQuerySeq) {
+      reviewResult.value = null;
+      reviewComment.value = null;
+    }
+  }
+};
+
+watch(
+  () => route.query.explainId,
+  (id) => {
+    if (typeof id === "string" && id) void loadExplainDetail(id);
+  },
+  { immediate: true }
+);
+
 /** SSE 事件分发：delta/source/degraded/done/error（error 含 60004 合规拦截） */
 const handleFrame = (event: string, payload: Record<string, unknown>) => {
   switch (event) {
@@ -535,6 +593,7 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
       explainId.value = String(payload.explainId ?? explainId.value);
       latencyMs.value = Number(payload.latencyMs ?? 0);
       void loadRecommend();
+      void loadReviewState(explainId.value);
       break;
     case "error":
       // 契约 §2：60004 展示学术诚信提示，不展示讲解正文

@@ -128,12 +128,12 @@
         </el-card>
 
         <!-- 到期复习：三来源中排最前，复习项不被新题挤掉（docs/05 §3.8） -->
-        <el-card v-if="dueReviews.length" class="section-card due-card" shadow="never">
+        <el-card class="section-card due-card" shadow="never">
           <div class="section-head">
             <span>到期复习</span>
-            <span class="due-caption">距上次答对已过半衰期，先复习再练新题</span>
+            <span class="due-caption">{{ dueReviews.length ? "距上次答对已过半衰期，先复习再练新题" : "到期后会列在这里" }}</span>
           </div>
-          <div class="due-list">
+          <div v-if="dueReviews.length" class="due-list">
             <div v-for="due in dueReviews" :key="due.kpId" class="due-row">
               <div class="due-main">
                 <div class="due-kp">
@@ -146,6 +146,8 @@
               <el-button size="small" @click="openDuePractice(due)">重做这题</el-button>
             </div>
           </div>
+          <p v-else-if="dueError" class="due-empty" role="status">到期复习暂不可用</p>
+          <p v-else class="due-empty" role="status">暂无到期复习</p>
         </el-card>
 
         <!-- 推荐练习 -->
@@ -789,6 +791,11 @@ onMounted(loadAll);
   display: grid;
   gap: 10px;
   margin-top: 10px;
+}
+.due-empty {
+  margin: 8px 0 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
 }
 .due-row {
   display: flex;
