@@ -53,6 +53,21 @@ export interface ErrorRecord {
   status: string;
 }
 
+export interface ExplainLog {
+  explainId: string;
+  traceId?: string;
+  model?: string;
+  degraded?: boolean;
+  degradeLevel?: "L2" | "L3" | "L4" | null;
+  content: string;
+  sources?: SourceRef[];
+  blocked?: boolean;
+  createdAt?: string;
+  reviewResult?: "PASS" | "RETURN" | null;
+  reviewComment?: string | null;
+  reviewedAt?: string | null;
+}
+
 export interface ExplainPayload {
   logId: string;
   kpId: string;
@@ -168,6 +183,9 @@ export const parseSseFrame = (frame: string, onFrame: (event: string, payload: R
   }
   onFrame(event, payload);
 };
+
+export const getExplain = (explainId: string) =>
+  api.get<ExplainLog>(`/api/diagnosis/explain/${encodeURIComponent(explainId)}`);
 
 /**
  * 流式讲解（契约 §5：POST /api/diagnosis/explain，SSE）。
