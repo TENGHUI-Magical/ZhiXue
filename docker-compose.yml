@@ -15,30 +15,10 @@ services:
     volumes:
       - ./data/mysql:/var/lib/mysql           # 数据持久化（备份见部署方案 5 节）
       # 首次启动按文件名顺序执行；已有 data/mysql 时不会重跑，改数据需先清空数据卷
-      # 覆盖第1—8章 + 演示账号 + 演示数据（所有种子均可重复执行）
+      # 只挂 2 个文件：DDL + 合并种子；合并种子由 scripts/build-seed-all.ps1 生成，勿手改
+      # 合并文件内部固定 kp -> question -> prereq -> 演示账号/数据，避免多文件前缀乱序
       - ./zhixue-server/sql/init-v2.sql:/docker-entrypoint-initdb.d/01-init-v2.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch01.sql:/docker-entrypoint-initdb.d/02-seed-kp-ch01.sql:ro
-      - ./zhixue-server/sql/seed-question-ch01.sql:/docker-entrypoint-initdb.d/03-seed-question-ch01.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch02-ch03.sql:/docker-entrypoint-initdb.d/04-seed-kp-ch02-ch03.sql:ro
-      - ./zhixue-server/sql/seed-question-ch02-ch03.sql:/docker-entrypoint-initdb.d/05-seed-question-ch02-ch03.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch04.sql:/docker-entrypoint-initdb.d/06-seed-kp-ch04.sql:ro
-      - ./zhixue-server/sql/seed-question-ch04.sql:/docker-entrypoint-initdb.d/07-seed-question-ch04.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch05.sql:/docker-entrypoint-initdb.d/08-seed-kp-ch05.sql:ro
-      - ./zhixue-server/sql/seed-question-ch05.sql:/docker-entrypoint-initdb.d/09-seed-question-ch05.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch06.sql:/docker-entrypoint-initdb.d/10-seed-kp-ch06.sql:ro
-      - ./zhixue-server/sql/seed-question-ch06.sql:/docker-entrypoint-initdb.d/11-seed-question-ch06.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch07.sql:/docker-entrypoint-initdb.d/12-seed-kp-ch07.sql:ro
-      - ./zhixue-server/sql/seed-question-ch07.sql:/docker-entrypoint-initdb.d/13-seed-question-ch07.sql:ro
-      - ./zhixue-server/sql/seed-kp-ch08.sql:/docker-entrypoint-initdb.d/14-seed-kp-ch08.sql:ro
-      - ./zhixue-server/sql/seed-question-ch08.sql:/docker-entrypoint-initdb.d/15-seed-question-ch08.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch01.sql:/docker-entrypoint-initdb.d/16-seed-prereq-ch01.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch04.sql:/docker-entrypoint-initdb.d/17-seed-prereq-ch04.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch05.sql:/docker-entrypoint-initdb.d/18-seed-prereq-ch05.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch06.sql:/docker-entrypoint-initdb.d/19-seed-prereq-ch06.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch07.sql:/docker-entrypoint-initdb.d/20-seed-prereq-ch07.sql:ro
-      - ./zhixue-server/sql/seed-prereq-ch08.sql:/docker-entrypoint-initdb.d/21-seed-prereq-ch08.sql:ro
-      - ./zhixue-server/sql/seed-demo-users.sql:/docker-entrypoint-initdb.d/22-seed-demo-users.sql:ro
-      - ./zhixue-server/sql/seed-demo-data.sql:/docker-entrypoint-initdb.d/23-seed-demo-data.sql:ro
+      - ./zhixue-server/sql/seed-demo-all.sql:/docker-entrypoint-initdb.d/02-seed-demo-all.sql:ro
     command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
   redis:

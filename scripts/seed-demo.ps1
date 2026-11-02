@@ -1,5 +1,7 @@
 # 智学领航 · 演示库统一入口（本地 MySQL 8）
 # 用途：按 kp → question → prereq 顺序导入第1—8章种子 + 演示账号 + 演示练习/错题/评阅数据。
+# 重要：任何 seed-*.sql 改动后，先跑 scripts/build-seed-all.ps1 重新生成 seed-demo-all.sql 再提交；
+#       可用 scripts/verify-seed-all-up-to-date.ps1 自检生成文件是否过期。
 # 幂等：所有种子均为 upsert；默认不删库，只有显式 -Recreate -Force 才重建。
 # 用法：
 #   $env:DB_PASSWORD = '<本机 root 口令>'
@@ -37,20 +39,23 @@ if ($Recreate -and -not $Force) {
 $sqlDir = Join-Path $PSScriptRoot '..\zhixue-server\sql'
 $files = @(
     'init-v2.sql',
+    # 先把第1—8章知识点全部建好
     'seed-kp-ch01.sql',
-    'seed-question-ch01.sql',
     'seed-kp-ch02-ch03.sql',
-    'seed-question-ch02-ch03.sql',
     'seed-kp-ch04.sql',
-    'seed-question-ch04.sql',
     'seed-kp-ch05.sql',
-    'seed-question-ch05.sql',
     'seed-kp-ch06.sql',
-    'seed-question-ch06.sql',
     'seed-kp-ch07.sql',
-    'seed-question-ch07.sql',
     'seed-kp-ch08.sql',
+    # 再灌题库
+    'seed-question-ch01.sql',
+    'seed-question-ch02-ch03.sql',
+    'seed-question-ch04.sql',
+    'seed-question-ch05.sql',
+    'seed-question-ch06.sql',
+    'seed-question-ch07.sql',
     'seed-question-ch08.sql',
+    # 最后建先修边，避免边指向尚未插入的知识点
     'seed-prereq-ch01.sql',
     'seed-prereq-ch04.sql',
     'seed-prereq-ch05.sql',
@@ -60,6 +65,12 @@ $files = @(
     'seed-demo-users.sql',
     'seed-demo-data.sql'
 )
+
+# 预检：任何一章种子缺失都在导入前失败，避免“导到一半才发现缺文件”
+$missing = @($files | Where-Object { -not (Test-Path (Join-Path $sqlDir $_)) })
+if ($missing.Count -gt 0) {
+    throw "缺少种子文件：$($missing -join ', ')"
+}
 
 $previousPwd = $env:MYSQL_PWD
 $env:MYSQL_PWD = $Password

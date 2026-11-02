@@ -22,8 +22,16 @@ cp .env.example .env
 
 # 1. 基础设施（MySQL 8 + Redis 7，只绑定 127.0.0.1）
 #    Docker 可选；没有 Docker 时用本机 MySQL 8 + Redis 7（3306/6379），SQL 导入见 docs/08
+#    Docker 首次启动只执行 2 个文件：01-init-v2.sql + 02-seed-demo-all.sql
+#    合并种子由 scripts/build-seed-all.ps1 生成；任何一章 seed-*.sql 改动后必须重跑再提交
+#    若 seed-demo-all.sql 不存在：先 pwsh -ExecutionPolicy Bypass -File scripts/build-seed-all.ps1
+#    自检生成文件是否过期：pwsh -ExecutionPolicy Bypass -File scripts/verify-seed-all-up-to-date.ps1
+#    预期：8 章 / 222 题（当前种子快照；以实际输出为准，不要把 222 当门禁）
 docker compose up -d
 docker compose ps
+
+#    核对（口令用 .env 的 MYSQL_ROOT_PASSWORD）：
+#    docker exec -it zhixue-mysql mysql -uroot -p -e "USE zhixue; SELECT COUNT(*) AS chapters FROM course_chapter; SELECT COUNT(*) AS questions FROM question_bank;"
 
 # 1.5 本地开发账号（仅本地；口令不进入仓库）
 #     生成随机口令并写入已 gitignore 的本地 SQL，终端会打印一次口令
@@ -31,9 +39,12 @@ pip install bcrypt
 python tools/gen_dev_users.py
 mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.local.sql
 
-# 1.6 答辩/换机演示库（第1—5章 + 12 名演示学生 + 教师评阅队列）
-#     Docker：首次 docker compose up -d 自动导入；本机 MySQL：下面一条命令
+# 1.6 答辩/换机演示库（第1—8章 + 12 名演示学生 + 教师评阅队列）
+#     Docker：首次 docker compose up -d 自动导入合并种子
+#     本机 MySQL：下面一条命令；不碰现有库用 -Database zhixue_demo -Recreate -Force
 pwsh -ExecutionPolicy Bypass -File scripts/seed-demo.ps1
+#     内容线更新种子后，先重新生成合并文件：
+pwsh -ExecutionPolicy Bypass -File scripts/build-seed-all.ps1
 #     账号/口令/RAG 重建/验收数字见 docs/13-演示库恢复.md
 
 # 2. 后端（JDK 21，Maven；默认 dev profile）
