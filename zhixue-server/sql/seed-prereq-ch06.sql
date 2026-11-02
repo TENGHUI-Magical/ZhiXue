@@ -20,5 +20,7 @@ INSERT INTO knowledge_prereq (kp_id, prereq_kp_id) VALUES
 ('KP0608', 'KP0602'),  -- Armstrong 公理以函数依赖为对象
 ('KP0609', 'KP0608'),  -- 最小覆盖依赖闭包与等价判定
 -- 6.5 无损连接分解
-('KP0610', 'KP0609')   -- 无损连接紧随保持FD分解，6.5.2 比较两种准则
+('KP0610', 'KP0609'),  -- 无损连接紧随保持FD分解，6.5.2 比较两种准则
+('KP0611', 'KP0610'),  -- 算法6.4—6.6以无损连接定义与表算法为基础
+('KP0611', 'KP0607')   -- 算法6.5/6.6分别需要BCNF与4NF（经KP0606链覆盖）
 ON DUPLICATE KEY UPDATE kp_id = VALUES(kp_id);

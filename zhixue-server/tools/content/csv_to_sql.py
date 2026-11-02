@@ -25,7 +25,8 @@ def sql_str(value):
     text = str(value).strip()
     if not text:
         return "NULL"
-    return "'" + text.replace("'", "''") + "'"
+    # MySQL 默认会把反斜杠当作字符串转义符；JSON 内的 \" 必须双写才能保留到入库。
+    return "'" + text.replace("\\", "\\\\").replace("'", "''") + "'"
 
 
 def read_csv(path, header):
