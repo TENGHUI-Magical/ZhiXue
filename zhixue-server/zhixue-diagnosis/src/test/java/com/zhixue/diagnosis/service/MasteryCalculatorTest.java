@@ -7,6 +7,10 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * 掌握度公式单测：期望值全部按 docs/05 §2.3 手算/SciPy 独立计算后写死，
+ * 不用被测的 MasteryCalculator 计算期望值（避免同义反复）。
+ */
 class MasteryCalculatorTest {
 
     private static final LocalDateTime T0 = LocalDateTime.of(2026, 1, 1, 12, 0);
@@ -14,45 +18,48 @@ class MasteryCalculatorTest {
 
     @Test
     void noEvidenceReturnsPriorAndWideInterval() {
-        MasteryCalculator.Estimate estimate = calculator.estimate(0, 0, null, T0);
+        MasteryCalculator.Estimate estimate = calculator.estimate(0, 0);
         assertEquals(0.5, estimate.mean(), 1e-9);
         assertTrue(estimate.high() - estimate.low() > 0.7);
     }
 
     @Test
-    void singleErrorFallsBackTowardPriorOverTime() {
-        MasteryCalculator.Estimate day0 = calculator.estimate(0,
-                calculator.errorWeight("CONCEPT_CONFUSION", T0, T0), T0, T0);
-        MasteryCalculator.Estimate day30 = calculator.estimate(0,
-                calculator.errorWeight("CONCEPT_CONFUSION", T0, T0.plusDays(30)), T0, T0.plusDays(30));
-        MasteryCalculator.Estimate day60 = calculator.estimate(0,
-                calculator.errorWeight("CONCEPT_CONFUSION", T0, T0.plusDays(60)), T0, T0.plusDays(60));
-        MasteryCalculator.Estimate day90 = calculator.estimate(0,
-                calculator.errorWeight("CONCEPT_CONFUSION", T0, T0.plusDays(90)), T0, T0.plusDays(90));
-        assertTrue(day0.mean() < day30.mean());
-        assertTrue(day30.mean() < day60.mean());
-        assertTrue(day60.mean() < day90.mean());
-        assertTrue(day90.mean() < 0.5);
-        assertTrue(day90.high() - day90.low() > day0.high() - day0.low());
+    void decayIsHalfAtHalfLifeAndContinuousPerDay() {
+        assertEquals(0.5, calculator.decay(T0, T0.plusDays(30)), 1e-12);
+        // 100 天 = 3⅓ 个半衰期 → 0.5^(100/30) = 0.0992125657
+        assertEquals(0.0992125657, calculator.decay(T0, T0.plusDays(100)), 1e-9);
     }
 
     @Test
-    void manyCorrectDecayButDoNotCollapseToZero() {
-        MasteryCalculator.Estimate day0 = calculator.estimate(10, 0, T0, T0);
-        MasteryCalculator.Estimate day30 = calculator.estimate(10, 0, T0, T0.plusDays(30));
-        MasteryCalculator.Estimate day60 = calculator.estimate(10, 0, T0, T0.plusDays(60));
-        MasteryCalculator.Estimate day90 = calculator.estimate(10, 0, T0, T0.plusDays(90));
-        assertTrue(day0.mean() > day30.mean());
-        assertTrue(day30.mean() > day60.mean());
-        assertTrue(day60.mean() > day90.mean());
-        assertTrue(day90.mean() > 0.5);
-        assertTrue(day90.mean() > 0.55);
+    void oldCorrectPlusRecentErrorIsNotOverestimated() {
+        // 手算：10 次正确在 100 天前 → S=10×0.5^(100/30)=0.9921256575；
+        // 今日 1 次概念混淆 → F=1.0；Beta(2.9921256575, 3) mean=0.4993429425。
+        MasteryCalculator.Estimate estimate = calculator.estimate(0.9921256575, 1.0);
+        assertEquals(0.4993429425, estimate.mean(), 1e-6);
+        // 旧口径“正确数 × decay(最后证据)”会得到 Beta(12,3)=0.800，必须显著更低
+        assertTrue(estimate.mean() < 0.55);
+    }
+
+    @Test
+    void oldErrorPlusRecentCorrectIsNotAnchoredByRecentActivity() {
+        // 手算：今日 2 次正确 → S=2；90 天前 1 次概念混淆 → F=0.5^3=0.125；
+        // Beta(4, 2.125) mean=0.6530612245。
+        assertEquals(0.6530612245, calculator.estimate(2.0, 0.125).mean(), 1e-6);
+        // 若错误也按“最后证据=今天”统一衰减，会得到 4/(4+3)=0.571，口径必须区分
+        assertTrue(calculator.estimate(2.0, 0.125).mean() > 0.60);
+    }
+
+    @Test
+    void longTermOnlyCorrectDecaysButDoesNotCollapse() {
+        // 手算：10 次正确在 90 天前 → S=10×0.125=1.25；Beta(3.25, 2) mean=0.6190476190。
+        assertEquals(0.6190476190, calculator.estimate(1.25, 0.0).mean(), 1e-6);
+        assertTrue(calculator.estimate(1.25, 0.0).mean() > 0.5);
     }
 
     @Test
     void intervalWidensWhenEvidenceAges() {
-        MasteryCalculator.Estimate fresh = calculator.estimate(6, 0, T0, T0);
-        MasteryCalculator.Estimate stale = calculator.estimate(6, 0, T0, T0.plusDays(90));
+        MasteryCalculator.Estimate fresh = calculator.estimate(6.0, 0);
+        MasteryCalculator.Estimate stale = calculator.estimate(0.75, 0);
         assertTrue(stale.high() - stale.low() > fresh.high() - fresh.low());
     }
 
@@ -61,21 +68,5 @@ class MasteryCalculatorTest {
         assertEquals(0.8, MasteryCalculator.severity("UNCLASSIFIED"), 1e-9);
         assertEquals(0.8, MasteryCalculator.severity(null), 1e-9);
         assertEquals(1.0, MasteryCalculator.severity("CONCEPT_CONFUSION"), 1e-9);
-    }
-
-    @Test
-    void printsOldVersusNewSamplesForDefense() {
-        System.out.println("[mastery] scenario,day,old,new");
-        for (int day : new int[]{0, 30, 60, 90}) {
-            LocalDateTime at = T0.plusDays(day);
-            double decay = calculator.decay(T0, at);
-            double oldSingleError = 1.0 - decay;
-            double oldTenCorrect = 1.0;
-            double newSingleError = calculator.estimate(0,
-                    calculator.errorWeight("CONCEPT_CONFUSION", T0, at), T0, at).mean();
-            double newTenCorrect = calculator.estimate(10, 0, T0, at).mean();
-            System.out.printf("[mastery] single-error,%d,%.4f,%.4f%n", day, oldSingleError, newSingleError);
-            System.out.printf("[mastery] ten-correct,%d,%.4f,%.4f%n", day, oldTenCorrect, newTenCorrect);
-        }
     }
 }

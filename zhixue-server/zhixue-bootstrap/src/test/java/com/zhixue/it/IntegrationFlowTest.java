@@ -910,6 +910,45 @@ class IntegrationFlowTest {
         assertThat(studentIdAt(teacher, 3, 1, "masteryAsc")).isEqualTo(u3);
     }
 
+    /**
+     * P0-1 回归锁：同一学生同一知识点，教师端学习记录与学生端画像必须走同一口径。
+     * 场景：KP0201 的 2 对 1 错都在 90 天前；KP0202 今天 1 对（制造 per-user lastActive=今天）。
+     * 若教师端仍用 per-user lastActive 当锚，KP0201 会被虚高，本用例会红。
+     */
+    @Test
+    void teacherAndStudentMasteryAgreePerKp() throws Exception {
+        long u1 = userIdOf("it_user");
+        List<String> qIds = courseQids(3);
+        insertPractice(u1, "mx-old-ok-1", qIds.get(0), "KP0201", true, 20, 90, null);
+        insertPractice(u1, "mx-old-ok-2", qIds.get(1), "KP0201", true, 20, 90, null);
+        insertPractice(u1, "mx-old-err", qIds.get(2), "KP0201", false, 20, 90, "CONCEPT_CONFUSION");
+        insertPractice(u1, "mx-new-ok", qIds.get(0), "KP0202", true, 20, 0, null);
+
+        String student = login();
+        HttpResponse<String> studentResp = getJson("/api/portraits/me", student);
+        assertThat(code(studentResp)).isZero();
+        List<Map<String, Object>> weak = JsonPath.read(body(studentResp), "$.data.weakestKps");
+        double studentMastery = weak.stream()
+                .filter(row -> "KP0201".equals(row.get("kpId")))
+                .findFirst()
+                .map(row -> ((Number) row.get("mastery")).doubleValue())
+                .orElseThrow(() -> new AssertionError("学生画像缺少 KP0201"));
+
+        String teacher = login("it_teacher");
+        HttpResponse<String> teacherResp = getJson("/api/teacher/students/" + u1
+                + "/learning-records?courseId=1&page=1&size=20", teacher);
+        assertThat(code(teacherResp)).isZero();
+        List<Map<String, Object>> kpMastery =
+                JsonPath.read(body(teacherResp), "$.data.kpMastery");
+        double teacherMastery = kpMastery.stream()
+                .filter(row -> "KP0201".equals(row.get("kpId")))
+                .findFirst()
+                .map(row -> ((Number) row.get("mastery")).doubleValue())
+                .orElseThrow(() -> new AssertionError("教师端缺少 KP0201"));
+
+        assertThat(teacherMastery).isCloseTo(studentMastery, within(1e-9));
+    }
+
     @Test
     void teacherStudentLearningRecordsFiltersAndRejectsOutsiders() throws Exception {
         long u1 = userIdOf("it_user");
@@ -996,13 +1035,12 @@ class IntegrationFlowTest {
 
         List<Map<String, Object>> top = JsonPath.read(json, "$.data.weakestKpTop");
         assertThat(top).hasSize(2);
-        LocalDateTime now = LocalDateTime.now(ZONE);
         MasteryCalculator calculator = new MasteryCalculator(30);
-        double u1Mastery = calculator.estimate(9, 1.0, now, now).mean();
-        double u2Mastery = calculator.estimate(0, 1.0, now, now).mean();
+        double u1Mastery = calculator.estimate(9.0, 1.0).mean();
+        double u2Mastery = calculator.estimate(0.0, 1.0).mean();
         double expectedMacro = (u1Mastery + u2Mastery) / 2;
         // KP0202：2 次正确（今日）+ 30 天前错误（SQL 半衰后严重度 0.5）
-        double expectedKp0202 = calculator.estimate(2, 0.5, now, now).mean();
+        double expectedKp0202 = calculator.estimate(2.0, 0.5).mean();
 
         assertThat(top.get(0).get("kpId")).isEqualTo("KP0201");
         assertThat(((Number) top.get(0).get("avgMastery")).doubleValue())

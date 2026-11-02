@@ -81,8 +81,10 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                           @Param("userIds") Collection<Long> userIds);
 
     /**
-     * 按（用户, 知识点）聚合掌握度所需事件数与严重度和（C12）。
+     * 按（用户, 知识点）聚合掌握度所需的正确权重、错误严重度和与事件数（C12）。
      * <p>
+     * successWeight 与 severitySum 都按每条事件自己的 created_at 衰减后求和（docs/05 §2.3），
+     * 教师端与学生端共用同一 SQL 口径，不再使用“最后证据时间”统一衰减。
      * severitySum 的权重与时间半衰与 MasteryCalculator.severity/decay 保持一致（docs/05 §2.2）：
      * <ul>
      *   <li>{@code TIMESTAMPDIFF(DAY, created_at, now)} 取“满 24 小时天数”，与
@@ -97,6 +99,9 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
             SELECT user_id AS userId,
                    kp_id AS kpId,
                    COUNT(*) AS events,
+                   SUM(CASE WHEN is_correct = 1 THEN
+                         POW(0.5, COALESCE(GREATEST(0, TIMESTAMPDIFF(DAY, created_at, #{now})), 0) / #{halfLifeDays})
+                       ELSE 0 END) AS successWeight,
                    SUM(CASE WHEN is_correct = 0 THEN
                          POW(0.5, COALESCE(GREATEST(0, TIMESTAMPDIFF(DAY, created_at, #{now})), 0) / #{halfLifeDays}) *
                          CASE error_type

@@ -9,15 +9,18 @@ import java.util.Map;
  * 掌握度：Beta 后验 + 双侧时间衰减 + 90% 可信区间（docs/05 §2）。
  *
  * <p>旧公式 {@code 1 - Σ错误严重度/N} 只衰减错误、分母不变，长期不练会逼近 1.0。
- * 新公式把“答对”和“答错”都当作带时间衰减的证据：</p>
+ * 新公式把“答对”和“答错”都当作带各自事件时间的证据，两侧完全对称：</p>
  * <pre>
- * S = 正确事件数 × decay(最后一次证据)
- * F = Σ(错因严重度 × decay(错误事件))
+ * S = Σ decay(正确事件_i)
+ * F = Σ(错因严重度_i × decay(错误事件_i))
  * posterior = Beta(α0 + S, β0 + F)，α0=β0=2（均值 0.5，弱先验）
  * mastery = posterior 均值；90% 区间 = Beta 的 5%/95% 分位
  * </pre>
  * <p>没有新证据时 S/F 随年龄一起衰减，后验回到 Beta(2,2)，区间变宽，不会逼近 1.0。
- * 纯函数，无数据库依赖。</p>
+ * 正确侧不能用“正确数 × decay(最后证据)”统一乘：最后一条证据若是今日错误，
+ * 会把 100 天前的正确证据零衰减保留，导致“以前会、最近又错”的薄弱点被系统性高估。
+ * 纯函数，无数据库依赖；调用方按事件各自时间累加权重，再交给
+ * {@link #estimate(double, double)}，教师端与学生端共用同一入口。</p>
  */
 public final class MasteryCalculator {
 
@@ -76,19 +79,14 @@ public final class MasteryCalculator {
         return new Estimate(mean, low, high, s, f);
     }
 
-    /**
-     * 把正确/错误证据按时间衰减后做 Beta 后验。
-     * 错误严重度由调用方按事件逐条衰减求和；正确事件用“最后一次证据”统一衰减。
-     */
-    public Estimate estimate(int correctCount, double errorSeveritySum,
-                             LocalDateTime lastEvidenceAt, LocalDateTime now) {
-        double success = Math.max(0, correctCount) * decay(lastEvidenceAt, now);
-        return estimate(success, errorSeveritySum);
+    /** 后验均值；successWeight/failureWeight 由调用方按事件逐条衰减后求和。 */
+    public double mastery(double successWeight, double failureWeight) {
+        return estimate(successWeight, failureWeight).mean();
     }
 
-    public double mastery(int correctCount, double errorSeveritySum,
-                          LocalDateTime lastEvidenceAt, LocalDateTime now) {
-        return estimate(correctCount, errorSeveritySum, lastEvidenceAt, now).mean();
+    /** 单条正确事件的时间权重，调用方按事件各自时间累加即可。 */
+    public double correctWeight(LocalDateTime eventAt, LocalDateTime now) {
+        return decay(eventAt, now);
     }
 
     /** 单条错误事件的严重度贡献，调用方累加即可。 */

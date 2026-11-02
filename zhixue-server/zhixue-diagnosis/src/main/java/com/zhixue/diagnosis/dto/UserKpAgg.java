@@ -1,13 +1,15 @@
 package com.zhixue.diagnosis.dto;
 
 /**
- * 按（用户, 知识点）聚合的练习统计；severitySum 由 SQL 按 docs/05 §2.2 权重计算。
+ * 按（用户, 知识点）聚合的练习统计；successWeight/severitySum 由 SQL 按各事件时间
+ * 逐条衰减后求和（docs/05 §2.3），教师端与学生端共用，避免“最后证据”统一衰减的口径差。
  */
 public class UserKpAgg {
 
     private Long userId;
     private String kpId;
     private Integer events;
+    private Double successWeight;
     private Double severitySum;
     private Integer errorCount;
 
@@ -33,6 +35,14 @@ public class UserKpAgg {
 
     public void setEvents(Integer events) {
         this.events = events;
+    }
+
+    public Double getSuccessWeight() {
+        return successWeight;
+    }
+
+    public void setSuccessWeight(Double successWeight) {
+        this.successWeight = successWeight;
     }
 
     public Double getSeveritySum() {

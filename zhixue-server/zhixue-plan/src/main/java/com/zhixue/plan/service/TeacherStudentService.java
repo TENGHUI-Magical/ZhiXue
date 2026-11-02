@@ -192,7 +192,7 @@ public class TeacherStudentService {
 
         List<TeacherStudentViews.ErrorItem> errors = loadErrors(userId, kpById);
         List<TeacherStudentViews.KpMastery> kpMastery =
-                buildKpMastery(kpAggs, kpById, aggregate.getLastActiveAt());
+                buildKpMastery(kpAggs, kpById);
         return new TeacherStudentViews.LearningRecord(summary,
                 new TeacherStudentViews.PracticePage(page, size, total, practices),
                 errors, kpMastery);
@@ -258,13 +258,12 @@ public class TeacherStudentService {
         Double avgMastery = null;
         if (!kpAggs.isEmpty()) {
             double sum = 0;
-            LocalDateTime now = LocalDateTime.now(ZONE);
             for (UserKpAgg kp : kpAggs) {
-                int ev = kp.getEvents() == null ? 0 : kp.getEvents();
-                int err = kp.getErrorCount() == null ? 0 : kp.getErrorCount();
-                sum += masteryCalculator.mastery(Math.max(0, ev - err),
-                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum(),
-                        aggregate.getLastActiveAt(), now);
+                // 与学生端完全同源：SQL 已按 (user_id, kp_id) 逐事件衰减求和，
+                // 不再用 per-user lastActiveAt 当所有知识点的衰减锚。
+                sum += masteryCalculator.mastery(
+                        kp.getSuccessWeight() == null ? 0.0 : kp.getSuccessWeight(),
+                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum());
             }
             avgMastery = round3(sum / kpAggs.size());
         }
@@ -300,10 +299,8 @@ public class TeacherStudentService {
     }
 
     private List<TeacherStudentViews.KpMastery> buildKpMastery(List<UserKpAgg> kpAggs,
-                                                               Map<String, KnowledgePoint> kpById,
-                                                               LocalDateTime lastActiveAt) {
+                                                               Map<String, KnowledgePoint> kpById) {
         List<TeacherStudentViews.KpMastery> result = new ArrayList<>();
-        LocalDateTime now = LocalDateTime.now(ZONE);
         for (UserKpAgg aggregate : kpAggs) {
             String kpId = aggregate.getKpId();
             if (kpId == null || kpId.isBlank()) {
@@ -312,11 +309,12 @@ public class TeacherStudentService {
             KnowledgePoint kp = kpById.get(kpId);
             int events = aggregate.getEvents() == null ? 0 : aggregate.getEvents();
             int errors = aggregate.getErrorCount() == null ? 0 : aggregate.getErrorCount();
-            double severitySum = aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum();
+            // 与学生端 /api/portraits/me 同一入口：successWeight、severitySum 均由 SQL 逐事件衰减
             result.add(new TeacherStudentViews.KpMastery(kpId,
                     kp == null ? null : kp.getName(),
-                    round3(masteryCalculator.mastery(Math.max(0, events - errors),
-                            severitySum, lastActiveAt, now)),
+                    round3(masteryCalculator.mastery(
+                            aggregate.getSuccessWeight() == null ? 0.0 : aggregate.getSuccessWeight(),
+                            aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum())),
                     events, errors));
         }
         result.sort(Comparator.comparingDouble(TeacherStudentViews.KpMastery::mastery));

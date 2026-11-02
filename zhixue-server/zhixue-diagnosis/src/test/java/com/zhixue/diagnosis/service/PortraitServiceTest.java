@@ -287,12 +287,14 @@ class PortraitServiceTest {
         k10.setKpId("KP0201");
         k10.setEvents(10);
         k10.setErrorCount(1);
+        k10.setSuccessWeight(9.0);
         k10.setSeveritySum(1.0);
         UserKpAgg k11 = new UserKpAgg();
         k11.setUserId(11L);
         k11.setKpId("KP0201");
         k11.setEvents(1);
         k11.setErrorCount(1);
+        k11.setSuccessWeight(0.0);
         k11.setSeveritySum(1.0);
         when(practiceRecordMapper.aggregateByUserKp(anyList(), any(), anyDouble(), any()))
                 .thenReturn(List.of(k10, k11));

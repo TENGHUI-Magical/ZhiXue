@@ -179,6 +179,31 @@ class TeacherStudentServiceTest {
     }
 
     @Test
+    void masteryUsesPerKpWeightsNotUserLastActive() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
+        List<String> qIds = List.of("Q_1");
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
+        // 用户今天在 kpA 活跃；kpB 的证据都在 90 天前，不应被 kpA 的 lastActive 续命
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
+                agg(2L, 4, 1, 1, 30.0, LocalDateTime.of(2026, 10, 30, 21, 0))));
+        UserKpAgg kpA = kp(2L, "KP01", 1, 0.0, 0);
+        kpA.setSuccessWeight(1.0);
+        UserKpAgg kpB = kp(2L, "KP02", 3, 2.125, 1);
+        kpB.setSuccessWeight(0.25);
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any()))
+                .thenReturn(List.of(kpA, kpB));
+        when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            TeacherStudentViews.Page result = service.page(1L, 1, 20, "lastActiveDesc");
+            // 手算：kpA Beta(3,2)=0.6；kpB Beta(2.25,4.125)=0.352941；宏平均=0.476471
+            assertEquals(0.476, result.records().get(0).avgMastery(), 0.001);
+        }
+    }
+
+    @Test
     void pageMapsPlanDoneAndTotalInContractOrder() {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
         List<String> qIds = List.of("Q_1");
@@ -289,6 +314,8 @@ class TeacherStudentServiceTest {
         agg.setUserId(userId);
         agg.setKpId(kpId);
         agg.setEvents(events);
+        // 单测默认按“今日证据”构造，successWeight = 正确事件数；需要旧证据时手动覆盖
+        agg.setSuccessWeight((double) Math.max(0, events - errors));
         agg.setSeveritySum(severity);
         agg.setErrorCount(errors);
         return agg;
