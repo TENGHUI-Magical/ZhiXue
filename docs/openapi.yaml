@@ -925,6 +925,12 @@ components:
         status: { type: string, enum: [DRAFT, CONFIRMED] }
         confirmedAt: { type: string, nullable: true }
         createdAt: { type: string }
+        reviewResult:
+          type: [string, "null"]
+          enum: [PASS, RETURN, null]
+          description: 教师复核结论（05 §4.6）：取该错题最新一条已评阅讲解的结论；只表示"教师看过该讲解并给出结论"，PASS 不等于答案正确；从未评阅为 null
+        reviewComment: { type: string, nullable: true, maxLength: 500, description: 教师评语（RETURN 必有，PASS 可无）；未评阅为 null }
+        reviewedAt: { type: string, nullable: true, description: 复核时间（yyyy-MM-dd HH:mm:ss）；未评阅为 null }
     MapResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
@@ -982,6 +988,12 @@ components:
           items: { $ref: '#/components/schemas/SourceRef' }
         blocked: { type: boolean }
         createdAt: { type: string }
+        reviewResult:
+          type: [string, "null"]
+          enum: [PASS, RETURN, null]
+          description: 该讲解自身的教师复核结论（05 §4.6）；只表示"教师看过并给出结论"，PASS 不等于答案正确；未评阅为 null
+        reviewComment: { type: string, nullable: true, maxLength: 500, description: 教师评语；未评阅为 null }
+        reviewedAt: { type: string, nullable: true, description: 复核时间（yyyy-MM-dd HH:mm:ss）；未评阅为 null }
     SourceRef:
       type: object
       properties:

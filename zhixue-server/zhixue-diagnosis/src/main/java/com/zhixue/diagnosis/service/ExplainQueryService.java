@@ -61,6 +61,7 @@ public class ExplainQueryService {
         if (row == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "讲解记录不存在");
         }
+        // 评阅回流三字段（05 §4.6）：该讲解自身的复核状态，实时读库不缓存
         return new ExplainLogView(
                 row.getExplainId(),
                 row.getTraceId(),
@@ -70,7 +71,10 @@ public class ExplainQueryService {
                 row.getContentText() == null ? "" : row.getContentText(),
                 sources(row.getSourceIds()),
                 Objects.equals(row.getIsBlocked(), 1),
-                row.getCreatedAt() == null ? null : row.getCreatedAt().format(DATE_TIME));
+                row.getCreatedAt() == null ? null : row.getCreatedAt().format(DATE_TIME),
+                row.getReviewResult(),
+                row.getTeacherComment(),
+                row.getReviewedAt() == null ? null : row.getReviewedAt().format(DATE_TIME));
     }
 
     /** source_ids 是 kp_id 数组 JSON；名称与页码从知识点表补齐，缺失时降级为 null。 */

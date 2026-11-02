@@ -8,6 +8,9 @@ import java.math.BigDecimal;
  * 错题记录视图（契约 V2 §7 / openapi ErrorRecord）。
  * <p>
  * 对外不直出实体：clientToken 等内部幂等字段不返回，kpName 由知识点表补齐。
+ * 评阅回流三字段（05 §4.6）：取该错题最新一条已评阅讲解的结论；
+ * reviewResult 只表示“教师看过该讲解并给出结论”，PASS 不等于答案正确；
+ * teacherScore 不回流（评的是讲解质量，避免被误读为对学生的评分）。
  *
  * @param logId         错题记录编号
  * @param userId        学生 user_id
@@ -23,10 +26,15 @@ import java.math.BigDecimal;
  * @param status        DRAFT / CONFIRMED
  * @param confirmedAt   确认时间（ISO-8601）
  * @param createdAt     创建时间（ISO-8601）
+ * @param reviewResult  教师复核结论 PASS / RETURN；从未评阅为 null
+ * @param reviewComment 教师评语（RETURN 必有，PASS 可无）；未评阅为 null
+ * @param reviewedAt    复核时间；未评阅为 null
  */
 public record ErrorRecordView(String logId, Long userId, String qId, String kpId, String kpName,
                               String imageUrl, String ocrText, String correctedText,
                               BigDecimal ocrConfidence, String errorType, String studentNote,
                               @Schema(allowableValues = {"DRAFT", "CONFIRMED"}) String status,
-                              String confirmedAt, String createdAt) {
+                              String confirmedAt, String createdAt,
+                              @Schema(nullable = true, allowableValues = {"PASS", "RETURN"}) String reviewResult,
+                              String reviewComment, String reviewedAt) {
 }

@@ -51,13 +51,12 @@ pwsh -ExecutionPolicy Bypass -File scripts/build-seed-all.ps1
 
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
-#    Windows 推荐（自动固定 JDK 21，规避 JAVA_HOME 不是 21）：..\scripts\mvn21.ps1 -B -ntp package
-#    bash：JAVA_HOME=/path/to/jdk-21 mvn -B -ntp package
-#    Windows PowerShell 口令：$env:DB_PASSWORD="你的口令"
-#    bash：export DB_PASSWORD='你的口令'
-#    注意：spring-boot:run 会作用到父 POM 并报"找不到主类"，统一用打包运行。
-#    已构建后启动：
-java -jar zhixue-bootstrap/target/zhixue-bootstrap-*.jar
+#    Windows 推荐（自动固定 JDK 21）：
+..\scripts\mvn21.ps1 -B -ntp -pl zhixue-bootstrap spring-boot:run
+#    bash：JAVA_HOME=/path/to/jdk-21 mvn -B -ntp -pl zhixue-bootstrap spring-boot:run
+#    口令：$env:DB_PASSWORD="你的口令"（bash：export DB_PASSWORD='你的口令'）
+#    说明：target 里的 jar 是 thin jar（无主清单），java -jar 会报“没有主清单属性”；
+#          统一用上面的 spring-boot:run（已在 8080 实测登录、画像、评阅可用）。
 
 # 3. AI 服务（Python 3.12，建议先建 venv）
 cd zhixue-ai

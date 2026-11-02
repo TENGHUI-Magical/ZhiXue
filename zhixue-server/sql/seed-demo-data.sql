@@ -1,5 +1,5 @@
 -- 智学领航 · 演示数据（全部为构造数据，不是真实试用结果）
--- 覆盖：12 名学生、180 条练习、错题本、三层推荐、今日/昨日计划明细、12 条讲解留痕、画像快照。
+-- 覆盖：12 名学生、189 条练习（180 条常规 + 9 条到期复习）、错题本、三层推荐、今日/昨日计划明细、12 条讲解留痕、画像快照。
 -- 标注：姓名前缀“演示学生”，班级“演示数据-*”，作答/错题/讲解/推荐正文均带“[演示数据]”。
 -- 幂等：练习/错题/计划/推荐/快照按固定键 upsert；讲解留痕按 explain_id 判重。
 USE zhixue;
@@ -186,7 +186,18 @@ INSERT INTO practice_record (user_id, client_token, q_id, kp_id, source, is_corr
 (9011, 'demo-prac-9011-4-3', 'Q_0403', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 139, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
 (9011, 'demo-prac-9011-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
 (9011, 'demo-prac-9011-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 135, DATE_SUB(NOW(), INTERVAL 233 HOUR)),
-(9011, 'demo-prac-9011-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 146, DATE_SUB(NOW(), INTERVAL 234 HOUR))
+(9011, 'demo-prac-9011-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 146, DATE_SUB(NOW(), INTERVAL 234 HOUR)),
+-- 到期复习种子：3 名学生各 2 个知识点，距上次答对 40 天、距上次练习 40—46 天（≥30 天半衰 + ≥7 天冷却）。
+-- 每题样本 1—2 次（低于画像 min-samples=3），不会挤进“5 个薄弱点”；选题均不在今日计划（Q_0201/Q_0203/Q_0302）。
+(2, 'demo-prac-due-2-1', 'Q_0218', 'KP0202', 'SELF', 0, '[演示数据] 到期复习种子：基数算错', 'CALCULATION_ERROR', 62, DATE_SUB(NOW(), INTERVAL 46 DAY)),
+(2, 'demo-prac-due-2-2', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 到期复习种子：概念链复述', NULL, 58, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(2, 'demo-prac-due-2-3', 'Q_0311', 'KP0303', 'SELF', 1, '[演示数据] 到期复习种子：聚合查询', NULL, 51, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(9001, 'demo-prac-due-9001-1', 'Q_0225', 'KP0202', 'SELF', 0, '[演示数据] 到期复习种子：笛卡儿积应用边界', 'CONCEPT_CONFUSION', 74, DATE_SUB(NOW(), INTERVAL 46 DAY)),
+(9001, 'demo-prac-due-9001-2', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 到期复习种子：概念链复述', NULL, 63, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(9001, 'demo-prac-due-9001-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 到期复习种子：关系代数', NULL, 52, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(9004, 'demo-prac-due-9004-1', 'Q_0213', 'KP0201', 'SELF', 0, '[演示数据] 到期复习种子：关系模型概念混淆', 'CONCEPT_CONFUSION', 66, DATE_SUB(NOW(), INTERVAL 46 DAY)),
+(9004, 'demo-prac-due-9004-2', 'Q_0213', 'KP0201', 'SELF', 1, '[演示数据] 到期复习种子：关系模型概念复述', NULL, 55, DATE_SUB(NOW(), INTERVAL 40 DAY)),
+(9004, 'demo-prac-due-9004-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 到期复习种子：关系代数', NULL, 48, DATE_SUB(NOW(), INTERVAL 40 DAY))
 ON DUPLICATE KEY UPDATE q_id = VALUES(q_id), kp_id = VALUES(kp_id), source = VALUES(source), is_correct = VALUES(is_correct), my_answer = VALUES(my_answer), error_type = VALUES(error_type), cost_seconds = VALUES(cost_seconds), created_at = VALUES(created_at);
 
 -- 每个学生的薄弱知识点都有一条已确认错题，保证画像薄弱点能点进错题本。

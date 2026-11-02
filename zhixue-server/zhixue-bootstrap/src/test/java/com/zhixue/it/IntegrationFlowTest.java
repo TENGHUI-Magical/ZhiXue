@@ -843,6 +843,103 @@ class IntegrationFlowTest {
                 .isEqualTo(40300);
     }
 
+    /**
+     * 评阅回流学生端（05 §4.6，真库 SQL：selectReviewedByUserAndLogIds 聚合）：
+     * 教师评阅后学生能在错题详情/列表/讲解查询三处看到复核结论与意见；
+     * 重新生成讲解不清退旧结论（退回意见持续可见，边界 3），新讲解评阅后聚合成
+     * 最新结论；学生重做不改变复核标记（复核与练习正交，边界 2）；
+     * 评阅一经提交不可改（40900，边界 4 的结构性保障——学生端实时读库无旧状态残留）。
+     */
+    @Test
+    void teacherReviewFlowsBackToStudentViews() throws Exception {
+        String studentToken = login();
+        String teacherToken = login("it_teacher");
+        long userId = userIdOf("it_user");
+        String logId = createAndConfirm(studentToken, "ct-review-back");
+
+        // 讲解 #1：真实生成并落库
+        String sse1 = body(explain(studentToken, logId));
+        assertThat(sse1).contains("event:done");
+        String explainId1 = explainIdFromSse(sse1);
+        awaitExplainLog(explainId1, userId);
+
+        // 未评阅（边界 1）：三字段为 null，学生端不显示复核标记
+        Map<String, Object> before = JsonPath.read(
+                body(getJson("/api/error/records/" + logId, studentToken)), "$.data");
+        assertThat(before.get("reviewResult")).isNull();
+        assertThat(before.get("reviewComment")).isNull();
+        assertThat(before.get("reviewedAt")).isNull();
+
+        // 教师评阅第一条 RETURN 带评语 → 学生详情/列表/讲解查询三处回流
+        long firstPk = logPkByExplainId(explainId1);
+        assertThat(code(postJson("/api/teacher/reviews/" + firstPk,
+                "{\"score\":3,\"comment\":\"请补充连接条件的书写\",\"result\":\"RETURN\"}",
+                teacherToken))).isZero();
+
+        Map<String, Object> detail = JsonPath.read(
+                body(getJson("/api/error/records/" + logId, studentToken)), "$.data");
+        assertThat(detail.get("reviewResult")).isEqualTo("RETURN");
+        assertThat(detail.get("reviewComment")).isEqualTo("请补充连接条件的书写");
+        assertThat((String) detail.get("reviewedAt")).isNotBlank();
+
+        List<Map<String, Object>> records = JsonPath.read(
+                body(getJson("/api/error/records?page=1&size=10&status=CONFIRMED", studentToken)),
+                "$.data.records");
+        Map<String, Object> row = records.stream()
+                .filter(r -> logId.equals(r.get("logId"))).findFirst().orElseThrow();
+        assertThat(row.get("reviewResult")).isEqualTo("RETURN");
+        assertThat(row.get("reviewComment")).isEqualTo("请补充连接条件的书写");
+
+        Map<String, Object> explainView = JsonPath.read(
+                body(getJson("/api/diagnosis/explain/" + explainId1, studentToken)), "$.data");
+        assertThat(explainView.get("reviewResult")).isEqualTo("RETURN");
+        assertThat(explainView.get("reviewComment")).isEqualTo("请补充连接条件的书写");
+        assertThat((String) explainView.get("reviewedAt")).isNotBlank();
+
+        // 边界 3：学生补充后重新生成讲解（缓存回放也落新行）→ 退回意见不清退
+        String sse2 = body(explain(studentToken, logId));
+        assertThat(sse2).contains("event:done");
+        String explainId2 = explainIdFromSse(sse2);
+        awaitExplainLog(explainId2, userId);
+        Map<String, Object> afterRegen = JsonPath.read(
+                body(getJson("/api/error/records/" + logId, studentToken)), "$.data");
+        assertThat(afterRegen.get("reviewResult")).isEqualTo("RETURN");
+
+        // 教师评阅新讲解 PASS → 聚合取最新已评阅 → 学生看到 PASS 与新评语
+        long secondPk = logPkByExplainId(explainId2);
+        assertThat(code(postJson("/api/teacher/reviews/" + secondPk,
+                "{\"score\":4,\"comment\":\"补充后讲解完整\",\"result\":\"PASS\"}", teacherToken)))
+                .isZero();
+        Map<String, Object> latest = JsonPath.read(
+                body(getJson("/api/error/records/" + logId, studentToken)), "$.data");
+        assertThat(latest.get("reviewResult")).isEqualTo("PASS");
+        assertThat(latest.get("reviewComment")).isEqualTo("补充后讲解完整");
+
+        // 边界 2：学生重做错题（写 practice_record）→ 复核标记保持（复核与练习正交）
+        List<String> qIds = courseQids(1);
+        assertThat(code(postJson("/api/practices",
+                "{\"qId\":\"" + qIds.get(0) + "\",\"kpId\":\"KP0201\",\"isCorrect\":true,"
+                        + "\"myAnswer\":\"B\",\"clientToken\":\"ct-review-redo\"}", studentToken)))
+                .isZero();
+        Map<String, Object> afterRedo = JsonPath.read(
+                body(getJson("/api/error/records/" + logId, studentToken)), "$.data");
+        assertThat(afterRedo.get("reviewResult")).isEqualTo("PASS");
+        assertThat(afterRedo.get("reviewComment")).isEqualTo("补充后讲解完整");
+
+        // 边界 4 的结构性保障：评阅一经提交不可改（40900）→ 不存在改结论后的旧状态残留
+        assertThat(code(postJson("/api/teacher/reviews/" + firstPk,
+                "{\"score\":5,\"comment\":\"改主意\",\"result\":\"PASS\"}", teacherToken)))
+                .isEqualTo(40900);
+    }
+
+    /** 按 explainId 取 ai_generation_log 主键（评阅提交的路径参数）。 */
+    private long logPkByExplainId(String explainId) {
+        Long logPk = jdbcTemplate.queryForObject(
+                "SELECT log_pk FROM ai_generation_log WHERE explain_id = ?", Long.class, explainId);
+        assertThat(logPk).isNotNull();
+        return logPk;
+    }
+
     // ==================== C12 教师下钻：聚合 / 脱敏 / 全局排序 / 权限 ====================
 
     @Test

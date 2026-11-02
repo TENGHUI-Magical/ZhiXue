@@ -108,4 +108,51 @@ class ExplainQueryServiceTest {
                     .isInstanceOf(BizException.class);
         }
     }
+
+    /** 评阅回流（05 §4.6）：讲解查询带出该讲解自身的复核状态；未评阅三字段为 null。 */
+    @Test
+    void carriesOwnReviewFields() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_2");
+        row.setContentText("正文");
+        row.setSourceIds("[]");
+        row.setIsDegraded(0);
+        row.setIsBlocked(0);
+        row.setCreatedAt(LocalDateTime.of(2026, 10, 26, 12, 0));
+        row.setReviewResult("RETURN");
+        row.setTeacherComment("请补充连接条件的书写");
+        row.setReviewedAt(LocalDateTime.of(2026, 10, 27, 9, 0));
+        when(logMapper.selectOne(any())).thenReturn(row);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.get("EX_2");
+        }
+
+        assertThat(view.reviewResult()).isEqualTo("RETURN");
+        assertThat(view.reviewComment()).isEqualTo("请补充连接条件的书写");
+        assertThat(view.reviewedAt()).isEqualTo("2026-10-27 09:00:00");
+    }
+
+    @Test
+    void unreviewedRowCarriesNullReviewFields() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_3");
+        row.setContentText("正文");
+        row.setSourceIds("[]");
+        row.setIsDegraded(0);
+        row.setIsBlocked(0);
+        when(logMapper.selectOne(any())).thenReturn(row);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.get("EX_3");
+        }
+
+        assertThat(view.reviewResult()).isNull();
+        assertThat(view.reviewComment()).isNull();
+        assertThat(view.reviewedAt()).isNull();
+    }
 }
