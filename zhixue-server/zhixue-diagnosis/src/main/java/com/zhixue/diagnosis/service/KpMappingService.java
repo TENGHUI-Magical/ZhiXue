@@ -63,7 +63,7 @@ public class KpMappingService {
                             @Value("${mapping.score-scale:0.3}") double scoreScale,
                             @Value("${mapping.auto-threshold:0.60}") double autoThreshold,
                             @Value("${mapping.margin:0.10}") double margin,
-                            @Value("${mapping.confirm-floor:0.35}") double confirmFloor,
+                            @Value("${mapping.confirm-floor}") double confirmFloor,
                             @Value("${mapping.misconception-in-corpus:true}") boolean useMisconception) {
         this.knowledgePointService = knowledgePointService;
         this.scoreScale = scoreScale;

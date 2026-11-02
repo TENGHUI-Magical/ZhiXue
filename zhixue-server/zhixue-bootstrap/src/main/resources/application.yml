@@ -42,7 +42,8 @@ mapping:
   score-scale: 0.3
   auto-threshold: 0.60
   margin: 0.10
-  # 0.40 → 0.35：补偿"误区入语料"导致的余弦整体缩小，覆盖率回到基线以上（见设计文档 §6.2）
+  # 0.40 → 0.35：补偿"误区入语料"导致的余弦整体缩小，覆盖率回到基线以上（见设计文档 §6.2）。
+  # 演示前回归：在线人工率 >65% 时把本值改回 0.40 并重启；只改配置，不回滚提交（见 runbook §3.1）。
   confirm-floor: 0.35
   # 唯一打分开关：把 knowledge_point.misconception 纳入语料；置 false 即回退到 V0 行为
   misconception-in-corpus: true
