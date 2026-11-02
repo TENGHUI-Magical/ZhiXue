@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { api } from '../api/request'
 
 // 路由骨架（需求规格说明书第 3 章：学生端五项核心 P0 功能对应五个路由）
 const router = createRouter({
@@ -102,7 +103,32 @@ const currentRole = () => {
   }
 }
 
-router.beforeEach((to) => {
+interface MeUser {
+  role?: string
+}
+
+const homeForRole = (role: string) => (role === 'TEACHER' ? '/teacher' : '/today')
+
+// 本地缓存缺角色时只发一次 /auth/me；并发导航共用同一个 Promise
+let roleRequest: Promise<string> | null = null
+const resolveRole = async (): Promise<string> => {
+  const cached = currentRole()
+  if (cached) return cached
+  if (!roleRequest) {
+    roleRequest = api
+      .get<MeUser>('/api/auth/me')
+      .then((me) => {
+        localStorage.setItem('zhixue_user', JSON.stringify(me))
+        return me.role ?? ''
+      })
+      .finally(() => {
+        roleRequest = null
+      })
+  }
+  return roleRequest
+}
+
+router.beforeEach(async (to) => {
   const token = localStorage.getItem('satoken')
   if (to.path !== '/login' && !token) {
     // 保留原始站内地址，登录后回跳（仅相对路径，防开放重定向）
@@ -110,15 +136,30 @@ router.beforeEach((to) => {
       ? { path: '/login', query: { redirect: to.fullPath } }
       : '/login'
   }
-  if (to.path === '/login' && token) {
-    return currentRole() === 'TEACHER' ? '/teacher' : '/today'
+  if (!token) return true
+
+  // 不再“角色未知先放行”：有 token 但缓存缺角色时，先按 /auth/me 的真实角色再判路由
+  let role = currentRole()
+  if (!role) {
+    try {
+      role = await resolveRole()
+    } catch {
+      // /me 失败（401 由请求拦截器跳到登录）时不在前端猜角色；回登录页重试
+      return to.path === '/login'
+        ? true
+        : { path: '/login', query: { redirect: to.fullPath } }
+    }
   }
-  const role = currentRole()
-  // 本地有 token 但用户缓存缺失时先放行，App 会回查 /api/auth/me 再补角色；
-  // 否则会在角色未知时与默认首页互相重定向。
-  if (!role) return true
+
+  if (to.path === '/login') {
+    return role ? homeForRole(role) : true
+  }
+  if (to.meta.roles && !role) {
+    // token 有效但后端没有返回角色：留在 403，避免在 /login 与首页之间循环
+    return '/403'
+  }
   if (to.meta.roles && !to.meta.roles.includes(role)) {
-    return role === 'TEACHER' ? '/teacher' : '/today'
+    return homeForRole(role)
   }
   return true
 })

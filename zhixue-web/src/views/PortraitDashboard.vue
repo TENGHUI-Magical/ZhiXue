@@ -32,7 +32,7 @@
               <div class="hero-eyebrow">掌握概况 · 快照 {{ portrait?.statDate || "—" }}</div>
               <h3 class="hero-title">{{ conclusionText }}</h3>
               <p class="hero-note">
-                综合掌握取五维均值；正确率按练习与已确认错题估算，不等同考试成绩；样本充分度按 20 次展示参考，非算法阈值。
+                综合掌握取五维均值；正确率为前端估算（1 - 已确认错题/总练习），非后端口径，不用于结项/答辩；样本充分度按 20 次展示参考，非算法阈值。
               </p>
             </div>
             <el-button type="primary" @click="router.push(primaryTo)">{{ primaryLabel }}</el-button>
@@ -44,9 +44,9 @@
               <span class="baseline-value">{{ masteryPct }}%</span>
             </div>
             <div class="baseline-row">
-              <span class="baseline-name">作答正确率</span>
+              <span class="baseline-name">作答正确率（估算）</span>
               <span class="baseline-track"><i class="accuracy" :style="{ width: accuracyPct + '%' }"></i></span>
-              <span class="baseline-value">{{ accuracyPct }}%</span>
+              <span class="baseline-value">{{ accuracyText }}</span>
             </div>
             <div class="baseline-row">
               <span class="baseline-name">样本充分度</span>
@@ -210,12 +210,17 @@ const masteryPct = computed(() => {
   return Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100);
 });
 
+/** 仅前端展示的估算：1 - 已确认错题/总练习；非后端口径，结项材料不引用 */
 const accuracyPct = computed(() => {
   const total = portrait.value?.totalPractice ?? 0;
   const errors = portrait.value?.totalError ?? 0;
   if (total <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((1 - errors / total) * 100)));
 });
+
+const accuracyText = computed(() =>
+  (portrait.value?.totalPractice ?? 0) > 0 ? `${accuracyPct.value}%` : "—"
+);
 
 const samplePct = computed(() => Math.min(100, Math.round(((portrait.value?.totalPractice ?? 0) / 20) * 100)));
 

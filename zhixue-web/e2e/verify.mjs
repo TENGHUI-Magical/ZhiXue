@@ -54,7 +54,7 @@ const reviewsPage = { page: 1, size: 10, total: 2, records: [
   { logPk: 502, explainId: 'EXP502', userName: '李*', kpId: 'KP0006', errorType: 'CONCEPT_CONFUSION', model: 'fallback', degraded: true, content: '保底讲解……', sources: [], createdAt: '2026-10-29T08:05:00', questionText: null, questionType: null, options: [], correctAnswer: null, analysisText: null, studentNote: null, waitingSeconds: 18000, reviewStatus: 'PENDING' }
 ] }
 const teacherStudents = { page: 1, size: 20, total: 2, records: [
-  { userId: 2, displayName: '张*', practiceCount: 18, correctRate: 0.67, avgCostSeconds: 52, avgMastery: 0.6, errorCount: 6, planDone: 5, planTotal: 21, lastActiveAt: '2026-10-30 21:10:00' },
+  { userId: 2, displayName: '张*', practiceCount: 18, correctRate: 0.55, avgCostSeconds: 52, avgMastery: 0.6, errorCount: 6, planDone: 5, planTotal: 21, lastActiveAt: '2026-10-30 21:10:00' },
   { userId: 3, displayName: '李*', practiceCount: 6, correctRate: null, avgCostSeconds: 35, avgMastery: null, errorCount: 2, planDone: 1, planTotal: 21, lastActiveAt: '2026-10-28 12:00:00' }
 ] }
 const studentLearning = { summary: teacherStudents.records[0], practices: { page: 1, size: 10, total: 1, records: [{ practiceId: 1, qId: 'Q_0301', questionText: '题干', kpId: 'KP0001', kpName: '概念', isCorrect: true, myAnswer: 'B', correctAnswer: 'B', costSeconds: 45, errorType: null, source: 'PLAN', createdAt: '2026-10-30 21:10:00' }] }, errors: [], kpMastery: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6, errorCount: 4 }] }
@@ -244,6 +244,7 @@ try {
 
   await open(page, '/portrait')
   await checkNext('画像：同基线三条', async () => (await page.locator('.baseline-row').count()) === 3)
+  await checkNext('画像：正确率标注估算', async () => (await page.locator('.baseline-name').nth(1).innerText()).includes('估算'))
   check('画像：三环已移除', await page.locator('.rings').count() === 0)
   await checkNext('画像：薄弱点可点击', async () => (await page.locator('button.weak-item').count()) >= 1)
   await checkNext('画像：结论含掌握度', async () => (await page.locator('.hero-title').innerText()).includes('掌握度'))
@@ -456,6 +457,7 @@ try {
 
   await open(tpage, '/teacher/class')
   await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)
+  await checkNext('班级：正确率取后端字段', async () => (await tpage.locator('.el-table').innerText()).includes('55%'))
   await tpage.getByRole('button', { name: '学习记录' }).first().click()
   await checkNext('班级：学习记录抽屉', async () => await tpage.locator('.student-drawer').isVisible())
   await tpage.keyboard.press('Escape'); await sleep(400)
