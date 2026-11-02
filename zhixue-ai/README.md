@@ -39,6 +39,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 python tools/build_demo_index.py --base-url http://127.0.0.1:8000 --index-dir data/vector_index
 ```
 
+索引由 AI 进程在首次检索或嵌入时懒加载并常驻内存，不会监听文件热更新。替换磁盘索引文件、由另一进程重建或合并更新后必须重启本服务；答辩现场统一执行“**重建索引后必须重启 AI 服务**”，再抽查 `KP0810` 的检索与页码来源，避免使用旧进程或旧内存。
+
 ## 与 Java 侧的关系（规划书硬约束）
 
 Java 不直接调用大模型。diagnosis 模块经 HTTP 网关（`zhixue.ai.base-url` = localhost:8000）调用本服务三路由；本服务不对外网暴露端口（部署方案 1 节拓扑）。
