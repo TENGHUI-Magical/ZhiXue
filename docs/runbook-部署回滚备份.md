@@ -34,7 +34,26 @@ npm run build
 3. 放新 jar / dist；保留上一版 jar 改名 `*.bak`。
 4. 起 Java：`java -jar ...`；起 AI：`uvicorn app.main:app --host 127.0.0.1 --port 8000`；Nginx/静态服务器指向 `dist/`。
 5. 健康检查：`GET /api/system/health` 返回 200；db/redis UP；ai 允许 DEGRADED（未配 key）。
-6. 冒烟：登录 → 课程列表 → 错题列表 → 生成讲解 → 教师评阅队列。
+6. 自检：跑 `scripts/pre-demo-check.ps1`（见 §3.1），0 FAIL 才算演示环境就绪。
+
+### 3.1 演示前自检（pre-demo-check.ps1）
+
+> 已落地：`zhixue/scripts/pre-demo-check.ps1`。默认**只读**，不写业务数据；`-FullSmoke` / `-UiSmoke` 才会写演示库。
+
+```powershell
+cd zhixue
+$env:E2E_USER='student01'; $env:E2E_PASS='<演示口令>'
+$env:E2E_TEACHER_USER='teacher01'; $env:E2E_TEACHER_PASS='<演示口令>'
+$env:DB_PASSWORD='<本地DB密码>'          # 仅用于内容计数，缺失则 SKIP 该项
+.\scripts\pre-demo-check.ps1            # 只读预检：19 项
+.\scripts\pre-demo-check.ps1 -FullSmoke # 追加 35 项真实 API 冒烟（写 1 条错题/1 周计划/1 次打卡）
+.\scripts\pre-demo-check.ps1 -UiSmoke   # 追加真实 UI 冒烟（需前端 5173）
+```
+
+- 检查项：Java/AI 可达与 `db/redis/ai` 组件状态、未登录 40100、学生/教师登录与角色、课程列表、图谱节点 ≥20、知识点详情与题目、推荐、学生/班级画像、教师评阅队列与学生列表、数据库内容计数、RAG 索引文件。
+- 判定：任一 `FAIL` → 退出码 1，演示前必须修复或改演示路径；`WARN`（如 AI 降级、Redis 不可用、某知识点 0 题、索引偏小）需在讲稿中规避或说明。
+- 报告：`spark-output/qa/<日期>-predemo/predemo-report.json`（`-FullSmoke` 的 API 冒烟报告同目录，强制覆盖，避免复用旧报告造成假绿）。
+- **实跑证据（2026-11-02）**：main `002deac` 构建 jar + 本机 MySQL/Redis/AI 8000，19/19 PASS、0 WARN、0 FAIL；报告 `spark-output/qa/2026-11-02-predemo/predemo-report.json`。同日另一会话正在导入 ch04/ch05 内容，脚本只读计数（kp/qb/ch 随之变化），不设内容阈值门禁。
 
 ## 4. 回滚
 
