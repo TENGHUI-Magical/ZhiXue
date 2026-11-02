@@ -37,6 +37,8 @@
         <sa-token.version>1.46.0</sa-token.version>
         <!-- 与 springdoc 3.1.1 兼容的最低版本：2.2.30 缺 $dynamicRef，会 500 -->
         <swagger-annotations.version>2.2.55</swagger-annotations.version>
+        <!-- 覆盖率只出报告、不设阈值：先看真实数据，避免为了过门禁而写无效测试 -->
+        <jacoco.version>0.8.13</jacoco.version>
     </properties>
 
     <dependencyManagement>
@@ -70,6 +72,43 @@
 
     <build>
         <plugins>
+            <!-- JaCoCo：prepare-agent + report（绑定 verify），不配置 check，不设覆盖率阈值。
+                 报告位置：各模块 target/site/jacoco/index.html 与 target/site/jacoco/jacoco.csv。 -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                        <configuration>
+                            <!-- 放系统临时目录：避免中文/全角冒号项目路径被 cmd.exe 转码后 agent 启动失败 -->
+                            <destFile>${java.io.tmpdir}/zhixue-jacoco/${project.artifactId}.exec</destFile>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                        <configuration>
+                            <dataFile>${java.io.tmpdir}/zhixue-jacoco/${project.artifactId}.exec</dataFile>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- surefire 默认不读取 prepare-agent 写入的 argLine 属性；显式用 @{argLine} 延迟替换 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>@{argLine}</argLine>
+                </configuration>
+            </plugin>
             <!-- 本机机器级 JAVA_HOME 可能是 JDK 17；在 validate 阶段直接报错，
                  避免在 test 阶段才出现难以理解的 class file version 65/61。 -->
             <plugin>

@@ -31,6 +31,11 @@ pip install bcrypt
 python tools/gen_dev_users.py
 mysql -h 127.0.0.1 -u root -p --default-character-set=utf8mb4 zhixue < zhixue-server/sql/seed-dev-users.local.sql
 
+# 1.6 答辩/换机演示库（第1—4章 + 12 名演示学生 + 教师评阅队列）
+#     Docker：首次 docker compose up -d 自动导入；本机 MySQL：下面一条命令
+pwsh -ExecutionPolicy Bypass -File scripts/seed-demo.ps1
+#     账号/口令/RAG 重建/验收数字见 docs/13-演示库恢复.md
+
 # 2. 后端（JDK 21，Maven；默认 dev profile）
 cd zhixue-server
 #    Windows 推荐（自动固定 JDK 21，规避 JAVA_HOME 不是 21）：..\scripts\mvn21.ps1 -B -ntp package

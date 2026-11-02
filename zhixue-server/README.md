@@ -31,17 +31,22 @@ entity      → @TableName 与 init-v2.sql 对齐
 
 ```bash
 # 前置：JDK 21；MySQL/Redis 已启动（docker compose up -d 或本机服务）
-# 首次启动按 01/02/03 顺序执行：建表(16 表) → 第2-3章 20 知识点 → 60 道题
+# 演示库一条命令（第1—4章 + 演示账号 + 演示数据）；细节见 docs/13-演示库恢复.md
+pwsh -ExecutionPolicy Bypass -File ..\scripts\seed-demo.ps1
 mvn -q -DskipTests package
 DB_PASSWORD=123456 java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar
 # 验证分层示例：GET http://localhost:8080/api/course/kp/KP0201
 ```
 
 种子文件：
-- `sql/seed-kp-ch02-ch03.sql`：20 个知识点（KP0201—KP0310）、先修边、关键词，均可重复执行
-- `sql/seed-question-ch02-ch03.sql`：60 道题 + 81 条题目-知识点关联；Q_0220、Q_0224、Q_0326 待教师复核
+- `sql/seed-kp-ch01.sql` / `seed-question-ch01.sql`：第1章 10 点 / 25 题（由文档仓 ch01 复制）
+- `sql/seed-kp-ch02-ch03.sql` / `seed-question-ch02-ch03.sql`：第2—3章 20 点 / 60 题 + 81 条关联
+- `sql/seed-kp-ch04.sql` / `seed-question-ch04.sql`：第4章 11 点 / 26 题（由文档仓 ch04 复制）
+- `sql/seed-prereq-ch01.sql` / `seed-prereq-ch04.sql`：第1/4章先修边
+- `sql/seed-demo-users.sql` / `seed-demo-data.sql`：演示账号（固定演示口令）与 12 名学生/180 练习
+- 所有种子均可重复执行；演示账号 SQL 不重置已有账号口令
 
-已有 `data/mysql` 时 init 脚本不会重跑；要重新灌种子，先 `docker compose down` 并删除 `data/mysql`（或手动 `mysql < sql/seed-*.sql`）。
+Docker 首次启动会按 `docker-compose.yml` 的 01—11 顺序自动导入；已有 `data/mysql` 时 init 脚本不会重跑，要重新灌种子先备份并删除 `data/mysql`（或本机执行 `scripts/seed-demo.ps1`）。
 
 ## 对接 zhixue-ai
 
