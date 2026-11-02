@@ -1,273 +1,294 @@
 -- 智学领航 · 演示数据（全部为构造数据，不是真实试用结果）
--- 用途：答辩演示库的教师端多行数据；覆盖 12 名学生、180 条练习、24 条错题、12 条讲解留痕。
--- 标注：姓名前缀“演示学生”，班级“演示数据-23软件工程1班”，作答/错题/讲解正文均带“[演示数据]”。
--- 幂等：练习/错题/计划按固定幂等键 upsert；讲解留痕按 explain_id 判重，不覆盖教师已提交的评阅。
--- 前置：init-v2.sql + 第1—4章知识点与题库 + seed-demo-users.sql。
+-- 覆盖：12 名学生、180 条练习、错题本、三层推荐、今日/昨日计划明细、12 条讲解留痕、画像快照。
+-- 标注：姓名前缀“演示学生”，班级“演示数据-*”，作答/错题/讲解/推荐正文均带“[演示数据]”。
+-- 幂等：练习/错题/计划/推荐/快照按固定键 upsert；讲解留痕按 explain_id 判重。
 USE zhixue;
 SET NAMES utf8mb4;
 
--- 12 名学生 × 5 个知识点 × 3 次练习 = 180 条；低/中/高三种作答画像。
+-- 12 名学生 × 5 个知识点 × 3 次练习 = 180 条；低/中/高三种画像。
 INSERT INTO practice_record (user_id, client_token, q_id, kp_id, source, is_correct, my_answer, error_type, cost_seconds, created_at) VALUES
-(2, 'demo-prac-2-1-1', 'Q_0201', 'KP0201', 'PLAN', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 57, DATE_SUB(NOW(), INTERVAL 12 HOUR)),
-(2, 'demo-prac-2-1-2', 'Q_0213', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 68, DATE_SUB(NOW(), INTERVAL 13 HOUR)),
-(2, 'demo-prac-2-1-3', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 79, DATE_SUB(NOW(), INTERVAL 14 HOUR)),
-(2, 'demo-prac-2-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 80, DATE_SUB(NOW(), INTERVAL 15 HOUR)),
-(2, 'demo-prac-2-2-2', 'Q_0220', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 91, DATE_SUB(NOW(), INTERVAL 16 HOUR)),
-(2, 'demo-prac-2-2-3', 'Q_0203', 'KP0203', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 102, DATE_SUB(NOW(), INTERVAL 17 HOUR)),
-(2, 'demo-prac-2-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 103, DATE_SUB(NOW(), INTERVAL 18 HOUR)),
-(2, 'demo-prac-2-3-2', 'Q_0303', 'KP0302', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 114, DATE_SUB(NOW(), INTERVAL 19 HOUR)),
-(2, 'demo-prac-2-3-3', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 125, DATE_SUB(NOW(), INTERVAL 20 HOUR)),
-(2, 'demo-prac-2-4-1', 'Q_0307', 'KP0305', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 126, DATE_SUB(NOW(), INTERVAL 21 HOUR)),
-(2, 'demo-prac-2-4-2', 'Q_0319', 'KP0305', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 137, DATE_SUB(NOW(), INTERVAL 22 HOUR)),
-(2, 'demo-prac-2-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 148, DATE_SUB(NOW(), INTERVAL 23 HOUR)),
-(2, 'demo-prac-2-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 149, DATE_SUB(NOW(), INTERVAL 24 HOUR)),
-(2, 'demo-prac-2-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 160, DATE_SUB(NOW(), INTERVAL 25 HOUR)),
-(2, 'demo-prac-2-5-3', 'Q_0410', 'KP0404', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 171, DATE_SUB(NOW(), INTERVAL 26 HOUR)),
-(9001, 'demo-prac-9001-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 74, DATE_SUB(NOW(), INTERVAL 24 HOUR)),
-(9001, 'demo-prac-9001-1-2', 'Q_0213', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 85, DATE_SUB(NOW(), INTERVAL 25 HOUR)),
-(9001, 'demo-prac-9001-1-3', 'Q_0201', 'KP0201', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 96, DATE_SUB(NOW(), INTERVAL 26 HOUR)),
-(9001, 'demo-prac-9001-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 97, DATE_SUB(NOW(), INTERVAL 27 HOUR)),
-(9001, 'demo-prac-9001-2-2', 'Q_0220', 'KP0203', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 108, DATE_SUB(NOW(), INTERVAL 28 HOUR)),
-(9001, 'demo-prac-9001-2-3', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 119, DATE_SUB(NOW(), INTERVAL 29 HOUR)),
-(9001, 'demo-prac-9001-3-1', 'Q_0302', 'KP0302', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 120, DATE_SUB(NOW(), INTERVAL 30 HOUR)),
-(9001, 'demo-prac-9001-3-2', 'Q_0303', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 131, DATE_SUB(NOW(), INTERVAL 31 HOUR)),
-(9001, 'demo-prac-9001-3-3', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 142, DATE_SUB(NOW(), INTERVAL 32 HOUR)),
-(9001, 'demo-prac-9001-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 143, DATE_SUB(NOW(), INTERVAL 33 HOUR)),
-(9001, 'demo-prac-9001-4-2', 'Q_0319', 'KP0305', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 154, DATE_SUB(NOW(), INTERVAL 34 HOUR)),
-(9001, 'demo-prac-9001-4-3', 'Q_0325', 'KP0305', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 165, DATE_SUB(NOW(), INTERVAL 35 HOUR)),
-(9001, 'demo-prac-9001-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 166, DATE_SUB(NOW(), INTERVAL 36 HOUR)),
-(9001, 'demo-prac-9001-5-2', 'Q_0409', 'KP0404', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 177, DATE_SUB(NOW(), INTERVAL 37 HOUR)),
-(9001, 'demo-prac-9001-5-3', 'Q_0410', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 188, DATE_SUB(NOW(), INTERVAL 38 HOUR)),
-(9002, 'demo-prac-9002-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 91, DATE_SUB(NOW(), INTERVAL 36 HOUR)),
-(9002, 'demo-prac-9002-1-2', 'Q_0213', 'KP0201', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 102, DATE_SUB(NOW(), INTERVAL 37 HOUR)),
-(9002, 'demo-prac-9002-1-3', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 113, DATE_SUB(NOW(), INTERVAL 38 HOUR)),
-(9002, 'demo-prac-9002-2-1', 'Q_0203', 'KP0203', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 114, DATE_SUB(NOW(), INTERVAL 39 HOUR)),
-(9002, 'demo-prac-9002-2-2', 'Q_0220', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 40 HOUR)),
-(9002, 'demo-prac-9002-2-3', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 136, DATE_SUB(NOW(), INTERVAL 41 HOUR)),
-(9002, 'demo-prac-9002-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 137, DATE_SUB(NOW(), INTERVAL 42 HOUR)),
-(9002, 'demo-prac-9002-3-2', 'Q_0303', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 148, DATE_SUB(NOW(), INTERVAL 43 HOUR)),
-(9002, 'demo-prac-9002-3-3', 'Q_0302', 'KP0302', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 159, DATE_SUB(NOW(), INTERVAL 44 HOUR)),
-(9002, 'demo-prac-9002-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 160, DATE_SUB(NOW(), INTERVAL 45 HOUR)),
-(9002, 'demo-prac-9002-4-2', 'Q_0319', 'KP0305', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 171, DATE_SUB(NOW(), INTERVAL 46 HOUR)),
-(9002, 'demo-prac-9002-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 182, DATE_SUB(NOW(), INTERVAL 47 HOUR)),
-(9002, 'demo-prac-9002-5-1', 'Q_0408', 'KP0404', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 183, DATE_SUB(NOW(), INTERVAL 48 HOUR)),
-(9002, 'demo-prac-9002-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 194, DATE_SUB(NOW(), INTERVAL 49 HOUR)),
-(9002, 'demo-prac-9002-5-3', 'Q_0410', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 205, DATE_SUB(NOW(), INTERVAL 50 HOUR)),
-(9003, 'demo-prac-9003-1-1', 'Q_0201', 'KP0201', 'PLAN', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 108, DATE_SUB(NOW(), INTERVAL 48 HOUR)),
-(9003, 'demo-prac-9003-1-2', 'Q_0213', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 119, DATE_SUB(NOW(), INTERVAL 49 HOUR)),
-(9003, 'demo-prac-9003-1-3', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 130, DATE_SUB(NOW(), INTERVAL 50 HOUR)),
-(9003, 'demo-prac-9003-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 131, DATE_SUB(NOW(), INTERVAL 51 HOUR)),
-(9003, 'demo-prac-9003-2-2', 'Q_0220', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 142, DATE_SUB(NOW(), INTERVAL 52 HOUR)),
-(9003, 'demo-prac-9003-2-3', 'Q_0203', 'KP0203', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 153, DATE_SUB(NOW(), INTERVAL 53 HOUR)),
-(9003, 'demo-prac-9003-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 154, DATE_SUB(NOW(), INTERVAL 54 HOUR)),
-(9003, 'demo-prac-9003-3-2', 'Q_0303', 'KP0302', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 165, DATE_SUB(NOW(), INTERVAL 55 HOUR)),
-(9003, 'demo-prac-9003-3-3', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 176, DATE_SUB(NOW(), INTERVAL 56 HOUR)),
-(9003, 'demo-prac-9003-4-1', 'Q_0307', 'KP0305', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 177, DATE_SUB(NOW(), INTERVAL 57 HOUR)),
-(9003, 'demo-prac-9003-4-2', 'Q_0319', 'KP0305', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 188, DATE_SUB(NOW(), INTERVAL 58 HOUR)),
-(9003, 'demo-prac-9003-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 199, DATE_SUB(NOW(), INTERVAL 59 HOUR)),
-(9003, 'demo-prac-9003-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 200, DATE_SUB(NOW(), INTERVAL 60 HOUR)),
-(9003, 'demo-prac-9003-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 211, DATE_SUB(NOW(), INTERVAL 61 HOUR)),
-(9003, 'demo-prac-9003-5-3', 'Q_0410', 'KP0404', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 222, DATE_SUB(NOW(), INTERVAL 62 HOUR)),
-(9004, 'demo-prac-9004-1-1', 'Q_0202', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 60 HOUR)),
-(9004, 'demo-prac-9004-1-2', 'Q_0218', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 136, DATE_SUB(NOW(), INTERVAL 61 HOUR)),
-(9004, 'demo-prac-9004-1-3', 'Q_0219', 'KP0202', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 147, DATE_SUB(NOW(), INTERVAL 62 HOUR)),
-(9004, 'demo-prac-9004-2-1', 'Q_0206', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 148, DATE_SUB(NOW(), INTERVAL 63 HOUR)),
-(9004, 'demo-prac-9004-2-2', 'Q_0215', 'KP0206', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 159, DATE_SUB(NOW(), INTERVAL 64 HOUR)),
-(9004, 'demo-prac-9004-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 170, DATE_SUB(NOW(), INTERVAL 65 HOUR)),
-(9004, 'demo-prac-9004-3-1', 'Q_0311', 'KP0303', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 171, DATE_SUB(NOW(), INTERVAL 66 HOUR)),
-(9004, 'demo-prac-9004-3-2', 'Q_0321', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 182, DATE_SUB(NOW(), INTERVAL 67 HOUR)),
-(9004, 'demo-prac-9004-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 193, DATE_SUB(NOW(), INTERVAL 68 HOUR)),
-(9004, 'demo-prac-9004-4-1', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 194, DATE_SUB(NOW(), INTERVAL 69 HOUR)),
-(9004, 'demo-prac-9004-4-2', 'Q_0405', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 205, DATE_SUB(NOW(), INTERVAL 70 HOUR)),
-(9004, 'demo-prac-9004-4-3', 'Q_0404', 'KP0402', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 216, DATE_SUB(NOW(), INTERVAL 71 HOUR)),
-(9004, 'demo-prac-9004-5-1', 'Q_0413', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 217, DATE_SUB(NOW(), INTERVAL 72 HOUR)),
-(9004, 'demo-prac-9004-5-2', 'Q_0414', 'KP0406', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 228, DATE_SUB(NOW(), INTERVAL 73 HOUR)),
-(9004, 'demo-prac-9004-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 239, DATE_SUB(NOW(), INTERVAL 74 HOUR)),
-(9005, 'demo-prac-9005-1-1', 'Q_0202', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 142, DATE_SUB(NOW(), INTERVAL 72 HOUR)),
-(9005, 'demo-prac-9005-1-2', 'Q_0218', 'KP0202', 'PLAN', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 153, DATE_SUB(NOW(), INTERVAL 73 HOUR)),
-(9005, 'demo-prac-9005-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 164, DATE_SUB(NOW(), INTERVAL 74 HOUR)),
-(9005, 'demo-prac-9005-2-1', 'Q_0206', 'KP0206', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 165, DATE_SUB(NOW(), INTERVAL 75 HOUR)),
-(9005, 'demo-prac-9005-2-2', 'Q_0215', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 176, DATE_SUB(NOW(), INTERVAL 76 HOUR)),
-(9005, 'demo-prac-9005-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 187, DATE_SUB(NOW(), INTERVAL 77 HOUR)),
-(9005, 'demo-prac-9005-3-1', 'Q_0311', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 188, DATE_SUB(NOW(), INTERVAL 78 HOUR)),
-(9005, 'demo-prac-9005-3-2', 'Q_0321', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 199, DATE_SUB(NOW(), INTERVAL 79 HOUR)),
-(9005, 'demo-prac-9005-3-3', 'Q_0322', 'KP0303', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 210, DATE_SUB(NOW(), INTERVAL 80 HOUR)),
-(9005, 'demo-prac-9005-4-1', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 211, DATE_SUB(NOW(), INTERVAL 81 HOUR)),
-(9005, 'demo-prac-9005-4-2', 'Q_0405', 'KP0402', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 222, DATE_SUB(NOW(), INTERVAL 82 HOUR)),
-(9005, 'demo-prac-9005-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 233, DATE_SUB(NOW(), INTERVAL 83 HOUR)),
-(9005, 'demo-prac-9005-5-1', 'Q_0413', 'KP0406', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 234, DATE_SUB(NOW(), INTERVAL 84 HOUR)),
-(9005, 'demo-prac-9005-5-2', 'Q_0414', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 45, DATE_SUB(NOW(), INTERVAL 85 HOUR)),
-(9005, 'demo-prac-9005-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 56, DATE_SUB(NOW(), INTERVAL 86 HOUR)),
-(9006, 'demo-prac-9006-1-1', 'Q_0202', 'KP0202', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 159, DATE_SUB(NOW(), INTERVAL 84 HOUR)),
-(9006, 'demo-prac-9006-1-2', 'Q_0218', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 170, DATE_SUB(NOW(), INTERVAL 85 HOUR)),
-(9006, 'demo-prac-9006-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 181, DATE_SUB(NOW(), INTERVAL 86 HOUR)),
-(9006, 'demo-prac-9006-2-1', 'Q_0206', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 182, DATE_SUB(NOW(), INTERVAL 87 HOUR)),
-(9006, 'demo-prac-9006-2-2', 'Q_0215', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 193, DATE_SUB(NOW(), INTERVAL 88 HOUR)),
-(9006, 'demo-prac-9006-2-3', 'Q_0222', 'KP0206', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 204, DATE_SUB(NOW(), INTERVAL 89 HOUR)),
-(9006, 'demo-prac-9006-3-1', 'Q_0311', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 205, DATE_SUB(NOW(), INTERVAL 90 HOUR)),
-(9006, 'demo-prac-9006-3-2', 'Q_0321', 'KP0303', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 216, DATE_SUB(NOW(), INTERVAL 91 HOUR)),
-(9006, 'demo-prac-9006-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 227, DATE_SUB(NOW(), INTERVAL 92 HOUR)),
-(9006, 'demo-prac-9006-4-1', 'Q_0404', 'KP0402', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 228, DATE_SUB(NOW(), INTERVAL 93 HOUR)),
-(9006, 'demo-prac-9006-4-2', 'Q_0405', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 239, DATE_SUB(NOW(), INTERVAL 94 HOUR)),
-(9006, 'demo-prac-9006-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 50, DATE_SUB(NOW(), INTERVAL 95 HOUR)),
-(9006, 'demo-prac-9006-5-1', 'Q_0413', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 51, DATE_SUB(NOW(), INTERVAL 96 HOUR)),
-(9006, 'demo-prac-9006-5-2', 'Q_0414', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 62, DATE_SUB(NOW(), INTERVAL 97 HOUR)),
-(9006, 'demo-prac-9006-5-3', 'Q_0415', 'KP0406', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 73, DATE_SUB(NOW(), INTERVAL 98 HOUR)),
-(9007, 'demo-prac-9007-1-1', 'Q_0202', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 176, DATE_SUB(NOW(), INTERVAL 96 HOUR)),
-(9007, 'demo-prac-9007-1-2', 'Q_0218', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 187, DATE_SUB(NOW(), INTERVAL 97 HOUR)),
-(9007, 'demo-prac-9007-1-3', 'Q_0219', 'KP0202', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 198, DATE_SUB(NOW(), INTERVAL 98 HOUR)),
-(9007, 'demo-prac-9007-2-1', 'Q_0206', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 199, DATE_SUB(NOW(), INTERVAL 99 HOUR)),
-(9007, 'demo-prac-9007-2-2', 'Q_0215', 'KP0206', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 210, DATE_SUB(NOW(), INTERVAL 100 HOUR)),
-(9007, 'demo-prac-9007-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 221, DATE_SUB(NOW(), INTERVAL 101 HOUR)),
-(9007, 'demo-prac-9007-3-1', 'Q_0311', 'KP0303', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 222, DATE_SUB(NOW(), INTERVAL 102 HOUR)),
-(9007, 'demo-prac-9007-3-2', 'Q_0321', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 233, DATE_SUB(NOW(), INTERVAL 103 HOUR)),
-(9007, 'demo-prac-9007-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 44, DATE_SUB(NOW(), INTERVAL 104 HOUR)),
-(9007, 'demo-prac-9007-4-1', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 45, DATE_SUB(NOW(), INTERVAL 105 HOUR)),
-(9007, 'demo-prac-9007-4-2', 'Q_0405', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 56, DATE_SUB(NOW(), INTERVAL 106 HOUR)),
-(9007, 'demo-prac-9007-4-3', 'Q_0404', 'KP0402', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 67, DATE_SUB(NOW(), INTERVAL 107 HOUR)),
-(9007, 'demo-prac-9007-5-1', 'Q_0413', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 68, DATE_SUB(NOW(), INTERVAL 108 HOUR)),
-(9007, 'demo-prac-9007-5-2', 'Q_0414', 'KP0406', 'PLAN', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 79, DATE_SUB(NOW(), INTERVAL 109 HOUR)),
-(9007, 'demo-prac-9007-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 90, DATE_SUB(NOW(), INTERVAL 110 HOUR)),
-(9008, 'demo-prac-9008-1-1', 'Q_0116', 'KP0107', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 193, DATE_SUB(NOW(), INTERVAL 108 HOUR)),
-(9008, 'demo-prac-9008-1-2', 'Q_0117', 'KP0107', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 204, DATE_SUB(NOW(), INTERVAL 109 HOUR)),
-(9008, 'demo-prac-9008-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 215, DATE_SUB(NOW(), INTERVAL 110 HOUR)),
-(9008, 'demo-prac-9008-2-1', 'Q_0205', 'KP0205', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 216, DATE_SUB(NOW(), INTERVAL 111 HOUR)),
-(9008, 'demo-prac-9008-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 227, DATE_SUB(NOW(), INTERVAL 112 HOUR)),
-(9008, 'demo-prac-9008-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 238, DATE_SUB(NOW(), INTERVAL 113 HOUR)),
-(9008, 'demo-prac-9008-3-1', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 239, DATE_SUB(NOW(), INTERVAL 114 HOUR)),
-(9008, 'demo-prac-9008-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 50, DATE_SUB(NOW(), INTERVAL 115 HOUR)),
-(9008, 'demo-prac-9008-3-3', 'Q_0309', 'KP0306', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 61, DATE_SUB(NOW(), INTERVAL 116 HOUR)),
-(9008, 'demo-prac-9008-4-1', 'Q_0401', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 62, DATE_SUB(NOW(), INTERVAL 117 HOUR)),
-(9008, 'demo-prac-9008-4-2', 'Q_0402', 'KP0401', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 73, DATE_SUB(NOW(), INTERVAL 118 HOUR)),
-(9008, 'demo-prac-9008-4-3', 'Q_0403', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 84, DATE_SUB(NOW(), INTERVAL 119 HOUR)),
-(9008, 'demo-prac-9008-5-1', 'Q_0419', 'KP0408', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 85, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
-(9008, 'demo-prac-9008-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 96, DATE_SUB(NOW(), INTERVAL 121 HOUR)),
-(9008, 'demo-prac-9008-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 107, DATE_SUB(NOW(), INTERVAL 122 HOUR)),
-(9009, 'demo-prac-9009-1-1', 'Q_0116', 'KP0107', 'PLAN', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 210, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
-(9009, 'demo-prac-9009-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 221, DATE_SUB(NOW(), INTERVAL 121 HOUR)),
-(9009, 'demo-prac-9009-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 232, DATE_SUB(NOW(), INTERVAL 122 HOUR)),
-(9009, 'demo-prac-9009-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 233, DATE_SUB(NOW(), INTERVAL 123 HOUR)),
-(9009, 'demo-prac-9009-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 44, DATE_SUB(NOW(), INTERVAL 124 HOUR)),
-(9009, 'demo-prac-9009-2-3', 'Q_0205', 'KP0205', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 55, DATE_SUB(NOW(), INTERVAL 125 HOUR)),
-(9009, 'demo-prac-9009-3-1', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 56, DATE_SUB(NOW(), INTERVAL 126 HOUR)),
-(9009, 'demo-prac-9009-3-2', 'Q_0312', 'KP0306', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 67, DATE_SUB(NOW(), INTERVAL 127 HOUR)),
-(9009, 'demo-prac-9009-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 78, DATE_SUB(NOW(), INTERVAL 128 HOUR)),
-(9009, 'demo-prac-9009-4-1', 'Q_0401', 'KP0401', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 79, DATE_SUB(NOW(), INTERVAL 129 HOUR)),
-(9009, 'demo-prac-9009-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 90, DATE_SUB(NOW(), INTERVAL 130 HOUR)),
-(9009, 'demo-prac-9009-4-3', 'Q_0403', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 101, DATE_SUB(NOW(), INTERVAL 131 HOUR)),
-(9009, 'demo-prac-9009-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 102, DATE_SUB(NOW(), INTERVAL 132 HOUR)),
-(9009, 'demo-prac-9009-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 113, DATE_SUB(NOW(), INTERVAL 133 HOUR)),
-(9009, 'demo-prac-9009-5-3', 'Q_0419', 'KP0408', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 134 HOUR)),
-(9010, 'demo-prac-9010-1-1', 'Q_0116', 'KP0107', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 227, DATE_SUB(NOW(), INTERVAL 200 HOUR)),
-(9010, 'demo-prac-9010-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 238, DATE_SUB(NOW(), INTERVAL 201 HOUR)),
-(9010, 'demo-prac-9010-1-3', 'Q_0118', 'KP0107', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 49, DATE_SUB(NOW(), INTERVAL 202 HOUR)),
-(9010, 'demo-prac-9010-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 50, DATE_SUB(NOW(), INTERVAL 202 HOUR)),
-(9010, 'demo-prac-9010-2-2', 'Q_0214', 'KP0205', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 61, DATE_SUB(NOW(), INTERVAL 203 HOUR)),
-(9010, 'demo-prac-9010-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 72, DATE_SUB(NOW(), INTERVAL 204 HOUR)),
-(9010, 'demo-prac-9010-3-1', 'Q_0309', 'KP0306', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 73, DATE_SUB(NOW(), INTERVAL 204 HOUR)),
-(9010, 'demo-prac-9010-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 84, DATE_SUB(NOW(), INTERVAL 205 HOUR)),
-(9010, 'demo-prac-9010-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 95, DATE_SUB(NOW(), INTERVAL 206 HOUR)),
-(9010, 'demo-prac-9010-4-1', 'Q_0401', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 96, DATE_SUB(NOW(), INTERVAL 206 HOUR)),
-(9010, 'demo-prac-9010-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 107, DATE_SUB(NOW(), INTERVAL 207 HOUR)),
-(9010, 'demo-prac-9010-4-3', 'Q_0403', 'KP0401', 'PLAN', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 118, DATE_SUB(NOW(), INTERVAL 208 HOUR)),
-(9010, 'demo-prac-9010-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 119, DATE_SUB(NOW(), INTERVAL 208 HOUR)),
-(9010, 'demo-prac-9010-5-2', 'Q_0420', 'KP0408', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 130, DATE_SUB(NOW(), INTERVAL 209 HOUR)),
-(9010, 'demo-prac-9010-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 141, DATE_SUB(NOW(), INTERVAL 210 HOUR)),
-(9011, 'demo-prac-9011-1-1', 'Q_0116', 'KP0107', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 44, DATE_SUB(NOW(), INTERVAL 224 HOUR)),
-(9011, 'demo-prac-9011-1-2', 'Q_0117', 'KP0107', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 55, DATE_SUB(NOW(), INTERVAL 225 HOUR)),
-(9011, 'demo-prac-9011-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 66, DATE_SUB(NOW(), INTERVAL 226 HOUR)),
-(9011, 'demo-prac-9011-2-1', 'Q_0205', 'KP0205', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 67, DATE_SUB(NOW(), INTERVAL 226 HOUR)),
-(9011, 'demo-prac-9011-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 78, DATE_SUB(NOW(), INTERVAL 227 HOUR)),
-(9011, 'demo-prac-9011-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 89, DATE_SUB(NOW(), INTERVAL 228 HOUR)),
-(9011, 'demo-prac-9011-3-1', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 90, DATE_SUB(NOW(), INTERVAL 228 HOUR)),
-(9011, 'demo-prac-9011-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 101, DATE_SUB(NOW(), INTERVAL 229 HOUR)),
-(9011, 'demo-prac-9011-3-3', 'Q_0309', 'KP0306', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 112, DATE_SUB(NOW(), INTERVAL 230 HOUR)),
-(9011, 'demo-prac-9011-4-1', 'Q_0401', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 113, DATE_SUB(NOW(), INTERVAL 230 HOUR)),
-(9011, 'demo-prac-9011-4-2', 'Q_0402', 'KP0401', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 231 HOUR)),
-(9011, 'demo-prac-9011-4-3', 'Q_0403', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 135, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
-(9011, 'demo-prac-9011-5-1', 'Q_0419', 'KP0408', 'PLAN', 1, '[演示数据] 正确选项占位', NULL, 136, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
-(9011, 'demo-prac-9011-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 147, DATE_SUB(NOW(), INTERVAL 233 HOUR)),
-(9011, 'demo-prac-9011-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 158, DATE_SUB(NOW(), INTERVAL 234 HOUR))
+(2, 'demo-prac-2-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 47, DATE_SUB(NOW(), INTERVAL 12 HOUR)),
+(2, 'demo-prac-2-1-2', 'Q_0213', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 58, DATE_SUB(NOW(), INTERVAL 13 HOUR)),
+(2, 'demo-prac-2-1-3', 'Q_0201', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 69, DATE_SUB(NOW(), INTERVAL 14 HOUR)),
+(2, 'demo-prac-2-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 54, DATE_SUB(NOW(), INTERVAL 15 HOUR)),
+(2, 'demo-prac-2-2-2', 'Q_0220', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 65, DATE_SUB(NOW(), INTERVAL 16 HOUR)),
+(2, 'demo-prac-2-2-3', 'Q_0203', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 76, DATE_SUB(NOW(), INTERVAL 17 HOUR)),
+(2, 'demo-prac-2-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 61, DATE_SUB(NOW(), INTERVAL 18 HOUR)),
+(2, 'demo-prac-2-3-2', 'Q_0303', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 72, DATE_SUB(NOW(), INTERVAL 19 HOUR)),
+(2, 'demo-prac-2-3-3', 'Q_0302', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 83, DATE_SUB(NOW(), INTERVAL 20 HOUR)),
+(2, 'demo-prac-2-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 68, DATE_SUB(NOW(), INTERVAL 21 HOUR)),
+(2, 'demo-prac-2-4-2', 'Q_0319', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 79, DATE_SUB(NOW(), INTERVAL 22 HOUR)),
+(2, 'demo-prac-2-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 90, DATE_SUB(NOW(), INTERVAL 23 HOUR)),
+(2, 'demo-prac-2-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 75, DATE_SUB(NOW(), INTERVAL 24 HOUR)),
+(2, 'demo-prac-2-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 86, DATE_SUB(NOW(), INTERVAL 25 HOUR)),
+(2, 'demo-prac-2-5-3', 'Q_0410', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 97, DATE_SUB(NOW(), INTERVAL 26 HOUR)),
+(9001, 'demo-prac-9001-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 86, DATE_SUB(NOW(), INTERVAL 24 HOUR)),
+(9001, 'demo-prac-9001-1-2', 'Q_0213', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 97, DATE_SUB(NOW(), INTERVAL 25 HOUR)),
+(9001, 'demo-prac-9001-1-3', 'Q_0201', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 108, DATE_SUB(NOW(), INTERVAL 26 HOUR)),
+(9001, 'demo-prac-9001-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 93, DATE_SUB(NOW(), INTERVAL 27 HOUR)),
+(9001, 'demo-prac-9001-2-2', 'Q_0220', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 104, DATE_SUB(NOW(), INTERVAL 28 HOUR)),
+(9001, 'demo-prac-9001-2-3', 'Q_0203', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 115, DATE_SUB(NOW(), INTERVAL 29 HOUR)),
+(9001, 'demo-prac-9001-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 100, DATE_SUB(NOW(), INTERVAL 30 HOUR)),
+(9001, 'demo-prac-9001-3-2', 'Q_0303', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 111, DATE_SUB(NOW(), INTERVAL 31 HOUR)),
+(9001, 'demo-prac-9001-3-3', 'Q_0302', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 122, DATE_SUB(NOW(), INTERVAL 32 HOUR)),
+(9001, 'demo-prac-9001-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 107, DATE_SUB(NOW(), INTERVAL 33 HOUR)),
+(9001, 'demo-prac-9001-4-2', 'Q_0319', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 118, DATE_SUB(NOW(), INTERVAL 34 HOUR)),
+(9001, 'demo-prac-9001-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 129, DATE_SUB(NOW(), INTERVAL 35 HOUR)),
+(9001, 'demo-prac-9001-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 114, DATE_SUB(NOW(), INTERVAL 36 HOUR)),
+(9001, 'demo-prac-9001-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 37 HOUR)),
+(9001, 'demo-prac-9001-5-3', 'Q_0410', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 136, DATE_SUB(NOW(), INTERVAL 38 HOUR)),
+(9002, 'demo-prac-9002-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 87, DATE_SUB(NOW(), INTERVAL 36 HOUR)),
+(9002, 'demo-prac-9002-1-2', 'Q_0213', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 98, DATE_SUB(NOW(), INTERVAL 37 HOUR)),
+(9002, 'demo-prac-9002-1-3', 'Q_0201', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 109, DATE_SUB(NOW(), INTERVAL 38 HOUR)),
+(9002, 'demo-prac-9002-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 94, DATE_SUB(NOW(), INTERVAL 39 HOUR)),
+(9002, 'demo-prac-9002-2-2', 'Q_0220', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 105, DATE_SUB(NOW(), INTERVAL 40 HOUR)),
+(9002, 'demo-prac-9002-2-3', 'Q_0203', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 116, DATE_SUB(NOW(), INTERVAL 41 HOUR)),
+(9002, 'demo-prac-9002-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 101, DATE_SUB(NOW(), INTERVAL 42 HOUR)),
+(9002, 'demo-prac-9002-3-2', 'Q_0303', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 112, DATE_SUB(NOW(), INTERVAL 43 HOUR)),
+(9002, 'demo-prac-9002-3-3', 'Q_0302', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 123, DATE_SUB(NOW(), INTERVAL 44 HOUR)),
+(9002, 'demo-prac-9002-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 108, DATE_SUB(NOW(), INTERVAL 45 HOUR)),
+(9002, 'demo-prac-9002-4-2', 'Q_0319', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 119, DATE_SUB(NOW(), INTERVAL 46 HOUR)),
+(9002, 'demo-prac-9002-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 130, DATE_SUB(NOW(), INTERVAL 47 HOUR)),
+(9002, 'demo-prac-9002-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 115, DATE_SUB(NOW(), INTERVAL 48 HOUR)),
+(9002, 'demo-prac-9002-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 126, DATE_SUB(NOW(), INTERVAL 49 HOUR)),
+(9002, 'demo-prac-9002-5-3', 'Q_0410', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 137, DATE_SUB(NOW(), INTERVAL 50 HOUR)),
+(9003, 'demo-prac-9003-1-1', 'Q_0201', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 88, DATE_SUB(NOW(), INTERVAL 48 HOUR)),
+(9003, 'demo-prac-9003-1-2', 'Q_0213', 'KP0201', 'SELF', 0, '[演示数据] 错误选项占位', 'CONCEPT_CONFUSION', 99, DATE_SUB(NOW(), INTERVAL 49 HOUR)),
+(9003, 'demo-prac-9003-1-3', 'Q_0201', 'KP0201', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 110, DATE_SUB(NOW(), INTERVAL 50 HOUR)),
+(9003, 'demo-prac-9003-2-1', 'Q_0203', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 95, DATE_SUB(NOW(), INTERVAL 51 HOUR)),
+(9003, 'demo-prac-9003-2-2', 'Q_0220', 'KP0203', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 106, DATE_SUB(NOW(), INTERVAL 52 HOUR)),
+(9003, 'demo-prac-9003-2-3', 'Q_0203', 'KP0203', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 117, DATE_SUB(NOW(), INTERVAL 53 HOUR)),
+(9003, 'demo-prac-9003-3-1', 'Q_0302', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 102, DATE_SUB(NOW(), INTERVAL 54 HOUR)),
+(9003, 'demo-prac-9003-3-2', 'Q_0303', 'KP0302', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 113, DATE_SUB(NOW(), INTERVAL 55 HOUR)),
+(9003, 'demo-prac-9003-3-3', 'Q_0302', 'KP0302', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 56 HOUR)),
+(9003, 'demo-prac-9003-4-1', 'Q_0307', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 109, DATE_SUB(NOW(), INTERVAL 57 HOUR)),
+(9003, 'demo-prac-9003-4-2', 'Q_0319', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 120, DATE_SUB(NOW(), INTERVAL 58 HOUR)),
+(9003, 'demo-prac-9003-4-3', 'Q_0325', 'KP0305', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 131, DATE_SUB(NOW(), INTERVAL 59 HOUR)),
+(9003, 'demo-prac-9003-5-1', 'Q_0408', 'KP0404', 'SELF', 0, '[演示数据] 错误选项占位', 'METHOD_MISSING', 116, DATE_SUB(NOW(), INTERVAL 60 HOUR)),
+(9003, 'demo-prac-9003-5-2', 'Q_0409', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 127, DATE_SUB(NOW(), INTERVAL 61 HOUR)),
+(9003, 'demo-prac-9003-5-3', 'Q_0410', 'KP0404', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 138, DATE_SUB(NOW(), INTERVAL 62 HOUR)),
+(9004, 'demo-prac-9004-1-1', 'Q_0202', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 89, DATE_SUB(NOW(), INTERVAL 60 HOUR)),
+(9004, 'demo-prac-9004-1-2', 'Q_0218', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 100, DATE_SUB(NOW(), INTERVAL 61 HOUR)),
+(9004, 'demo-prac-9004-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 111, DATE_SUB(NOW(), INTERVAL 62 HOUR)),
+(9004, 'demo-prac-9004-2-1', 'Q_0206', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 96, DATE_SUB(NOW(), INTERVAL 63 HOUR)),
+(9004, 'demo-prac-9004-2-2', 'Q_0215', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 107, DATE_SUB(NOW(), INTERVAL 64 HOUR)),
+(9004, 'demo-prac-9004-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 118, DATE_SUB(NOW(), INTERVAL 65 HOUR)),
+(9004, 'demo-prac-9004-3-1', 'Q_0311', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 103, DATE_SUB(NOW(), INTERVAL 66 HOUR)),
+(9004, 'demo-prac-9004-3-2', 'Q_0321', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 114, DATE_SUB(NOW(), INTERVAL 67 HOUR)),
+(9004, 'demo-prac-9004-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 68 HOUR)),
+(9004, 'demo-prac-9004-4-1', 'Q_0404', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 110, DATE_SUB(NOW(), INTERVAL 69 HOUR)),
+(9004, 'demo-prac-9004-4-2', 'Q_0405', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 121, DATE_SUB(NOW(), INTERVAL 70 HOUR)),
+(9004, 'demo-prac-9004-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 132, DATE_SUB(NOW(), INTERVAL 71 HOUR)),
+(9004, 'demo-prac-9004-5-1', 'Q_0413', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 117, DATE_SUB(NOW(), INTERVAL 72 HOUR)),
+(9004, 'demo-prac-9004-5-2', 'Q_0414', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 128, DATE_SUB(NOW(), INTERVAL 73 HOUR)),
+(9004, 'demo-prac-9004-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 139, DATE_SUB(NOW(), INTERVAL 74 HOUR)),
+(9005, 'demo-prac-9005-1-1', 'Q_0202', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 90, DATE_SUB(NOW(), INTERVAL 72 HOUR)),
+(9005, 'demo-prac-9005-1-2', 'Q_0218', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 101, DATE_SUB(NOW(), INTERVAL 73 HOUR)),
+(9005, 'demo-prac-9005-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 112, DATE_SUB(NOW(), INTERVAL 74 HOUR)),
+(9005, 'demo-prac-9005-2-1', 'Q_0206', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 97, DATE_SUB(NOW(), INTERVAL 75 HOUR)),
+(9005, 'demo-prac-9005-2-2', 'Q_0215', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 108, DATE_SUB(NOW(), INTERVAL 76 HOUR)),
+(9005, 'demo-prac-9005-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 119, DATE_SUB(NOW(), INTERVAL 77 HOUR)),
+(9005, 'demo-prac-9005-3-1', 'Q_0311', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 104, DATE_SUB(NOW(), INTERVAL 78 HOUR)),
+(9005, 'demo-prac-9005-3-2', 'Q_0321', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 115, DATE_SUB(NOW(), INTERVAL 79 HOUR)),
+(9005, 'demo-prac-9005-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 126, DATE_SUB(NOW(), INTERVAL 80 HOUR)),
+(9005, 'demo-prac-9005-4-1', 'Q_0404', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 111, DATE_SUB(NOW(), INTERVAL 81 HOUR)),
+(9005, 'demo-prac-9005-4-2', 'Q_0405', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 122, DATE_SUB(NOW(), INTERVAL 82 HOUR)),
+(9005, 'demo-prac-9005-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 133, DATE_SUB(NOW(), INTERVAL 83 HOUR)),
+(9005, 'demo-prac-9005-5-1', 'Q_0413', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 118, DATE_SUB(NOW(), INTERVAL 84 HOUR)),
+(9005, 'demo-prac-9005-5-2', 'Q_0414', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 129, DATE_SUB(NOW(), INTERVAL 85 HOUR)),
+(9005, 'demo-prac-9005-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 140, DATE_SUB(NOW(), INTERVAL 86 HOUR)),
+(9006, 'demo-prac-9006-1-1', 'Q_0202', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 91, DATE_SUB(NOW(), INTERVAL 84 HOUR)),
+(9006, 'demo-prac-9006-1-2', 'Q_0218', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 102, DATE_SUB(NOW(), INTERVAL 85 HOUR)),
+(9006, 'demo-prac-9006-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 113, DATE_SUB(NOW(), INTERVAL 86 HOUR)),
+(9006, 'demo-prac-9006-2-1', 'Q_0206', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 98, DATE_SUB(NOW(), INTERVAL 87 HOUR)),
+(9006, 'demo-prac-9006-2-2', 'Q_0215', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 109, DATE_SUB(NOW(), INTERVAL 88 HOUR)),
+(9006, 'demo-prac-9006-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 120, DATE_SUB(NOW(), INTERVAL 89 HOUR)),
+(9006, 'demo-prac-9006-3-1', 'Q_0311', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 105, DATE_SUB(NOW(), INTERVAL 90 HOUR)),
+(9006, 'demo-prac-9006-3-2', 'Q_0321', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 116, DATE_SUB(NOW(), INTERVAL 91 HOUR)),
+(9006, 'demo-prac-9006-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 127, DATE_SUB(NOW(), INTERVAL 92 HOUR)),
+(9006, 'demo-prac-9006-4-1', 'Q_0404', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 112, DATE_SUB(NOW(), INTERVAL 93 HOUR)),
+(9006, 'demo-prac-9006-4-2', 'Q_0405', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 123, DATE_SUB(NOW(), INTERVAL 94 HOUR)),
+(9006, 'demo-prac-9006-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 134, DATE_SUB(NOW(), INTERVAL 95 HOUR)),
+(9006, 'demo-prac-9006-5-1', 'Q_0413', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 119, DATE_SUB(NOW(), INTERVAL 96 HOUR)),
+(9006, 'demo-prac-9006-5-2', 'Q_0414', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 130, DATE_SUB(NOW(), INTERVAL 97 HOUR)),
+(9006, 'demo-prac-9006-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 141, DATE_SUB(NOW(), INTERVAL 98 HOUR)),
+(9007, 'demo-prac-9007-1-1', 'Q_0202', 'KP0202', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 92, DATE_SUB(NOW(), INTERVAL 96 HOUR)),
+(9007, 'demo-prac-9007-1-2', 'Q_0218', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 103, DATE_SUB(NOW(), INTERVAL 97 HOUR)),
+(9007, 'demo-prac-9007-1-3', 'Q_0219', 'KP0202', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 114, DATE_SUB(NOW(), INTERVAL 98 HOUR)),
+(9007, 'demo-prac-9007-2-1', 'Q_0206', 'KP0206', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 99, DATE_SUB(NOW(), INTERVAL 99 HOUR)),
+(9007, 'demo-prac-9007-2-2', 'Q_0215', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 110, DATE_SUB(NOW(), INTERVAL 100 HOUR)),
+(9007, 'demo-prac-9007-2-3', 'Q_0222', 'KP0206', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 121, DATE_SUB(NOW(), INTERVAL 101 HOUR)),
+(9007, 'demo-prac-9007-3-1', 'Q_0311', 'KP0303', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 106, DATE_SUB(NOW(), INTERVAL 102 HOUR)),
+(9007, 'demo-prac-9007-3-2', 'Q_0321', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 117, DATE_SUB(NOW(), INTERVAL 103 HOUR)),
+(9007, 'demo-prac-9007-3-3', 'Q_0322', 'KP0303', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 128, DATE_SUB(NOW(), INTERVAL 104 HOUR)),
+(9007, 'demo-prac-9007-4-1', 'Q_0404', 'KP0402', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 113, DATE_SUB(NOW(), INTERVAL 105 HOUR)),
+(9007, 'demo-prac-9007-4-2', 'Q_0405', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 106 HOUR)),
+(9007, 'demo-prac-9007-4-3', 'Q_0404', 'KP0402', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 135, DATE_SUB(NOW(), INTERVAL 107 HOUR)),
+(9007, 'demo-prac-9007-5-1', 'Q_0413', 'KP0406', 'SELF', 0, '[演示数据] 错误选项占位', 'BOUNDARY_ERROR', 120, DATE_SUB(NOW(), INTERVAL 108 HOUR)),
+(9007, 'demo-prac-9007-5-2', 'Q_0414', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 131, DATE_SUB(NOW(), INTERVAL 109 HOUR)),
+(9007, 'demo-prac-9007-5-3', 'Q_0415', 'KP0406', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 142, DATE_SUB(NOW(), INTERVAL 110 HOUR)),
+(9008, 'demo-prac-9008-1-1', 'Q_0116', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 93, DATE_SUB(NOW(), INTERVAL 108 HOUR)),
+(9008, 'demo-prac-9008-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 104, DATE_SUB(NOW(), INTERVAL 109 HOUR)),
+(9008, 'demo-prac-9008-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 115, DATE_SUB(NOW(), INTERVAL 110 HOUR)),
+(9008, 'demo-prac-9008-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 100, DATE_SUB(NOW(), INTERVAL 111 HOUR)),
+(9008, 'demo-prac-9008-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 111, DATE_SUB(NOW(), INTERVAL 112 HOUR)),
+(9008, 'demo-prac-9008-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 122, DATE_SUB(NOW(), INTERVAL 113 HOUR)),
+(9008, 'demo-prac-9008-3-1', 'Q_0309', 'KP0306', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 107, DATE_SUB(NOW(), INTERVAL 114 HOUR)),
+(9008, 'demo-prac-9008-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 118, DATE_SUB(NOW(), INTERVAL 115 HOUR)),
+(9008, 'demo-prac-9008-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 129, DATE_SUB(NOW(), INTERVAL 116 HOUR)),
+(9008, 'demo-prac-9008-4-1', 'Q_0401', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 114, DATE_SUB(NOW(), INTERVAL 117 HOUR)),
+(9008, 'demo-prac-9008-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 118 HOUR)),
+(9008, 'demo-prac-9008-4-3', 'Q_0403', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 136, DATE_SUB(NOW(), INTERVAL 119 HOUR)),
+(9008, 'demo-prac-9008-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 121, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
+(9008, 'demo-prac-9008-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 132, DATE_SUB(NOW(), INTERVAL 121 HOUR)),
+(9008, 'demo-prac-9008-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 143, DATE_SUB(NOW(), INTERVAL 122 HOUR)),
+(9009, 'demo-prac-9009-1-1', 'Q_0116', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 94, DATE_SUB(NOW(), INTERVAL 120 HOUR)),
+(9009, 'demo-prac-9009-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 105, DATE_SUB(NOW(), INTERVAL 121 HOUR)),
+(9009, 'demo-prac-9009-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 116, DATE_SUB(NOW(), INTERVAL 122 HOUR)),
+(9009, 'demo-prac-9009-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 101, DATE_SUB(NOW(), INTERVAL 123 HOUR)),
+(9009, 'demo-prac-9009-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 112, DATE_SUB(NOW(), INTERVAL 124 HOUR)),
+(9009, 'demo-prac-9009-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 123, DATE_SUB(NOW(), INTERVAL 125 HOUR)),
+(9009, 'demo-prac-9009-3-1', 'Q_0309', 'KP0306', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 108, DATE_SUB(NOW(), INTERVAL 126 HOUR)),
+(9009, 'demo-prac-9009-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 119, DATE_SUB(NOW(), INTERVAL 127 HOUR)),
+(9009, 'demo-prac-9009-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 130, DATE_SUB(NOW(), INTERVAL 128 HOUR)),
+(9009, 'demo-prac-9009-4-1', 'Q_0401', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 115, DATE_SUB(NOW(), INTERVAL 129 HOUR)),
+(9009, 'demo-prac-9009-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 126, DATE_SUB(NOW(), INTERVAL 130 HOUR)),
+(9009, 'demo-prac-9009-4-3', 'Q_0403', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 137, DATE_SUB(NOW(), INTERVAL 131 HOUR)),
+(9009, 'demo-prac-9009-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 122, DATE_SUB(NOW(), INTERVAL 132 HOUR)),
+(9009, 'demo-prac-9009-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 133, DATE_SUB(NOW(), INTERVAL 133 HOUR)),
+(9009, 'demo-prac-9009-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 144, DATE_SUB(NOW(), INTERVAL 134 HOUR)),
+(9010, 'demo-prac-9010-1-1', 'Q_0116', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 95, DATE_SUB(NOW(), INTERVAL 200 HOUR)),
+(9010, 'demo-prac-9010-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 106, DATE_SUB(NOW(), INTERVAL 201 HOUR)),
+(9010, 'demo-prac-9010-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 117, DATE_SUB(NOW(), INTERVAL 202 HOUR)),
+(9010, 'demo-prac-9010-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 102, DATE_SUB(NOW(), INTERVAL 202 HOUR)),
+(9010, 'demo-prac-9010-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 113, DATE_SUB(NOW(), INTERVAL 203 HOUR)),
+(9010, 'demo-prac-9010-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 204 HOUR)),
+(9010, 'demo-prac-9010-3-1', 'Q_0309', 'KP0306', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 109, DATE_SUB(NOW(), INTERVAL 204 HOUR)),
+(9010, 'demo-prac-9010-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 120, DATE_SUB(NOW(), INTERVAL 205 HOUR)),
+(9010, 'demo-prac-9010-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 131, DATE_SUB(NOW(), INTERVAL 206 HOUR)),
+(9010, 'demo-prac-9010-4-1', 'Q_0401', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 116, DATE_SUB(NOW(), INTERVAL 206 HOUR)),
+(9010, 'demo-prac-9010-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 127, DATE_SUB(NOW(), INTERVAL 207 HOUR)),
+(9010, 'demo-prac-9010-4-3', 'Q_0403', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 138, DATE_SUB(NOW(), INTERVAL 208 HOUR)),
+(9010, 'demo-prac-9010-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 123, DATE_SUB(NOW(), INTERVAL 208 HOUR)),
+(9010, 'demo-prac-9010-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 134, DATE_SUB(NOW(), INTERVAL 209 HOUR)),
+(9010, 'demo-prac-9010-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 145, DATE_SUB(NOW(), INTERVAL 210 HOUR)),
+(9011, 'demo-prac-9011-1-1', 'Q_0116', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 96, DATE_SUB(NOW(), INTERVAL 224 HOUR)),
+(9011, 'demo-prac-9011-1-2', 'Q_0117', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 107, DATE_SUB(NOW(), INTERVAL 225 HOUR)),
+(9011, 'demo-prac-9011-1-3', 'Q_0118', 'KP0107', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 118, DATE_SUB(NOW(), INTERVAL 226 HOUR)),
+(9011, 'demo-prac-9011-2-1', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 103, DATE_SUB(NOW(), INTERVAL 226 HOUR)),
+(9011, 'demo-prac-9011-2-2', 'Q_0214', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 114, DATE_SUB(NOW(), INTERVAL 227 HOUR)),
+(9011, 'demo-prac-9011-2-3', 'Q_0205', 'KP0205', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 125, DATE_SUB(NOW(), INTERVAL 228 HOUR)),
+(9011, 'demo-prac-9011-3-1', 'Q_0309', 'KP0306', 'SELF', 0, '[演示数据] 错误选项占位', 'CALCULATION_ERROR', 110, DATE_SUB(NOW(), INTERVAL 228 HOUR)),
+(9011, 'demo-prac-9011-3-2', 'Q_0312', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 121, DATE_SUB(NOW(), INTERVAL 229 HOUR)),
+(9011, 'demo-prac-9011-3-3', 'Q_0309', 'KP0306', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 132, DATE_SUB(NOW(), INTERVAL 230 HOUR)),
+(9011, 'demo-prac-9011-4-1', 'Q_0401', 'KP0401', 'SELF', 0, '[演示数据] 错误选项占位', 'STEP_OMISSION', 117, DATE_SUB(NOW(), INTERVAL 230 HOUR)),
+(9011, 'demo-prac-9011-4-2', 'Q_0402', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 128, DATE_SUB(NOW(), INTERVAL 231 HOUR)),
+(9011, 'demo-prac-9011-4-3', 'Q_0403', 'KP0401', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 139, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
+(9011, 'demo-prac-9011-5-1', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 124, DATE_SUB(NOW(), INTERVAL 232 HOUR)),
+(9011, 'demo-prac-9011-5-2', 'Q_0420', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 135, DATE_SUB(NOW(), INTERVAL 233 HOUR)),
+(9011, 'demo-prac-9011-5-3', 'Q_0419', 'KP0408', 'SELF', 1, '[演示数据] 正确选项占位', NULL, 146, DATE_SUB(NOW(), INTERVAL 234 HOUR))
 ON DUPLICATE KEY UPDATE q_id = VALUES(q_id), kp_id = VALUES(kp_id), source = VALUES(source), is_correct = VALUES(is_correct), my_answer = VALUES(my_answer), error_type = VALUES(error_type), cost_seconds = VALUES(cost_seconds), created_at = VALUES(created_at);
 
--- 每名学生 2 条已确认错题，供教师下钻与评阅证据链使用。
+-- 每个学生的薄弱知识点都有一条已确认错题，保证画像薄弱点能点进错题本。
 INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, image_url, ocr_text, corrected_text, ocr_confidence, error_type, student_note, status, confirmed_at, created_at) VALUES
-('EL_DEMO_2_1', 2, 'demo-err-2-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 12 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 12 HOUR)),
-('EL_DEMO_2_2', 2, 'demo-err-2-2', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 18 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 18 HOUR)),
-('EL_DEMO_9001_1', 9001, 'demo-err-9001-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 24 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 24 HOUR)),
-('EL_DEMO_9001_2', 9001, 'demo-err-9001-2', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 30 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 30 HOUR)),
-('EL_DEMO_9002_1', 9002, 'demo-err-9002-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 36 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 36 HOUR)),
-('EL_DEMO_9002_2', 9002, 'demo-err-9002-2', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 42 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 42 HOUR)),
-('EL_DEMO_9003_1', 9003, 'demo-err-9003-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 48 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 48 HOUR)),
-('EL_DEMO_9003_2', 9003, 'demo-err-9003-2', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 54 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 54 HOUR)),
-('EL_DEMO_9004_1', 9004, 'demo-err-9004-1', 'Q_0218', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 61 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 61 HOUR)),
-('EL_DEMO_9004_2', 9004, 'demo-err-9004-2', 'Q_0405', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 70 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 70 HOUR)),
-('EL_DEMO_9005_1', 9005, 'demo-err-9005-1', 'Q_0218', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 73 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 73 HOUR)),
-('EL_DEMO_9005_2', 9005, 'demo-err-9005-2', 'Q_0405', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 82 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 82 HOUR)),
-('EL_DEMO_9006_1', 9006, 'demo-err-9006-1', 'Q_0218', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 85 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 85 HOUR)),
-('EL_DEMO_9006_2', 9006, 'demo-err-9006-2', 'Q_0405', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 94 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 94 HOUR)),
-('EL_DEMO_9007_1', 9007, 'demo-err-9007-1', 'Q_0218', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 97 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 97 HOUR)),
-('EL_DEMO_9007_2', 9007, 'demo-err-9007-2', 'Q_0405', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 106 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 106 HOUR)),
-('EL_DEMO_9008_1', 9008, 'demo-err-9008-1', 'Q_0116', 'KP0107', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 108 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 108 HOUR)),
-('EL_DEMO_9008_2', 9008, 'demo-err-9008-2', 'Q_0403', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 119 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 119 HOUR)),
-('EL_DEMO_9009_1', 9009, 'demo-err-9009-1', 'Q_0116', 'KP0107', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 120 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 120 HOUR)),
-('EL_DEMO_9009_2', 9009, 'demo-err-9009-2', 'Q_0403', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 131 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 131 HOUR)),
-('EL_DEMO_9010_1', 9010, 'demo-err-9010-1', 'Q_0116', 'KP0107', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 200 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 200 HOUR)),
-('EL_DEMO_9010_2', 9010, 'demo-err-9010-2', 'Q_0403', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 208 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 208 HOUR)),
-('EL_DEMO_9011_1', 9011, 'demo-err-9011-1', 'Q_0116', 'KP0107', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 224 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 224 HOUR)),
-('EL_DEMO_9011_2', 9011, 'demo-err-9011-2', 'Q_0403', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 该记录由种子脚本构造，用于答辩演示，不是真实学生数据。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 232 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 232 HOUR))
+('EL_DEMO_2_1', 2, 'demo-err-2-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 关系模型的基本概念与三要素：概念混淆，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 12 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 12 HOUR)),
+('EL_DEMO_2_2', 2, 'demo-err-2-2', 'Q_0203', 'KP0203', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 候选码、主码、主属性与非主属性：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 15 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 15 HOUR)),
+('EL_DEMO_2_3', 2, 'demo-err-2-3', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 数据定义：模式、基本表、索引、数据字典：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 18 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 18 HOUR)),
+('EL_DEMO_2_4', 2, 'demo-err-2-4', 'Q_0307', 'KP0305', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 嵌套查询与相关子查询：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 21 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 21 HOUR)),
+('EL_DEMO_2_5', 2, 'demo-err-2-5', 'Q_0408', 'KP0404', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] GRANT 授权与 WITH GRANT OPTION：方法缺失，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 24 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 24 HOUR)),
+('EL_DEMO_9001_1', 9001, 'demo-err-9001-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 关系模型的基本概念与三要素：概念混淆，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 24 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 24 HOUR)),
+('EL_DEMO_9001_2', 9001, 'demo-err-9001-2', 'Q_0203', 'KP0203', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 候选码、主码、主属性与非主属性：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 27 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 27 HOUR)),
+('EL_DEMO_9001_3', 9001, 'demo-err-9001-3', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 数据定义：模式、基本表、索引、数据字典：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 30 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 30 HOUR)),
+('EL_DEMO_9001_4', 9001, 'demo-err-9001-4', 'Q_0307', 'KP0305', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 嵌套查询与相关子查询：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 33 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 33 HOUR)),
+('EL_DEMO_9001_5', 9001, 'demo-err-9001-5', 'Q_0408', 'KP0404', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] GRANT 授权与 WITH GRANT OPTION：方法缺失，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 36 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 36 HOUR)),
+('EL_DEMO_9002_1', 9002, 'demo-err-9002-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 关系模型的基本概念与三要素：概念混淆，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 36 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 36 HOUR)),
+('EL_DEMO_9002_2', 9002, 'demo-err-9002-2', 'Q_0203', 'KP0203', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 候选码、主码、主属性与非主属性：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 39 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 39 HOUR)),
+('EL_DEMO_9002_3', 9002, 'demo-err-9002-3', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 数据定义：模式、基本表、索引、数据字典：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 42 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 42 HOUR)),
+('EL_DEMO_9002_4', 9002, 'demo-err-9002-4', 'Q_0307', 'KP0305', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 嵌套查询与相关子查询：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 45 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 45 HOUR)),
+('EL_DEMO_9002_5', 9002, 'demo-err-9002-5', 'Q_0408', 'KP0404', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] GRANT 授权与 WITH GRANT OPTION：方法缺失，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 48 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 48 HOUR)),
+('EL_DEMO_9003_1', 9003, 'demo-err-9003-1', 'Q_0201', 'KP0201', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 关系模型的基本概念与三要素：概念混淆，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 48 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 48 HOUR)),
+('EL_DEMO_9003_2', 9003, 'demo-err-9003-2', 'Q_0203', 'KP0203', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 候选码、主码、主属性与非主属性：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 51 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 51 HOUR)),
+('EL_DEMO_9003_3', 9003, 'demo-err-9003-3', 'Q_0302', 'KP0302', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 数据定义：模式、基本表、索引、数据字典：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 54 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 54 HOUR)),
+('EL_DEMO_9003_4', 9003, 'demo-err-9003-4', 'Q_0307', 'KP0305', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 嵌套查询与相关子查询：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 57 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 57 HOUR)),
+('EL_DEMO_9003_5', 9003, 'demo-err-9003-5', 'Q_0408', 'KP0404', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'METHOD_MISSING', '[演示数据] GRANT 授权与 WITH GRANT OPTION：方法缺失，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 60 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 60 HOUR)),
+('EL_DEMO_9003_6', 9003, 'demo-err-9003-6', 'Q_0220', 'KP0203', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 候选码、主码、主属性与非主属性：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 14 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 14 HOUR)),
+('EL_DEMO_9004_1', 9004, 'demo-err-9004-1', 'Q_0202', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 60 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 60 HOUR)),
+('EL_DEMO_9004_2', 9004, 'demo-err-9004-2', 'Q_0206', 'KP0206', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 实体完整性：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 63 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 63 HOUR)),
+('EL_DEMO_9004_3', 9004, 'demo-err-9004-3', 'Q_0311', 'KP0303', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 单表查询（WHERE、ORDER BY、聚合、分组）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 66 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 66 HOUR)),
+('EL_DEMO_9004_4', 9004, 'demo-err-9004-4', 'Q_0404', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 用户身份鉴别：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 69 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 69 HOUR)),
+('EL_DEMO_9004_5', 9004, 'demo-err-9004-5', 'Q_0413', 'KP0406', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 数据库角色：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 72 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 72 HOUR)),
+('EL_DEMO_9004_6', 9004, 'demo-err-9004-6', 'Q_0218', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 14 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 14 HOUR)),
+('EL_DEMO_9005_1', 9005, 'demo-err-9005-1', 'Q_0202', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 72 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 72 HOUR)),
+('EL_DEMO_9005_2', 9005, 'demo-err-9005-2', 'Q_0206', 'KP0206', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 实体完整性：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 75 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 75 HOUR)),
+('EL_DEMO_9005_3', 9005, 'demo-err-9005-3', 'Q_0311', 'KP0303', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 单表查询（WHERE、ORDER BY、聚合、分组）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 78 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 78 HOUR)),
+('EL_DEMO_9005_4', 9005, 'demo-err-9005-4', 'Q_0404', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 用户身份鉴别：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 81 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 81 HOUR)),
+('EL_DEMO_9005_5', 9005, 'demo-err-9005-5', 'Q_0413', 'KP0406', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 数据库角色：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 84 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 84 HOUR)),
+('EL_DEMO_9005_6', 9005, 'demo-err-9005-6', 'Q_0219', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 14 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 14 HOUR)),
+('EL_DEMO_9006_1', 9006, 'demo-err-9006-1', 'Q_0202', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 84 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 84 HOUR)),
+('EL_DEMO_9006_2', 9006, 'demo-err-9006-2', 'Q_0206', 'KP0206', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 实体完整性：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 87 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 87 HOUR)),
+('EL_DEMO_9006_3', 9006, 'demo-err-9006-3', 'Q_0311', 'KP0303', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 单表查询（WHERE、ORDER BY、聚合、分组）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 90 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 90 HOUR)),
+('EL_DEMO_9006_4', 9006, 'demo-err-9006-4', 'Q_0404', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 用户身份鉴别：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 93 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 93 HOUR)),
+('EL_DEMO_9006_5', 9006, 'demo-err-9006-5', 'Q_0413', 'KP0406', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 数据库角色：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 96 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 96 HOUR)),
+('EL_DEMO_9006_6', 9006, 'demo-err-9006-6', 'Q_0225', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 14 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 14 HOUR)),
+('EL_DEMO_9007_1', 9007, 'demo-err-9007-1', 'Q_0202', 'KP0202', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 关系的形式化定义（域、笛卡儿积、关系）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 96 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 96 HOUR)),
+('EL_DEMO_9007_2', 9007, 'demo-err-9007-2', 'Q_0206', 'KP0206', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 实体完整性：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 99 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 99 HOUR)),
+('EL_DEMO_9007_3', 9007, 'demo-err-9007-3', 'Q_0311', 'KP0303', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 单表查询（WHERE、ORDER BY、聚合、分组）：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 102 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 102 HOUR)),
+('EL_DEMO_9007_4', 9007, 'demo-err-9007-4', 'Q_0404', 'KP0402', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 用户身份鉴别：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 105 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 105 HOUR)),
+('EL_DEMO_9007_5', 9007, 'demo-err-9007-5', 'Q_0413', 'KP0406', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 数据库角色：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 108 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 108 HOUR)),
+('EL_DEMO_9008_1', 9008, 'demo-err-9008-1', 'Q_0309', 'KP0306', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 集合查询与基于派生表的查询：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 114 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 114 HOUR)),
+('EL_DEMO_9008_2', 9008, 'demo-err-9008-2', 'Q_0401', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 数据库安全性概述、不安全因素与安全标准：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 117 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 117 HOUR)),
+('EL_DEMO_9008_3', 9008, 'demo-err-9008-3', 'Q_0118', 'KP0107', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CONCEPT_CONFUSION', '[演示数据] 数据库系统的三级模式结构（外模式、模式、内模式）：概念混淆，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 11 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 11 HOUR)),
+('EL_DEMO_9009_1', 9009, 'demo-err-9009-1', 'Q_0309', 'KP0306', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 集合查询与基于派生表的查询：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 126 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 126 HOUR)),
+('EL_DEMO_9009_2', 9009, 'demo-err-9009-2', 'Q_0401', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 数据库安全性概述、不安全因素与安全标准：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 129 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 129 HOUR)),
+('EL_DEMO_9010_1', 9010, 'demo-err-9010-1', 'Q_0309', 'KP0306', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 集合查询与基于派生表的查询：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 204 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 204 HOUR)),
+('EL_DEMO_9010_2', 9010, 'demo-err-9010-2', 'Q_0401', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 数据库安全性概述、不安全因素与安全标准：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 206 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 206 HOUR)),
+('EL_DEMO_9010_3', 9010, 'demo-err-9010-3', 'Q_0402', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 数据库安全性概述、不安全因素与安全标准：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 11 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 11 HOUR)),
+('EL_DEMO_9011_1', 9011, 'demo-err-9011-1', 'Q_0309', 'KP0306', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'CALCULATION_ERROR', '[演示数据] 集合查询与基于派生表的查询：计算失误，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 228 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 228 HOUR)),
+('EL_DEMO_9011_2', 9011, 'demo-err-9011-2', 'Q_0401', 'KP0401', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'STEP_OMISSION', '[演示数据] 数据库安全性概述、不安全因素与安全标准：步骤遗漏，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 230 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 230 HOUR)),
+('EL_DEMO_9011_3', 9011, 'demo-err-9011-3', 'Q_0419', 'KP0408', NULL, '[演示数据] OCR 原文占位', '[演示数据] 校正后题干占位', 0.920, 'BOUNDARY_ERROR', '[演示数据] 视图机制：边界条件，该记录由种子脚本构造。', 'CONFIRMED', DATE_ADD(DATE_SUB(NOW(), INTERVAL 11 HOUR), INTERVAL 5 MINUTE), DATE_SUB(NOW(), INTERVAL 11 HOUR))
 ON DUPLICATE KEY UPDATE q_id = VALUES(q_id), kp_id = VALUES(kp_id), ocr_confidence = VALUES(ocr_confidence), error_type = VALUES(error_type), student_note = VALUES(student_note), status = VALUES(status), confirmed_at = VALUES(confirmed_at), created_at = VALUES(created_at);
 
--- 12 条 RAG 讲解留痕：9 条待评阅、3 条已评阅；其中 3 条为 L3 本地模板降级。
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_2', 'DEMO_TRACE_2', 2, 'EL_DEMO_2_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1290, 620, 380, JSON_ARRAY('KP0201'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0201 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 15 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_2');
+-- 每人 3 条三层推荐，关联最新错题 log_id 与真实题号。
+INSERT INTO recommendation (user_id, log_id, q_id, layer, reason, rank_no, is_adopted, created_at) VALUES
+(2, 'EL_DEMO_2_1', 'Q_0213', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(2, 'EL_DEMO_2_1', 'Q_0203', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(2, 'EL_DEMO_2_1', 'Q_0220', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9001, 'EL_DEMO_9001_1', 'Q_0213', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9001, 'EL_DEMO_9001_1', 'Q_0203', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9001, 'EL_DEMO_9001_1', 'Q_0220', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9002, 'EL_DEMO_9002_1', 'Q_0213', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9002, 'EL_DEMO_9002_1', 'Q_0203', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9002, 'EL_DEMO_9002_1', 'Q_0220', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9003, 'EL_DEMO_9003_6', 'Q_0201', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9003, 'EL_DEMO_9003_6', 'Q_0213', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9003, 'EL_DEMO_9003_6', 'Q_0203', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9004, 'EL_DEMO_9004_6', 'Q_0202', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9004, 'EL_DEMO_9004_6', 'Q_0219', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9004, 'EL_DEMO_9004_6', 'Q_0225', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9005, 'EL_DEMO_9005_6', 'Q_0202', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9005, 'EL_DEMO_9005_6', 'Q_0218', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9005, 'EL_DEMO_9005_6', 'Q_0225', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9006, 'EL_DEMO_9006_6', 'Q_0202', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9006, 'EL_DEMO_9006_6', 'Q_0218', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9006, 'EL_DEMO_9006_6', 'Q_0219', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9007, 'EL_DEMO_9007_1', 'Q_0218', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9007, 'EL_DEMO_9007_1', 'Q_0219', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9007, 'EL_DEMO_9007_1', 'Q_0225', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9008, 'EL_DEMO_9008_3', 'Q_0116', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9008, 'EL_DEMO_9008_3', 'Q_0117', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9008, 'EL_DEMO_9008_3', 'Q_0205', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9009, 'EL_DEMO_9009_1', 'Q_0116', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9009, 'EL_DEMO_9009_1', 'Q_0117', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9009, 'EL_DEMO_9009_1', 'Q_0118', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9010, 'EL_DEMO_9010_3', 'Q_0116', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9010, 'EL_DEMO_9010_3', 'Q_0117', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9010, 'EL_DEMO_9010_3', 'Q_0118', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR)),
+(9011, 'EL_DEMO_9011_3', 'Q_0116', 'CONSOLIDATE', '[演示]同知识点再练', 1, 1, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(9011, 'EL_DEMO_9011_3', 'Q_0117', 'VARIANT', '[演示]换个问法巩固', 2, 0, DATE_SUB(NOW(), INTERVAL 4 HOUR)),
+(9011, 'EL_DEMO_9011_3', 'Q_0118', 'ADVANCE', '[演示]衔接下一知识点', 3, 0, DATE_SUB(NOW(), INTERVAL 5 HOUR))
+ON DUPLICATE KEY UPDATE layer = VALUES(layer), reason = VALUES(reason), rank_no = VALUES(rank_no), is_adopted = VALUES(is_adopted), created_at = VALUES(created_at);
 
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9001', 'DEMO_TRACE_9001', 9001, 'EL_DEMO_9001_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1380, 620, 380, JSON_ARRAY('KP0201'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0201 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 18 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9001');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9002', 'DEMO_TRACE_9002', 9002, 'EL_DEMO_9002_1', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 35, 0, 0, JSON_ARRAY('KP0201'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0201 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 21 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9002');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9003', 'DEMO_TRACE_9003', 9003, 'EL_DEMO_9003_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1560, 620, 380, JSON_ARRAY('KP0201'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0201 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 24 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9003');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9004', 'DEMO_TRACE_9004', 9004, 'EL_DEMO_9004_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1650, 620, 380, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0202 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 27 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9004');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9005', 'DEMO_TRACE_9005', 9005, 'EL_DEMO_9005_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1740, 620, 380, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0202 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 30 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9005');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9006', 'DEMO_TRACE_9006', 9006, 'EL_DEMO_9006_1', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 35, 0, 0, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0202 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 33 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9006');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9007', 'DEMO_TRACE_9007', 9007, 'EL_DEMO_9007_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1920, 620, 380, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0202 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 36 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9007');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9008', 'DEMO_TRACE_9008', 9008, 'EL_DEMO_9008_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 2010, 620, 380, JSON_ARRAY('KP0107'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0107 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 39 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9008');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9009', 'DEMO_TRACE_9009', 9009, 'EL_DEMO_9009_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 2100, 620, 380, JSON_ARRAY('KP0107'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0107 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 42 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9009');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9010', 'DEMO_TRACE_9010', 9010, 'EL_DEMO_9010_1', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 35, 0, 0, JSON_ARRAY('KP0107'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0107 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 45 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9010');
-
-INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
-SELECT 'DEMO_EX_9011', 'DEMO_TRACE_9011', 9011, 'EL_DEMO_9011_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 2280, 620, 380, JSON_ARRAY('KP0107'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。知识点 KP0107 的演示讲解：先给出定义，再说明适用条件，最后用一个反例说明边界。', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 48 HOUR) FROM DUAL
-WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_9011');
-
--- 每名学生 2 条学习计划（今日 + 昨日），让教师列表的计划进度列有数据。
+-- 今日/昨日计划主表；done_count 稍后按明细重算。
 INSERT INTO study_plan (user_id, plan_date, plan_count, done_count, status) VALUES
 (2, CURDATE(), 3, 2, 'PENDING'),
 (2, DATE_SUB(CURDATE(), INTERVAL 1 DAY), 3, 3, 'DONE'),
@@ -294,3 +315,158 @@ INSERT INTO study_plan (user_id, plan_date, plan_count, done_count, status) VALU
 (9011, CURDATE(), 3, 2, 'PENDING'),
 (9011, DATE_SUB(CURDATE(), INTERVAL 1 DAY), 3, 3, 'DONE')
 ON DUPLICATE KEY UPDATE plan_count = VALUES(plan_count), done_count = VALUES(done_count), status = VALUES(status);
+
+-- 今日/昨日计划各 3 条明细：今日 2 做 1 未做，昨日全做；随后重算 done_count。
+INSERT INTO study_plan_item (plan_id, q_id, kp_id, sort_no, is_done, practice_id) VALUES
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=CURDATE()), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=2 AND client_token='demo-prac-2-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=CURDATE()), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=2 AND client_token='demo-prac-2-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=CURDATE()), 'Q_0302', 'KP0302', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=2 AND client_token='demo-prac-2-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=2 AND client_token='demo-prac-2-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=2 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0302', 'KP0302', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=2 AND client_token='demo-prac-2-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=CURDATE()), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9001 AND client_token='demo-prac-9001-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=CURDATE()), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9001 AND client_token='demo-prac-9001-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=CURDATE()), 'Q_0302', 'KP0302', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9001 AND client_token='demo-prac-9001-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9001 AND client_token='demo-prac-9001-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9001 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0302', 'KP0302', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9001 AND client_token='demo-prac-9001-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=CURDATE()), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9002 AND client_token='demo-prac-9002-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=CURDATE()), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9002 AND client_token='demo-prac-9002-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=CURDATE()), 'Q_0302', 'KP0302', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9002 AND client_token='demo-prac-9002-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9002 AND client_token='demo-prac-9002-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9002 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0302', 'KP0302', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9002 AND client_token='demo-prac-9002-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=CURDATE()), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9003 AND client_token='demo-prac-9003-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=CURDATE()), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9003 AND client_token='demo-prac-9003-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=CURDATE()), 'Q_0302', 'KP0302', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0201', 'KP0201', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9003 AND client_token='demo-prac-9003-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0203', 'KP0203', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9003 AND client_token='demo-prac-9003-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9003 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0302', 'KP0302', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9003 AND client_token='demo-prac-9003-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=CURDATE()), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9004 AND client_token='demo-prac-9004-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=CURDATE()), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9004 AND client_token='demo-prac-9004-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=CURDATE()), 'Q_0311', 'KP0303', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9004 AND client_token='demo-prac-9004-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9004 AND client_token='demo-prac-9004-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9004 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0311', 'KP0303', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9004 AND client_token='demo-prac-9004-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=CURDATE()), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9005 AND client_token='demo-prac-9005-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=CURDATE()), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9005 AND client_token='demo-prac-9005-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=CURDATE()), 'Q_0311', 'KP0303', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9005 AND client_token='demo-prac-9005-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9005 AND client_token='demo-prac-9005-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9005 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0311', 'KP0303', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9005 AND client_token='demo-prac-9005-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=CURDATE()), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9006 AND client_token='demo-prac-9006-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=CURDATE()), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9006 AND client_token='demo-prac-9006-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=CURDATE()), 'Q_0311', 'KP0303', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9006 AND client_token='demo-prac-9006-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9006 AND client_token='demo-prac-9006-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9006 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0311', 'KP0303', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9006 AND client_token='demo-prac-9006-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=CURDATE()), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9007 AND client_token='demo-prac-9007-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=CURDATE()), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9007 AND client_token='demo-prac-9007-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=CURDATE()), 'Q_0311', 'KP0303', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0202', 'KP0202', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9007 AND client_token='demo-prac-9007-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0206', 'KP0206', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9007 AND client_token='demo-prac-9007-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9007 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0311', 'KP0303', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9007 AND client_token='demo-prac-9007-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=CURDATE()), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9008 AND client_token='demo-prac-9008-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=CURDATE()), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9008 AND client_token='demo-prac-9008-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=CURDATE()), 'Q_0309', 'KP0306', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9008 AND client_token='demo-prac-9008-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9008 AND client_token='demo-prac-9008-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9008 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0309', 'KP0306', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9008 AND client_token='demo-prac-9008-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=CURDATE()), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9009 AND client_token='demo-prac-9009-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=CURDATE()), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9009 AND client_token='demo-prac-9009-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=CURDATE()), 'Q_0309', 'KP0306', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9009 AND client_token='demo-prac-9009-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9009 AND client_token='demo-prac-9009-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9009 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0309', 'KP0306', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9009 AND client_token='demo-prac-9009-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=CURDATE()), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9010 AND client_token='demo-prac-9010-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=CURDATE()), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9010 AND client_token='demo-prac-9010-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=CURDATE()), 'Q_0309', 'KP0306', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9010 AND client_token='demo-prac-9010-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9010 AND client_token='demo-prac-9010-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9010 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0309', 'KP0306', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9010 AND client_token='demo-prac-9010-3-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=CURDATE()), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9011 AND client_token='demo-prac-9011-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=CURDATE()), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9011 AND client_token='demo-prac-9011-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=CURDATE()), 'Q_0309', 'KP0306', 3, 0, NULL),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0116', 'KP0107', 1, 1, (SELECT practice_id FROM practice_record WHERE user_id=9011 AND client_token='demo-prac-9011-1-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0205', 'KP0205', 2, 1, (SELECT practice_id FROM practice_record WHERE user_id=9011 AND client_token='demo-prac-9011-2-1')),
+((SELECT plan_id FROM study_plan WHERE user_id=9011 AND plan_date=DATE_SUB(CURDATE(), INTERVAL 1 DAY)), 'Q_0309', 'KP0306', 3, 1, (SELECT practice_id FROM practice_record WHERE user_id=9011 AND client_token='demo-prac-9011-3-1'))
+ON DUPLICATE KEY UPDATE q_id = VALUES(q_id), kp_id = VALUES(kp_id), sort_no = VALUES(sort_no), is_done = VALUES(is_done), practice_id = VALUES(practice_id);
+
+UPDATE study_plan p SET p.done_count = (SELECT COUNT(*) FROM study_plan_item i WHERE i.plan_id = p.plan_id AND i.is_done = 1), p.status = CASE WHEN (SELECT COUNT(*) FROM study_plan_item i WHERE i.plan_id = p.plan_id AND i.is_done = 1) >= p.plan_count THEN 'DONE' ELSE 'PENDING' END WHERE p.user_id IN (2,9001,9002,9003,9004,9005,9006,9007,9008,9009,9010,9011);
+
+-- 每人 2 条画像快照（7 天前 + 今日）；student01 旧快照更低，形成“低→回升”。
+INSERT INTO learning_portrait_snapshot (user_id, stat_date, dimension_scores, weakest_kps, error_dist, total_practice, total_error) VALUES
+(2, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.183, "sql": 0.25, "schema": 0.317, "transaction": null, "boundary": 0.517}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.05, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.183, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.317, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.45, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.517, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(2, CURDATE(), '{"concept": 0.333, "sql": 0.4, "schema": 0.467, "transaction": null, "boundary": 0.667}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.2, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.333, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.467, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.6, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.667, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9001, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.183, "sql": 0.25, "schema": 0.317, "transaction": null, "boundary": 0.517}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.05, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.183, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.317, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.45, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.517, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9001, CURDATE(), '{"concept": 0.333, "sql": 0.4, "schema": 0.467, "transaction": null, "boundary": 0.667}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.2, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.333, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.467, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.6, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.667, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9002, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.183, "sql": 0.25, "schema": 0.317, "transaction": null, "boundary": 0.517}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.05, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.183, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.317, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.45, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.517, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9002, CURDATE(), '{"concept": 0.333, "sql": 0.4, "schema": 0.467, "transaction": null, "boundary": 0.667}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.2, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.333, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.467, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.6, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.667, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9003, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.183, "sql": 0.25, "schema": 0.317, "transaction": null, "boundary": 0.517}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.05, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.183, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.317, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.45, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.517, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9003, CURDATE(), '{"concept": 0.333, "sql": 0.4, "schema": 0.467, "transaction": null, "boundary": 0.667}', '[{"kpId": "KP0305", "name": "嵌套查询与相关子查询", "mastery": 0.2, "sampleCount": 3}, {"kpId": "KP0201", "name": "关系模型的基本概念与三要素", "mastery": 0.333, "sampleCount": 3}, {"kpId": "KP0203", "name": "候选码、主码、主属性与非主属性", "mastery": 0.467, "sampleCount": 3}, {"kpId": "KP0302", "name": "数据定义：模式、基本表、索引、数据字典", "mastery": 0.6, "sampleCount": 3}, {"kpId": "KP0404", "name": "GRANT 授权与 WITH GRANT OPTION", "mastery": 0.667, "sampleCount": 3}]', '{"CONCEPT_CONFUSION": 2, "BOUNDARY_ERROR": 2, "CALCULATION_ERROR": 2, "STEP_OMISSION": 3, "METHOD_MISSING": 1}', 15, 10),
+(9004, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.605, "sql": 0.65, "schema": 0.583, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.65, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9004, CURDATE(), '{"concept": 0.755, "sql": 0.8, "schema": 0.733, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.8, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9005, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.605, "sql": 0.65, "schema": 0.583, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.65, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9005, CURDATE(), '{"concept": 0.755, "sql": 0.8, "schema": 0.733, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.8, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9006, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.605, "sql": 0.65, "schema": 0.583, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.65, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9006, CURDATE(), '{"concept": 0.755, "sql": 0.8, "schema": 0.733, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.8, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9007, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.605, "sql": 0.65, "schema": 0.583, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.65, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9007, CURDATE(), '{"concept": 0.755, "sql": 0.8, "schema": 0.733, "transaction": null, "boundary": null}', '[{"kpId": "KP0206", "name": "实体完整性", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0402", "name": "用户身份鉴别", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0406", "name": "数据库角色", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0202", "name": "关系的形式化定义（域、笛卡儿积、关系）", "mastery": 0.8, "sampleCount": 3}, {"kpId": "KP0303", "name": "单表查询（WHERE、ORDER BY、聚合、分组）", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 2, "STEP_OMISSION": 2, "BOUNDARY_ERROR": 1}', 15, 5),
+(9008, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.761, "sql": 0.65, "schema": 0.85, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9008, CURDATE(), '{"concept": 0.911, "sql": 0.8, "schema": 1.0, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9009, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.761, "sql": 0.65, "schema": 0.85, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9009, CURDATE(), '{"concept": 0.911, "sql": 0.8, "schema": 1.0, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9010, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.761, "sql": 0.65, "schema": 0.85, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9010, CURDATE(), '{"concept": 0.911, "sql": 0.8, "schema": 1.0, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9011, DATE_SUB(CURDATE(), INTERVAL 7 DAY), '{"concept": 0.761, "sql": 0.65, "schema": 0.85, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.583, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.65, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2),
+(9011, CURDATE(), '{"concept": 0.911, "sql": 0.8, "schema": 1.0, "transaction": null, "boundary": null}', '[{"kpId": "KP0401", "name": "数据库安全性概述、不安全因素与安全标准", "mastery": 0.733, "sampleCount": 3}, {"kpId": "KP0306", "name": "集合查询与基于派生表的查询", "mastery": 0.8, "sampleCount": 3}]', '{"CALCULATION_ERROR": 1, "STEP_OMISSION": 1}', 15, 2)
+ON DUPLICATE KEY UPDATE dimension_scores = VALUES(dimension_scores), weakest_kps = VALUES(weakest_kps), error_dist = VALUES(error_dist), total_practice = VALUES(total_practice), total_error = VALUES(total_error);
+
+-- 12 条 RAG 讲解留痕：9 条待评阅、3 条已评阅；覆盖不同 KP/题型/错因。
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_2_1', 'DEMO_TRACE_EL_DEMO_2_1', 2, 'EL_DEMO_2_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1270, 620, 380, JSON_ARRAY('KP0201'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。关系模型的基本概念与三要素：关系模型是用单一结构——关系——描述现实世界实体及其联系的模型。用户看到的关系数据结构是一张二维表：每一行是一个元组，每一列是一个属性，列的取值范围是域，元组中的每一个值是分量。关系模型由三部分组成：关系数据结构、关系操', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 5 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_2_1');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9001_3', 'DEMO_TRACE_EL_DEMO_9001_3', 9001, 'EL_DEMO_9001_3', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1340, 620, 380, JSON_ARRAY('KP0302'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。数据定义：模式、基本表、索引、数据字典：数据定义包括数据库模式、表、视图和索引的定义。模式：CREATE SCHEMA [<模式名>] AUTHORIZATION <用户名>；DROP SCHEMA <模式名><CASCADE|RESTRICT>，CASCAD', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 4 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9001_3');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9002_4', 'DEMO_TRACE_EL_DEMO_9002_4', 9002, 'EL_DEMO_9002_4', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 45, 0, 0, JSON_ARRAY('KP0305'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。嵌套查询与相关子查询：一个 SELECT-FROM-WHERE 语句称为一个查询块，将一个查询块嵌套在另一个查询块的 WHERE 或 HAVING 条件中称为嵌套查询；上层为父查询，下层为子查询。子查询的 SELECT 中不能使用 ORDER', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 3 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9002_4');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9003_6', 'DEMO_TRACE_EL_DEMO_9003_6', 9003, 'EL_DEMO_9003_6', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1480, 620, 380, JSON_ARRAY('KP0203'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。候选码、主码、主属性与非主属性：在关系模式中，若某一个属性或一组属性的值能唯一标识一个元组，而它的真子集不能唯一标识一个元组，则称该属性或属性组为候选码。一个关系可以有多个候选码，选定其中一个作为主码（主键），并在其名称下加下划线标识。候选码所包含的属', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 6 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9003_6');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9004_6', 'DEMO_TRACE_EL_DEMO_9004_6', 9004, 'EL_DEMO_9004_6', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1550, 620, 380, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。关系的形式化定义（域、笛卡儿积、关系）：域是一组具有相同数据类型的值的集合。给定一组域 D1,D2,…,Dn，允许其中某些域相同，其笛卡儿积定义为 D1×D2×…×Dn={(d1,d2,…,dn) | di∈Di, i=1,2,…,n}。每个元素 (d1,d2', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 7 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9004_6');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9005_6', 'DEMO_TRACE_EL_DEMO_9005_6', 9005, 'EL_DEMO_9005_6', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1620, 620, 380, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。关系的形式化定义（域、笛卡儿积、关系）：域是一组具有相同数据类型的值的集合。给定一组域 D1,D2,…,Dn，允许其中某些域相同，其笛卡儿积定义为 D1×D2×…×Dn={(d1,d2,…,dn) | di∈Di, i=1,2,…,n}。每个元素 (d1,d2', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 8 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9005_6');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9006_6', 'DEMO_TRACE_EL_DEMO_9006_6', 9006, 'EL_DEMO_9006_6', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 45, 0, 0, JSON_ARRAY('KP0202'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。关系的形式化定义（域、笛卡儿积、关系）：域是一组具有相同数据类型的值的集合。给定一组域 D1,D2,…,Dn，允许其中某些域相同，其笛卡儿积定义为 D1×D2×…×Dn={(d1,d2,…,dn) | di∈Di, i=1,2,…,n}。每个元素 (d1,d2', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 9 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9006_6');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9007_2', 'DEMO_TRACE_EL_DEMO_9007_2', 9007, 'EL_DEMO_9007_2', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1760, 620, 380, JSON_ARRAY('KP0206'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。实体完整性：关系模型有三类完整性约束：实体完整性、参照完整性和用户定义的完整性。其中实体完整性和参照完整性是关系模型必须满足的完整性约束，被称为关系的两个不变性，应由关系系统自动支持。实体完整性规则：若属性 A（一个或一组属性）是基', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 10 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9007_2');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9008_3', 'DEMO_TRACE_EL_DEMO_9008_3', 9008, 'EL_DEMO_9008_3', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1830, 620, 380, JSON_ARRAY('KP0107'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。数据库系统的三级模式结构（外模式、模式、内模式）：从 DBMS 角度看，数据库系统通常采用模式、外模式、内模式三级模式结构。模式也称逻辑模式，是数据库中全体数据的逻辑结构和特征的描述，是所有用户的公共数据视图，处于三级结构的中间层，不涉及物理存储细节，与具体应用、开发工', 0, NULL, NULL, NULL, NULL, DATE_SUB(NOW(), INTERVAL 11 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9008_3');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9009_1', 'DEMO_TRACE_EL_DEMO_9009_1', 9009, 'EL_DEMO_9009_1', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 1900, 620, 380, JSON_ARRAY('KP0306'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。集合查询与基于派生表的查询：SELECT 的查询结果是元组的集合，可对多个 SELECT 结果做集合操作：并 UNION、交 INTERSECT、差 EXCEPT。参加操作的各结果列数必须相同，对应项数据类型也必须相同。UNION 合并时系统自动去', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 30 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9009_1');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9010_3', 'DEMO_TRACE_EL_DEMO_9010_3', 9010, 'EL_DEMO_9010_3', 'RAG', 'local-template', 'demo-v1', 1, 'L3', 45, 0, 0, JSON_ARRAY('KP0401'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。数据库安全性概述、不安全因素与安全标准：数据库安全性是指保护数据库，防止不合法使用造成数据泄露、篡改或破坏。威胁主要来自三类：非授权用户恶意存取和破坏，如窃取口令、假冒合法用户、锁定数据勒索；重要或敏感数据被泄露，如 SQL 注入在查询语句末尾追加语句，骗取数', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 31 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9010_3');
+
+INSERT INTO ai_generation_log (explain_id, trace_id, user_id, log_id, scene, model, prompt_version, is_degraded, degrade_level, latency_ms, prompt_tokens, completion_tokens, source_ids, content_text, is_blocked, teacher_score, teacher_comment, review_result, reviewed_at, created_at)
+SELECT 'DEMO_EX_EL_DEMO_9011_3', 'DEMO_TRACE_EL_DEMO_9011_3', 9011, 'EL_DEMO_9011_3', 'RAG', 'deepseek-chat', 'demo-v1', 0, NULL, 2040, 620, 380, JSON_ARRAY('KP0408'), '[演示数据] 本段为答辩演示占位讲解，不是真实模型输出。视图机制：视图具有安全保护功能。为不同用户定义不同视图，可以把数据对象限制在一定范围内，把保密数据对无权存取的用户隐藏起来，从而自动提供一定程度的安全保护。视图还能与授权机制配合，间接实现支持存取谓词的用户权限定义。例如王平老师只', 0, 4, '[演示数据] 结构完整，建议补充一个反例。', 'PASS', DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 32 HOUR) FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM ai_generation_log WHERE explain_id = 'DEMO_EX_EL_DEMO_9011_3');
