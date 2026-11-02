@@ -191,7 +191,8 @@ public class TeacherStudentService {
         }
 
         List<TeacherStudentViews.ErrorItem> errors = loadErrors(userId, kpById);
-        List<TeacherStudentViews.KpMastery> kpMastery = buildKpMastery(kpAggs, kpById);
+        List<TeacherStudentViews.KpMastery> kpMastery =
+                buildKpMastery(kpAggs, kpById, aggregate.getLastActiveAt());
         return new TeacherStudentViews.LearningRecord(summary,
                 new TeacherStudentViews.PracticePage(page, size, total, practices),
                 errors, kpMastery);
@@ -257,10 +258,13 @@ public class TeacherStudentService {
         Double avgMastery = null;
         if (!kpAggs.isEmpty()) {
             double sum = 0;
+            LocalDateTime now = LocalDateTime.now(ZONE);
             for (UserKpAgg kp : kpAggs) {
-                sum += masteryCalculator.mastery(
-                        kp.getEvents() == null ? 0 : kp.getEvents(),
-                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum());
+                int ev = kp.getEvents() == null ? 0 : kp.getEvents();
+                int err = kp.getErrorCount() == null ? 0 : kp.getErrorCount();
+                sum += masteryCalculator.mastery(Math.max(0, ev - err),
+                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum(),
+                        aggregate.getLastActiveAt(), now);
             }
             avgMastery = round3(sum / kpAggs.size());
         }
@@ -296,8 +300,10 @@ public class TeacherStudentService {
     }
 
     private List<TeacherStudentViews.KpMastery> buildKpMastery(List<UserKpAgg> kpAggs,
-                                                               Map<String, KnowledgePoint> kpById) {
+                                                               Map<String, KnowledgePoint> kpById,
+                                                               LocalDateTime lastActiveAt) {
         List<TeacherStudentViews.KpMastery> result = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now(ZONE);
         for (UserKpAgg aggregate : kpAggs) {
             String kpId = aggregate.getKpId();
             if (kpId == null || kpId.isBlank()) {
@@ -309,7 +315,8 @@ public class TeacherStudentService {
             double severitySum = aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum();
             result.add(new TeacherStudentViews.KpMastery(kpId,
                     kp == null ? null : kp.getName(),
-                    round3(masteryCalculator.mastery(events, severitySum)),
+                    round3(masteryCalculator.mastery(Math.max(0, events - errors),
+                            severitySum, lastActiveAt, now)),
                     events, errors));
         }
         result.sort(Comparator.comparingDouble(TeacherStudentViews.KpMastery::mastery));

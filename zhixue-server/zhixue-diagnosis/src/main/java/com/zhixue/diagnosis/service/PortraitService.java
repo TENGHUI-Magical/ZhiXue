@@ -131,11 +131,13 @@ public class PortraitService {
 
         int studentCount = 0;
         int activeCount = 0;
+        Map<Long, LocalDateTime> lastActiveByUser = new HashMap<>();
         for (UserPracticeAgg agg : practiceRecordMapper.aggregateByUser(qIds, null)) {
             if (agg.getUserId() == null) {
                 continue;
             }
             studentCount++;
+            lastActiveByUser.put(agg.getUserId(), agg.getLastActiveAt());
             if (agg.getLastActiveAt() != null && !agg.getLastActiveAt().isBefore(since)) {
                 activeCount++;
             }
@@ -172,8 +174,10 @@ public class PortraitService {
                 errors += err;
                 events += ev;
                 if (ev > 0) {
-                    masterySum += masteryCalculator.mastery(ev,
-                            agg.getSeveritySum() == null ? 0.0 : agg.getSeveritySum());
+                    int correct = Math.max(0, ev - err);
+                    masterySum += masteryCalculator.mastery(correct,
+                            agg.getSeveritySum() == null ? 0.0 : agg.getSeveritySum(),
+                            lastActiveByUser.get(agg.getUserId()), now);
                     studentCnt++;
                 }
             }
@@ -239,10 +243,13 @@ public class PortraitService {
             }
             KpStat stat = kpStats.computeIfAbsent(record.getKpId(), key -> new KpStat());
             stat.events++;
+            stat.lastAt = later(stat.lastAt, record.getCreatedAt());
             if (wrong) {
                 stat.errors++;
                 stat.severitySum += masteryCalculator.errorWeight(
                         record.getErrorType(), record.getCreatedAt(), now);
+            } else {
+                stat.correct++;
             }
         }
         for (StudentErrorRecord error : uploadedErrors) {
@@ -257,6 +264,7 @@ public class PortraitService {
             KpStat stat = kpStats.computeIfAbsent(error.getKpId(), key -> new KpStat());
             stat.events++;
             stat.errors++;
+            stat.lastAt = later(stat.lastAt, at);
             stat.severitySum += masteryCalculator.errorWeight(error.getErrorType(), at, now);
             totalEvents++;
             totalError++;
@@ -271,7 +279,7 @@ public class PortraitService {
                 continue;
             }
             KpStat stat = entry.getValue();
-            double mastery = masteryCalculator.mastery(stat.events, stat.severitySum);
+            double mastery = masteryCalculator.mastery(stat.correct, stat.severitySum, stat.lastAt, now);
             double[] dim = dimStats.computeIfAbsent(kp.getDimensionKey(), key -> new double[2]);
             dim[0] += stat.events * mastery; // 按样本量加权（docs/05 §2.4）
             dim[1] += stat.events;
@@ -294,7 +302,8 @@ public class PortraitService {
                     return new PortraitView.WeakestKp(
                             entry.getKey(),
                             kpName(kpMap, entry.getKey()),
-                            round3(masteryCalculator.mastery(stat.events, stat.severitySum)),
+                            round3(masteryCalculator.mastery(stat.correct, stat.severitySum,
+                                    stat.lastAt, now)),
                             stat.events);
                 })
                 .sorted(Comparator.comparingDouble(PortraitView.WeakestKp::mastery)
@@ -447,7 +456,16 @@ public class PortraitService {
     private static final class KpStat {
         private int events;
         private int errors;
+        private int correct;
         private double severitySum;
+        private LocalDateTime lastAt;
+    }
+
+    private static LocalDateTime later(LocalDateTime current, LocalDateTime candidate) {
+        if (candidate == null) {
+            return current;
+        }
+        return current == null || candidate.isAfter(current) ? candidate : current;
     }
 
     /** 班级维度聚合结果。 */

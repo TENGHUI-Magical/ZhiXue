@@ -173,10 +173,10 @@ class PortraitServiceTest {
             PortraitView view = service.me();
             assertEquals(3, view.totalPractice());
             assertEquals(2, view.totalError());
-            // 1 - 2×1.0/3 = 0.333（时间缺失视为不衰减）
-            assertEquals(0.333, view.dimensionScores().get("concept"));
+            // Beta(2+1, 2+2) 均值 = 3/7 ≈ 0.429（时间缺失视为不衰减）
+            assertEquals(0.429, view.dimensionScores().get("concept"));
             assertEquals(1, view.weakestKps().size());
-            assertEquals(0.333, view.weakestKps().get(0).mastery());
+            assertEquals(0.429, view.weakestKps().get(0).mastery());
             assertEquals(2, view.errorDist().get("CONCEPT_CONFUSION"));
         }
     }
@@ -220,7 +220,8 @@ class PortraitServiceTest {
             PortraitView view = newService(1).me();
             assertEquals(1, view.weakestKps().get(0).sampleCount());
             assertEquals(1, view.totalError());
-            assertEquals(0.0, view.weakestKps().get(0).mastery());
+            // 新 Beta 后验：单条错误 + 无正确证据，均值回到 0.4 附近
+            assertEquals(0.4, view.weakestKps().get(0).mastery());
         }
     }
 
@@ -239,8 +240,8 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = newService(1).me();
-            // 1 - 0.5×1.0/2 = 0.75（满 30 个整天 → 半衰）
-            assertEquals(0.75, view.weakestKps().get(0).mastery());
+            // 30 天半衰后错误权重 0.5，Beta 均值约 0.545（不再逼近 1.0）
+            assertEquals(0.545, view.weakestKps().get(0).mastery());
         }
     }
 
@@ -258,8 +259,8 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = newService(1).me();
-            // 计算失误权重 0.6：1 - 0.6/2 = 0.7
-            assertEquals(0.7, view.weakestKps().get(0).mastery());
+            // 计算失误权重 0.6；Beta 均值约 0.536
+            assertEquals(0.536, view.weakestKps().get(0).mastery());
         }
     }
 
@@ -307,8 +308,8 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             ClassPortraitView view = service.classPortrait(1L);
-            // 学生 10：1 - 1/10 = 0.9；学生 11：1 - 1/1 = 0；宏平均 0.45（池化会得到 0.818）
-            assertEquals(0.45, view.weakestKpTop().get(0).avgMastery());
+            // 学生 10：Beta(2+9, 2+1)≈0.786；学生 11：Beta(2, 2+1)≈0.4；宏平均≈0.593
+            assertEquals(0.593, view.weakestKpTop().get(0).avgMastery());
             assertEquals(2, view.weakestKpTop().get(0).errorCount());
             assertEquals(2, view.studentCount());
             assertEquals(1.0, view.activeRate());
