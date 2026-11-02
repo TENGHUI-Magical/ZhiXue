@@ -161,16 +161,21 @@ def main():
 
     endpoint = args.endpoint
     probe_status = None
+    probe_body = None
+    # 探测文本用真实中文题干：纯 ASCII 的 "probe" 与中文语料零二元组交集，
+    # 按契约会被 cosine>0 过滤器全部丢掉，得到"零候选"的假阴性。
+    probe_text = cases[0]["question_text"]
     if endpoint is None:
         for cand in CANDIDATE_ENDPOINTS:
             st, body = post_json(
                 base + cand,
-                {"text": "probe", "questionText": "probe",
+                {"text": probe_text, "questionText": probe_text,
                  "courseId": args.course_id, "topN": 5, "topK": 5},
                 args.token, args.timeout)
             probe_status = st
             if st == 200 and isinstance(body, dict) and body.get("code") == 0:
                 endpoint = cand
+                probe_body = body
                 break
             print("[probe] %s -> HTTP %s %s" % (cand, st, body.get("_http_error", "")[:80]))
         if endpoint is None:
@@ -184,6 +189,20 @@ def main():
             return 1
     print("[endpoint] 使用 " + endpoint)
 
+    # 修 F3：探测成功但候选为空，说明"管道坏"而不是"算法差"。
+    # 零候选的两种已知成因：knowledge_point 未种子化（数据卷已存在时
+    # docker-entrypoint-initdb.d 不会重跑）、请求/响应编码不符导致中文零交集。
+    probe_kps, probe_decision = extract_kps(probe_body) if probe_body is not None else ([], None)
+    if probe_body is not None and not probe_kps:
+        print("\n⚠ 端点返回零候选：疑似 DB 未种子化/编码不符")
+        print("  - 决策: %s；探测题干: %s" % (probe_decision, probe_text[:40]))
+        print("  - 先执行：SELECT COUNT(*) FROM knowledge_point "
+              "WHERE course_id=%d AND is_active=1;  （预期 >= 20）" % args.course_id)
+        print("  - 若为 0：确认 MySQL 数据卷是否已存在导致种子 SQL 未执行；"
+              "若 >0：检查请求/响应编码（Content-Type charset、网关转码）")
+        print("  - 结论：管道未通，本次不出算法指标（避免把部署态问题记成算法问题）")
+        return 1
+
     results, skipped = [], []
     for c in cases:
         payload = {"text": c["question_text"], "questionText": c["question_text"],
@@ -192,8 +211,8 @@ def main():
         row = {"case_id": c["case_id"], "true_kp": c["true_kp_id"], "http": st}
         biz = body.get("code") if isinstance(body, dict) else None
         if st != 200 or biz != 0:
-            row["status"] = "BIZ_%s" % biz if biz is not None else (("HTTP_%s" % st) if st else "CONN_FAIL")
-            row["status"] = ("HTTP_%s" % st) if st else "CONN_FAIL"
+            # 保留业务码，避免把 code!=0 的响应误记成 HTTP 失败（0.0 事故归因需要）
+            row["status"] = ("BIZ_%s" % biz) if biz else (("HTTP_%s" % st) if st else "CONN_FAIL")
             skipped.append(row)
             results.append(row)
             continue
@@ -209,6 +228,8 @@ def main():
     n_top1 = sum(1 for r in ok if r["top1_hit"])
     n_top3 = sum(1 for r in ok if r["top3_hit"])
     n_auto = sum(1 for r in ok if r.get("decision") == "AUTO")
+    # 候选全空的用例数：修 F2/F3，让 0.0 事故可以事后归因到"管道"而不是"算法"
+    n_empty = sum(1 for r in ok if not r.get("predicted"))
 
     def per_group(keyfn):
         agg = defaultdict(lambda: [0, 0])
@@ -222,11 +243,13 @@ def main():
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "endpoint": endpoint, "cases_file": cases_path,
         "n_cases": len(cases), "n_ok": n_ok, "n_failed": len(skipped),
+        "n_empty_candidates": n_empty,
         "top1_hits": n_top1, "top3_hits": n_top3,
         "top1_accuracy": round(n_top1 / n_ok, 4) if n_ok else None,
         "top3_accuracy": round(n_top3 / n_ok, 4) if n_ok else None,
         "auto_rate": round(n_auto / n_ok, 4) if n_ok else None,
         "by_kp": per_group(lambda r: r["true_kp"]),
+        "results": results,
         "failed_cases": skipped,
     }
 
@@ -248,12 +271,20 @@ def main():
 
     if not n_ok:
         verdict = "BLOCKED"
+    elif n_empty == n_ok:
+        # 全部用例零候选：不是"算法准确率为 0"，而是管道/数据态坏
+        verdict = "PIPELINE_BROKEN"
     elif n_top1 / n_ok >= 0.7:
         verdict = "PASS"
     else:
         verdict = "NEED_DATA"
     print("G3/DQ-01 结论: " + verdict)
-    return 0 if verdict == "PASS" else (1 if verdict == "BLOCKED" else 3)
+    if n_empty:
+        print("零候选用例: %d/%d（若为全部，说明 knowledge_point 未种子化或编码不符）"
+              % (n_empty, n_ok))
+        print("  判定 SQL: SELECT COUNT(*) FROM knowledge_point "
+              "WHERE course_id=%d AND is_active=1;" % args.course_id)
+    return {"PASS": 0, "BLOCKED": 1, "NEED_DATA": 3, "PIPELINE_BROKEN": 4}[verdict]
 
 
 if __name__ == "__main__":

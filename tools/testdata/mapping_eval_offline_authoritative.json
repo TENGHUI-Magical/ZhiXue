@@ -1,16 +1,75 @@
 {
+  "generated_at": "2026-11-03 01:01:53",
+  "universe": "ch23",
+  "universe_size": 20,
+  "chapters": [
+    2,
+    3
+  ],
+  "n_questions": 60,
+  "n_extra": 32,
+  "config": {
+    "score_scale": 0.3,
+    "auto": 0.6,
+    "floor": 0.35,
+    "margin": 0.1,
+    "idf_power": 1.5,
+    "name_repeat": 3,
+    "use_misconception": true
+  },
+  "gate": {
+    "label": "U20",
+    "rows": [
+      {
+        "name": "top1",
+        "required": ">= 73.3%",
+        "actual": "73.3%",
+        "pass": true
+      },
+      {
+        "name": "top3",
+        "required": ">= 85.0%",
+        "actual": "85.0%",
+        "pass": true
+      },
+      {
+        "name": "AUTO 精确率",
+        "required": ">= 90.0%",
+        "actual": "93.1%",
+        "pass": true
+      },
+      {
+        "name": "覆盖（非 FAILED）",
+        "required": ">= 86.7%",
+        "actual": "91.7%",
+        "pass": true
+      },
+      {
+        "name": "FAILED 题数",
+        "required": "<= 8",
+        "actual": "5",
+        "pass": true
+      }
+    ],
+    "pass": true
+  },
   "results": [
     {
-      "variant": "V0 baseline（TF-IDF, IDF^1.5）",
+      "variant": "V0 baseline（TF-IDF, IDF^1.5, 语料=概念+名称）",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
       "top1": 0.7333,
       "top3": 0.8167,
+      "top1_hits": 44,
+      "top3_hits": 49,
       "auto": 24,
       "autoPrecision": 0.9583,
-      "confirm": 28,
-      "failed": 8,
-      "coverage": 0.8667,
-      "precisionAboveFloor": 0.7115,
+      "confirm": 30,
+      "failed": 6,
+      "coverage": 0.9,
+      "precisionAboveFloor": 0.7222,
       "calibration": {
         "0.0-0.4": {
           "n": 8,
@@ -190,19 +249,867 @@
           ],
           "chapter": 3
         }
+      ],
+      "note": "V0 = 现状语义（误区不入语料）",
+      "per_case": [
+        {
+          "qId": "Q_0201",
+          "gold": "KP0201",
+          "ranked_top3": [
+            "KP0201",
+            "KP0206",
+            "KP0208"
+          ],
+          "score": 0.3333,
+          "cosine": 0.1,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0202",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0306",
+            "KP0209"
+          ],
+          "score": 1.0,
+          "cosine": 0.3149,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0203",
+          "gold": "KP0203",
+          "ranked_top3": [
+            "KP0203",
+            "KP0309",
+            "KP0307"
+          ],
+          "score": 0.7617,
+          "cosine": 0.2285,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0204",
+          "gold": "KP0204",
+          "ranked_top3": [
+            "KP0204",
+            "KP0201",
+            "KP0205"
+          ],
+          "score": 0.704,
+          "cosine": 0.2112,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0205",
+          "gold": "KP0205",
+          "ranked_top3": [
+            "KP0205",
+            "KP0301",
+            "KP0306"
+          ],
+          "score": 1.0,
+          "cosine": 0.3325,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0206",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "score": 0.9638,
+          "cosine": 0.2891,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0207",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0208",
+            "KP0307"
+          ],
+          "score": 0.2886,
+          "cosine": 0.0866,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0208",
+          "gold": "KP0208",
+          "ranked_top3": [
+            "KP0208",
+            "KP0209",
+            "KP0201"
+          ],
+          "score": 0.2461,
+          "cosine": 0.0738,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0209",
+          "gold": "KP0209",
+          "ranked_top3": [
+            "KP0209",
+            "KP0210",
+            "KP0207"
+          ],
+          "score": 0.2089,
+          "cosine": 0.0627,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0210",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0210",
+            "KP0310",
+            "KP0304"
+          ],
+          "score": 0.3746,
+          "cosine": 0.1124,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0211",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0210",
+            "KP0302",
+            "KP0307"
+          ],
+          "score": 0.3338,
+          "cosine": 0.1002,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0212",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0304"
+          ],
+          "score": 0.8042,
+          "cosine": 0.2413,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0213",
+          "gold": "KP0201",
+          "ranked_top3": [
+            "KP0201",
+            "KP0202",
+            "KP0205"
+          ],
+          "score": 0.6996,
+          "cosine": 0.2099,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0214",
+          "gold": "KP0205",
+          "ranked_top3": [
+            "KP0205",
+            "KP0201",
+            "KP0206"
+          ],
+          "score": 0.957,
+          "cosine": 0.2871,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0215",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "score": 1.0,
+          "cosine": 0.3638,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0216",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0209"
+          ],
+          "score": 1.0,
+          "cosine": 0.3885,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0217",
+          "gold": "KP0208",
+          "ranked_top3": [
+            "KP0208",
+            "KP0206",
+            "KP0201"
+          ],
+          "score": 0.9688,
+          "cosine": 0.2906,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0218",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0209",
+            "KP0205"
+          ],
+          "score": 1.0,
+          "cosine": 0.4893,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0219",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0207",
+            "KP0209"
+          ],
+          "score": 0.5423,
+          "cosine": 0.1627,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0220",
+          "gold": "KP0203",
+          "ranked_top3": [
+            "KP0203",
+            "KP0207",
+            "KP0201"
+          ],
+          "score": 0.999,
+          "cosine": 0.2997,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0221",
+          "gold": "KP0204",
+          "ranked_top3": [
+            "KP0204",
+            "KP0201",
+            "KP0301"
+          ],
+          "score": 0.6973,
+          "cosine": 0.2092,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0222",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0308",
+            "KP0203"
+          ],
+          "score": 0.4925,
+          "cosine": 0.1478,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0223",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0206",
+            "KP0207",
+            "KP0204"
+          ],
+          "score": 0.4296,
+          "cosine": 0.1289,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0224",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "score": 0.5652,
+          "cosine": 0.1695,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0225",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0208",
+            "KP0209"
+          ],
+          "score": 0.7727,
+          "cosine": 0.2318,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0226",
+          "gold": "KP0209",
+          "ranked_top3": [
+            "KP0209",
+            "KP0202",
+            "KP0306"
+          ],
+          "score": 0.3984,
+          "cosine": 0.1195,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0227",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0302",
+            "KP0307",
+            "KP0308"
+          ],
+          "score": 0.4107,
+          "cosine": 0.1232,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0228",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0202",
+            "KP0308",
+            "KP0306"
+          ],
+          "score": 0.584,
+          "cosine": 0.1752,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0229",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0302",
+            "KP0304",
+            "KP0310"
+          ],
+          "score": 0.4283,
+          "cosine": 0.1285,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0230",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0202",
+            "KP0204",
+            "KP0301"
+          ],
+          "score": 0.5836,
+          "cosine": 0.1751,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0301",
+          "gold": "KP0301",
+          "ranked_top3": [
+            "KP0301",
+            "KP0205",
+            "KP0209"
+          ],
+          "score": 0.4824,
+          "cosine": 0.1447,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0302",
+          "gold": "KP0302",
+          "ranked_top3": [
+            "KP0205",
+            "KP0301",
+            "KP0307"
+          ],
+          "score": 0.2569,
+          "cosine": 0.0771,
+          "decision": "FAILED",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0303",
+          "gold": "KP0302",
+          "ranked_top3": [
+            "KP0302",
+            "KP0309",
+            "KP0304"
+          ],
+          "score": 0.4069,
+          "cosine": 0.1221,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0304",
+          "gold": "KP0301",
+          "ranked_top3": [
+            "KP0301",
+            "KP0309",
+            "KP0204"
+          ],
+          "score": 0.8373,
+          "cosine": 0.2512,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0305",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0303"
+          ],
+          "score": 0.4662,
+          "cosine": 0.1399,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0306",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0303",
+            "KP0306"
+          ],
+          "score": 0.9682,
+          "cosine": 0.2905,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0307",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0305",
+            "KP0309",
+            "KP0304"
+          ],
+          "score": 0.595,
+          "cosine": 0.1785,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0308",
+          "gold": "KP0304",
+          "ranked_top3": [
+            "KP0210",
+            "KP0304",
+            "KP0310"
+          ],
+          "score": 0.4841,
+          "cosine": 0.1452,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0309",
+          "gold": "KP0306",
+          "ranked_top3": [
+            "KP0306",
+            "KP0210",
+            "KP0305"
+          ],
+          "score": 0.5204,
+          "cosine": 0.1561,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0310",
+          "gold": "KP0307",
+          "ranked_top3": [
+            "KP0307",
+            "KP0304",
+            "KP0306"
+          ],
+          "score": 0.5173,
+          "cosine": 0.1552,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0311",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0303",
+            "KP0306",
+            "KP0307"
+          ],
+          "score": 0.4984,
+          "cosine": 0.1495,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0312",
+          "gold": "KP0306",
+          "ranked_top3": [
+            "KP0306",
+            "KP0305",
+            "KP0309"
+          ],
+          "score": 1.0,
+          "cosine": 0.3231,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0313",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0206",
+            "KP0305"
+          ],
+          "score": 0.834,
+          "cosine": 0.2502,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0314",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0303"
+          ],
+          "score": 0.5971,
+          "cosine": 0.1791,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0315",
+          "gold": "KP0310",
+          "ranked_top3": [
+            "KP0310",
+            "KP0309",
+            "KP0303"
+          ],
+          "score": 0.4816,
+          "cosine": 0.1445,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0316",
+          "gold": "KP0307",
+          "ranked_top3": [
+            "KP0307",
+            "KP0301",
+            "KP0303"
+          ],
+          "score": 0.7013,
+          "cosine": 0.2104,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0317",
+          "gold": "KP0304",
+          "ranked_top3": [
+            "KP0304",
+            "KP0210",
+            "KP0310"
+          ],
+          "score": 0.7088,
+          "cosine": 0.2126,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0318",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0306",
+            "KP0304"
+          ],
+          "score": 0.5382,
+          "cosine": 0.1614,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0319",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0305",
+            "KP0309",
+            "KP0306"
+          ],
+          "score": 0.7704,
+          "cosine": 0.2311,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0320",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0308"
+          ],
+          "score": 0.5826,
+          "cosine": 0.1748,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0321",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "score": 0.4763,
+          "cosine": 0.1429,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0322",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "score": 0.7071,
+          "cosine": 0.2121,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0323",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "score": 0.6771,
+          "cosine": 0.2031,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0324",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "score": 0.6584,
+          "cosine": 0.1975,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0325",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "score": 0.817,
+          "cosine": 0.2451,
+          "decision": "AUTO",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0326",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0305",
+            "KP0302"
+          ],
+          "score": 0.7026,
+          "cosine": 0.2108,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0327",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "score": 0.4773,
+          "cosine": 0.1432,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0328",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0308"
+          ],
+          "score": 0.6759,
+          "cosine": 0.2028,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0329",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "score": 0.6341,
+          "cosine": 0.1902,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0330",
+          "gold": "KP0310",
+          "ranked_top3": [
+            "KP0310",
+            "KP0306",
+            "KP0304"
+          ],
+          "score": 0.7666,
+          "cosine": 0.23,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        }
       ]
     },
     {
       "variant": "V1 IDF^2.0",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
       "top1": 0.7167,
       "top3": 0.8167,
+      "top1_hits": 43,
+      "top3_hits": 49,
       "auto": 29,
       "autoPrecision": 0.8276,
-      "confirm": 20,
-      "failed": 11,
-      "coverage": 0.8167,
-      "precisionAboveFloor": 0.7551,
+      "confirm": 22,
+      "failed": 9,
+      "coverage": 0.85,
+      "precisionAboveFloor": 0.7255,
       "calibration": {
         "0.0-0.4": {
           "n": 11,
@@ -392,19 +1299,25 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": ""
     },
     {
-      "variant": "V2 误区入语料",
+      "variant": "V2 误区入语料（推荐）",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
       "top1": 0.7333,
       "top3": 0.85,
+      "top1_hits": 44,
+      "top3_hits": 51,
       "auto": 29,
       "autoPrecision": 0.931,
-      "confirm": 21,
-      "failed": 10,
-      "coverage": 0.8333,
-      "precisionAboveFloor": 0.72,
+      "confirm": 26,
+      "failed": 5,
+      "coverage": 0.9167,
+      "precisionAboveFloor": 0.7091,
       "calibration": {
         "0.0-0.4": {
           "n": 10,
@@ -584,403 +1497,867 @@
           ],
           "chapter": 3
         }
+      ],
+      "note": "推荐方案：misconception-in-corpus=true",
+      "per_case": [
+        {
+          "qId": "Q_0201",
+          "gold": "KP0201",
+          "ranked_top3": [
+            "KP0201",
+            "KP0205",
+            "KP0206"
+          ],
+          "score": 0.2941,
+          "cosine": 0.0882,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0202",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0306",
+            "KP0209"
+          ],
+          "score": 0.9984,
+          "cosine": 0.2995,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0203",
+          "gold": "KP0203",
+          "ranked_top3": [
+            "KP0203",
+            "KP0309",
+            "KP0303"
+          ],
+          "score": 0.7921,
+          "cosine": 0.2376,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0204",
+          "gold": "KP0204",
+          "ranked_top3": [
+            "KP0204",
+            "KP0201",
+            "KP0205"
+          ],
+          "score": 0.618,
+          "cosine": 0.1854,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0205",
+          "gold": "KP0205",
+          "ranked_top3": [
+            "KP0205",
+            "KP0306",
+            "KP0301"
+          ],
+          "score": 1.0,
+          "cosine": 0.3141,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0206",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0208",
+            "KP0207"
+          ],
+          "score": 0.8928,
+          "cosine": 0.2679,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0207",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0208",
+            "KP0307"
+          ],
+          "score": 0.3094,
+          "cosine": 0.0928,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0208",
+          "gold": "KP0208",
+          "ranked_top3": [
+            "KP0208",
+            "KP0302",
+            "KP0209"
+          ],
+          "score": 0.3549,
+          "cosine": 0.1065,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0209",
+          "gold": "KP0209",
+          "ranked_top3": [
+            "KP0209",
+            "KP0210",
+            "KP0207"
+          ],
+          "score": 0.2068,
+          "cosine": 0.0621,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0210",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0210",
+            "KP0304",
+            "KP0209"
+          ],
+          "score": 0.3823,
+          "cosine": 0.1147,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0211",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0210",
+            "KP0302",
+            "KP0307"
+          ],
+          "score": 0.3294,
+          "cosine": 0.0988,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0212",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0304"
+          ],
+          "score": 0.8331,
+          "cosine": 0.2499,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0213",
+          "gold": "KP0201",
+          "ranked_top3": [
+            "KP0201",
+            "KP0202",
+            "KP0208"
+          ],
+          "score": 0.69,
+          "cosine": 0.207,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0214",
+          "gold": "KP0205",
+          "ranked_top3": [
+            "KP0205",
+            "KP0201",
+            "KP0206"
+          ],
+          "score": 0.9011,
+          "cosine": 0.2703,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0215",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "score": 1.0,
+          "cosine": 0.3393,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0216",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0209"
+          ],
+          "score": 1.0,
+          "cosine": 0.3727,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0217",
+          "gold": "KP0208",
+          "ranked_top3": [
+            "KP0208",
+            "KP0206",
+            "KP0201"
+          ],
+          "score": 1.0,
+          "cosine": 0.3164,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0218",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0209",
+            "KP0205"
+          ],
+          "score": 1.0,
+          "cosine": 0.4642,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0219",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0207",
+            "KP0209"
+          ],
+          "score": 0.5086,
+          "cosine": 0.1526,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0220",
+          "gold": "KP0203",
+          "ranked_top3": [
+            "KP0203",
+            "KP0207",
+            "KP0201"
+          ],
+          "score": 0.9825,
+          "cosine": 0.2947,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0221",
+          "gold": "KP0204",
+          "ranked_top3": [
+            "KP0204",
+            "KP0201",
+            "KP0301"
+          ],
+          "score": 0.6493,
+          "cosine": 0.1948,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0222",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0206",
+            "KP0203",
+            "KP0207"
+          ],
+          "score": 0.6314,
+          "cosine": 0.1894,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0223",
+          "gold": "KP0207",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0204"
+          ],
+          "score": 0.5679,
+          "cosine": 0.1704,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0224",
+          "gold": "KP0206",
+          "ranked_top3": [
+            "KP0207",
+            "KP0206",
+            "KP0208"
+          ],
+          "score": 0.5799,
+          "cosine": 0.174,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0225",
+          "gold": "KP0202",
+          "ranked_top3": [
+            "KP0202",
+            "KP0208",
+            "KP0209"
+          ],
+          "score": 0.7329,
+          "cosine": 0.2199,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0226",
+          "gold": "KP0209",
+          "ranked_top3": [
+            "KP0209",
+            "KP0202",
+            "KP0306"
+          ],
+          "score": 0.4614,
+          "cosine": 0.1384,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0227",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0302",
+            "KP0308",
+            "KP0307"
+          ],
+          "score": 0.3929,
+          "cosine": 0.1179,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0228",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0202",
+            "KP0308",
+            "KP0208"
+          ],
+          "score": 0.5527,
+          "cosine": 0.1658,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0229",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0302",
+            "KP0304",
+            "KP0310"
+          ],
+          "score": 0.3973,
+          "cosine": 0.1192,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0230",
+          "gold": "KP0210",
+          "ranked_top3": [
+            "KP0202",
+            "KP0204",
+            "KP0301"
+          ],
+          "score": 0.5444,
+          "cosine": 0.1633,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0301",
+          "gold": "KP0301",
+          "ranked_top3": [
+            "KP0301",
+            "KP0205",
+            "KP0209"
+          ],
+          "score": 0.5007,
+          "cosine": 0.1502,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0302",
+          "gold": "KP0302",
+          "ranked_top3": [
+            "KP0302",
+            "KP0205",
+            "KP0301"
+          ],
+          "score": 0.3375,
+          "cosine": 0.1013,
+          "decision": "FAILED",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0303",
+          "gold": "KP0302",
+          "ranked_top3": [
+            "KP0302",
+            "KP0309",
+            "KP0207"
+          ],
+          "score": 0.3748,
+          "cosine": 0.1124,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0304",
+          "gold": "KP0301",
+          "ranked_top3": [
+            "KP0301",
+            "KP0309",
+            "KP0302"
+          ],
+          "score": 0.7714,
+          "cosine": 0.2314,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0305",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0303"
+          ],
+          "score": 0.4321,
+          "cosine": 0.1296,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0306",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0303",
+            "KP0305"
+          ],
+          "score": 0.9456,
+          "cosine": 0.2837,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0307",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0305",
+            "KP0303",
+            "KP0309"
+          ],
+          "score": 0.577,
+          "cosine": 0.1731,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0308",
+          "gold": "KP0304",
+          "ranked_top3": [
+            "KP0210",
+            "KP0304",
+            "KP0310"
+          ],
+          "score": 0.4546,
+          "cosine": 0.1364,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0309",
+          "gold": "KP0306",
+          "ranked_top3": [
+            "KP0306",
+            "KP0305",
+            "KP0210"
+          ],
+          "score": 0.6279,
+          "cosine": 0.1884,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0310",
+          "gold": "KP0307",
+          "ranked_top3": [
+            "KP0307",
+            "KP0304",
+            "KP0306"
+          ],
+          "score": 0.5021,
+          "cosine": 0.1506,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0311",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0306",
+            "KP0303",
+            "KP0305"
+          ],
+          "score": 0.4585,
+          "cosine": 0.1376,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0312",
+          "gold": "KP0306",
+          "ranked_top3": [
+            "KP0306",
+            "KP0305",
+            "KP0303"
+          ],
+          "score": 1.0,
+          "cosine": 0.318,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0313",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0305",
+            "KP0206"
+          ],
+          "score": 0.8323,
+          "cosine": 0.2497,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0314",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0303"
+          ],
+          "score": 0.6162,
+          "cosine": 0.1849,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0315",
+          "gold": "KP0310",
+          "ranked_top3": [
+            "KP0310",
+            "KP0309",
+            "KP0303"
+          ],
+          "score": 0.4474,
+          "cosine": 0.1342,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0316",
+          "gold": "KP0307",
+          "ranked_top3": [
+            "KP0307",
+            "KP0301",
+            "KP0303"
+          ],
+          "score": 0.6508,
+          "cosine": 0.1952,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0317",
+          "gold": "KP0304",
+          "ranked_top3": [
+            "KP0304",
+            "KP0210",
+            "KP0310"
+          ],
+          "score": 0.735,
+          "cosine": 0.2205,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0318",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0308",
+            "KP0306",
+            "KP0303"
+          ],
+          "score": 0.4958,
+          "cosine": 0.1487,
+          "decision": "CONFIRM",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0319",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0305",
+            "KP0309",
+            "KP0306"
+          ],
+          "score": 0.7323,
+          "cosine": 0.2197,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0320",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0309",
+            "KP0310",
+            "KP0308"
+          ],
+          "score": 0.6579,
+          "cosine": 0.1974,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0321",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "score": 0.4388,
+          "cosine": 0.1316,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0322",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "score": 0.666,
+          "cosine": 0.1998,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0323",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "score": 0.6709,
+          "cosine": 0.2013,
+          "decision": "AUTO",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0324",
+          "gold": "KP0303",
+          "ranked_top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "score": 0.6139,
+          "cosine": 0.1842,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0325",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0305"
+          ],
+          "score": 0.7698,
+          "cosine": 0.2309,
+          "decision": "AUTO",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0326",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0305",
+            "KP0302"
+          ],
+          "score": 0.6595,
+          "cosine": 0.1978,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0327",
+          "gold": "KP0305",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "score": 0.4393,
+          "cosine": 0.1318,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0328",
+          "gold": "KP0308",
+          "ranked_top3": [
+            "KP0304",
+            "KP0302",
+            "KP0308"
+          ],
+          "score": 0.6487,
+          "cosine": 0.1946,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": true
+        },
+        {
+          "qId": "Q_0329",
+          "gold": "KP0309",
+          "ranked_top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "score": 0.5955,
+          "cosine": 0.1786,
+          "decision": "CONFIRM",
+          "hit1": false,
+          "hit3": false
+        },
+        {
+          "qId": "Q_0330",
+          "gold": "KP0310",
+          "ranked_top3": [
+            "KP0310",
+            "KP0306",
+            "KP0302"
+          ],
+          "score": 0.7051,
+          "cosine": 0.2115,
+          "decision": "AUTO",
+          "hit1": true,
+          "hit3": true
+        }
       ]
     },
     {
       "variant": "V3 章一致性 -0.03",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "consistency",
+      "use_misconception": false,
       "top1": 0.7333,
       "top3": 0.8167,
+      "top1_hits": 44,
+      "top3_hits": 49,
       "auto": 24,
       "autoPrecision": 0.9583,
-      "confirm": 28,
-      "failed": 8,
-      "coverage": 0.8667,
-      "precisionAboveFloor": 0.7115,
-      "calibration": {
-        "0.0-0.4": {
-          "n": 8,
-          "acc": 0.875
-        },
-        "0.4-0.6": {
-          "n": 22,
-          "acc": 0.6364
-        },
-        "0.6-0.8": {
-          "n": 15,
-          "acc": 0.6
-        },
-        "0.8-1.0": {
-          "n": 15,
-          "acc": 0.9333
-        }
-      },
-      "misses": [
-        {
-          "qId": "Q_0223",
-          "gold": "KP0207",
-          "top3": [
-            "KP0206",
-            "KP0207",
-            "KP0204"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0227",
-          "gold": "KP0210",
-          "top3": [
-            "KP0302",
-            "KP0307",
-            "KP0308"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0228",
-          "gold": "KP0210",
-          "top3": [
-            "KP0202",
-            "KP0308",
-            "KP0306"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0229",
-          "gold": "KP0210",
-          "top3": [
-            "KP0302",
-            "KP0304",
-            "KP0310"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0230",
-          "gold": "KP0210",
-          "top3": [
-            "KP0202",
-            "KP0204",
-            "KP0209"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0302",
-          "gold": "KP0302",
-          "top3": [
-            "KP0205",
-            "KP0301",
-            "KP0201"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0308",
-          "gold": "KP0304",
-          "top3": [
-            "KP0210",
-            "KP0304",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0321",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0303"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0322",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0323",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0324",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0306",
-            "KP0302"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0325",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0326",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0305",
-            "KP0302"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0327",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0303"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0328",
-          "gold": "KP0308",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0308"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0329",
-          "gold": "KP0309",
-          "top3": [
-            "KP0304",
-            "KP0306",
-            "KP0302"
-          ],
-          "chapter": 3
-        }
-      ]
-    },
-    {
-      "variant": "V4 章一致性 -0.06",
-      "n": 60,
-      "top1": 0.7333,
-      "top3": 0.8167,
-      "auto": 24,
-      "autoPrecision": 0.9583,
-      "confirm": 28,
-      "failed": 8,
-      "coverage": 0.8667,
-      "precisionAboveFloor": 0.7115,
-      "calibration": {
-        "0.0-0.4": {
-          "n": 8,
-          "acc": 0.875
-        },
-        "0.4-0.6": {
-          "n": 22,
-          "acc": 0.6364
-        },
-        "0.6-0.8": {
-          "n": 15,
-          "acc": 0.6
-        },
-        "0.8-1.0": {
-          "n": 15,
-          "acc": 0.9333
-        }
-      },
-      "misses": [
-        {
-          "qId": "Q_0223",
-          "gold": "KP0207",
-          "top3": [
-            "KP0206",
-            "KP0207",
-            "KP0204"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0227",
-          "gold": "KP0210",
-          "top3": [
-            "KP0302",
-            "KP0307",
-            "KP0308"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0228",
-          "gold": "KP0210",
-          "top3": [
-            "KP0202",
-            "KP0308",
-            "KP0208"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0229",
-          "gold": "KP0210",
-          "top3": [
-            "KP0302",
-            "KP0304",
-            "KP0310"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0230",
-          "gold": "KP0210",
-          "top3": [
-            "KP0202",
-            "KP0204",
-            "KP0209"
-          ],
-          "chapter": 2
-        },
-        {
-          "qId": "Q_0302",
-          "gold": "KP0302",
-          "top3": [
-            "KP0205",
-            "KP0301",
-            "KP0201"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0308",
-          "gold": "KP0304",
-          "top3": [
-            "KP0210",
-            "KP0304",
-            "KP0205"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0321",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0303"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0322",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0323",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0324",
-          "gold": "KP0303",
-          "top3": [
-            "KP0304",
-            "KP0306",
-            "KP0302"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0325",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0310"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0326",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0305",
-            "KP0302"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0327",
-          "gold": "KP0305",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0303"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0328",
-          "gold": "KP0308",
-          "top3": [
-            "KP0304",
-            "KP0302",
-            "KP0308"
-          ],
-          "chapter": 3
-        },
-        {
-          "qId": "Q_0329",
-          "gold": "KP0309",
-          "top3": [
-            "KP0304",
-            "KP0306",
-            "KP0302"
-          ],
-          "chapter": 3
-        }
-      ]
-    },
-    {
-      "variant": "V5 章一致性 -0.10",
-      "n": 60,
-      "top1": 0.7333,
-      "top3": 0.8167,
-      "auto": 24,
-      "autoPrecision": 0.9583,
-      "confirm": 28,
-      "failed": 8,
-      "coverage": 0.8667,
-      "precisionAboveFloor": 0.7115,
+      "confirm": 30,
+      "failed": 6,
+      "coverage": 0.9,
+      "precisionAboveFloor": 0.7222,
       "calibration": {
         "0.0-0.4": {
           "n": 8,
@@ -1160,19 +2537,421 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": ""
     },
     {
-      "variant": "V6 章硬过滤（传 chapterId）",
+      "variant": "V4 章一致性 -0.06",
       "n": 60,
-      "top1": 0.7667,
-      "top3": 0.8833,
+      "floor": 0.35,
+      "chapter_mode": "consistency",
+      "use_misconception": false,
+      "top1": 0.7333,
+      "top3": 0.8167,
+      "top1_hits": 44,
+      "top3_hits": 49,
       "auto": 24,
       "autoPrecision": 0.9583,
-      "confirm": 25,
-      "failed": 11,
-      "coverage": 0.8167,
-      "precisionAboveFloor": 0.7551,
+      "confirm": 30,
+      "failed": 6,
+      "coverage": 0.9,
+      "precisionAboveFloor": 0.7222,
+      "calibration": {
+        "0.0-0.4": {
+          "n": 8,
+          "acc": 0.875
+        },
+        "0.4-0.6": {
+          "n": 22,
+          "acc": 0.6364
+        },
+        "0.6-0.8": {
+          "n": 15,
+          "acc": 0.6
+        },
+        "0.8-1.0": {
+          "n": 15,
+          "acc": 0.9333
+        }
+      },
+      "misses": [
+        {
+          "qId": "Q_0223",
+          "gold": "KP0207",
+          "top3": [
+            "KP0206",
+            "KP0207",
+            "KP0204"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0227",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0307",
+            "KP0308"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0228",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0208",
+            "KP0210"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0229",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0304",
+            "KP0310"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0230",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0204",
+            "KP0209"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0302",
+          "gold": "KP0302",
+          "top3": [
+            "KP0205",
+            "KP0201",
+            "KP0208"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0308",
+          "gold": "KP0304",
+          "top3": [
+            "KP0210",
+            "KP0205",
+            "KP0209"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0321",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0322",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0323",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0324",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0325",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0326",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0305",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0327",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0328",
+          "gold": "KP0308",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0308"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0329",
+          "gold": "KP0309",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        }
+      ],
+      "note": ""
+    },
+    {
+      "variant": "V5 章一致性 -0.10",
+      "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "consistency",
+      "use_misconception": false,
+      "top1": 0.7333,
+      "top3": 0.8167,
+      "top1_hits": 44,
+      "top3_hits": 49,
+      "auto": 24,
+      "autoPrecision": 0.9583,
+      "confirm": 30,
+      "failed": 6,
+      "coverage": 0.9,
+      "precisionAboveFloor": 0.7222,
+      "calibration": {
+        "0.0-0.4": {
+          "n": 8,
+          "acc": 0.875
+        },
+        "0.4-0.6": {
+          "n": 22,
+          "acc": 0.6364
+        },
+        "0.6-0.8": {
+          "n": 15,
+          "acc": 0.6
+        },
+        "0.8-1.0": {
+          "n": 15,
+          "acc": 0.9333
+        }
+      },
+      "misses": [
+        {
+          "qId": "Q_0223",
+          "gold": "KP0207",
+          "top3": [
+            "KP0206",
+            "KP0207",
+            "KP0204"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0227",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0307",
+            "KP0308"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0228",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0208",
+            "KP0210"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0229",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0304",
+            "KP0310"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0230",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0204",
+            "KP0209"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0302",
+          "gold": "KP0302",
+          "top3": [
+            "KP0205",
+            "KP0201",
+            "KP0208"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0308",
+          "gold": "KP0304",
+          "top3": [
+            "KP0210",
+            "KP0205",
+            "KP0209"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0321",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0322",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0323",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0324",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0325",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0326",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0305",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0327",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0328",
+          "gold": "KP0308",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0308"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0329",
+          "gold": "KP0309",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        }
+      ],
+      "note": ""
+    },
+    {
+      "variant": "V6 章硬过滤（假设调用方传对章）",
+      "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "hard",
+      "use_misconception": false,
+      "top1": 0.7667,
+      "top3": 0.8833,
+      "top1_hits": 46,
+      "top3_hits": 53,
+      "auto": 24,
+      "autoPrecision": 0.9583,
+      "confirm": 27,
+      "failed": 9,
+      "coverage": 0.85,
+      "precisionAboveFloor": 0.7647,
       "calibration": {
         "0.0-0.4": {
           "n": 11,
@@ -1332,19 +3111,25 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": "线上不可达：生产调用链不传 chapterId（设计文档 §4）"
     },
     {
       "variant": "V7 误区 + 章硬过滤",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "hard",
+      "use_misconception": false,
       "top1": 0.75,
       "top3": 0.8667,
+      "top1_hits": 45,
+      "top3_hits": 52,
       "auto": 29,
       "autoPrecision": 0.931,
-      "confirm": 20,
-      "failed": 11,
-      "coverage": 0.8167,
-      "precisionAboveFloor": 0.7347,
+      "confirm": 23,
+      "failed": 8,
+      "coverage": 0.8667,
+      "precisionAboveFloor": 0.75,
       "calibration": {
         "0.0-0.4": {
           "n": 11,
@@ -1514,19 +3299,25 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": "线上不可达：生产调用链不传 chapterId（设计文档 §4）"
     },
     {
       "variant": "V10 章硬过滤 + 低置信回退",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "hard",
+      "use_misconception": false,
       "top1": 0.7333,
       "top3": 0.8333,
+      "top1_hits": 44,
+      "top3_hits": 50,
       "auto": 24,
       "autoPrecision": 0.9583,
-      "confirm": 28,
-      "failed": 8,
-      "coverage": 0.8667,
-      "precisionAboveFloor": 0.7115,
+      "confirm": 30,
+      "failed": 6,
+      "coverage": 0.9,
+      "precisionAboveFloor": 0.7222,
       "calibration": {
         "0.0-0.4": {
           "n": 8,
@@ -1706,13 +3497,217 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": "线上不可达：生产调用链不传 chapterId（设计文档 §4）"
+    },
+    {
+      "variant": "V11 误区 + 章硬过滤 + 低置信回退",
+      "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "hard",
+      "use_misconception": false,
+      "top1": 0.7333,
+      "top3": 0.85,
+      "top1_hits": 44,
+      "top3_hits": 51,
+      "auto": 29,
+      "autoPrecision": 0.931,
+      "confirm": 26,
+      "failed": 5,
+      "coverage": 0.9167,
+      "precisionAboveFloor": 0.7091,
+      "calibration": {
+        "0.0-0.4": {
+          "n": 10,
+          "acc": 0.8
+        },
+        "0.4-0.6": {
+          "n": 17,
+          "acc": 0.5294
+        },
+        "0.6-0.8": {
+          "n": 20,
+          "acc": 0.7
+        },
+        "0.8-1.0": {
+          "n": 13,
+          "acc": 1.0
+        }
+      },
+      "misses": [
+        {
+          "qId": "Q_0224",
+          "gold": "KP0206",
+          "top3": [
+            "KP0207",
+            "KP0206",
+            "KP0208"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0227",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0308",
+            "KP0307"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0228",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0208",
+            "KP0205"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0229",
+          "gold": "KP0210",
+          "top3": [
+            "KP0302",
+            "KP0304",
+            "KP0310"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0230",
+          "gold": "KP0210",
+          "top3": [
+            "KP0202",
+            "KP0204",
+            "KP0209"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "Q_0308",
+          "gold": "KP0304",
+          "top3": [
+            "KP0210",
+            "KP0304",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0311",
+          "gold": "KP0303",
+          "top3": [
+            "KP0306",
+            "KP0303",
+            "KP0305"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0321",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0322",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0323",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0324",
+          "gold": "KP0303",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0325",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0305"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0326",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0305",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0327",
+          "gold": "KP0305",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0328",
+          "gold": "KP0308",
+          "top3": [
+            "KP0304",
+            "KP0302",
+            "KP0308"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "Q_0329",
+          "gold": "KP0309",
+          "top3": [
+            "KP0304",
+            "KP0306",
+            "KP0302"
+          ],
+          "chapter": 3
+        }
+      ],
+      "note": "首次评测组合；线上不可达：生产调用链不传 chapterId（设计文档 §4）"
     },
     {
       "variant": "V8 BM25（字符二元组）",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
       "top1": 0.7,
       "top3": 0.8167,
+      "top1_hits": 42,
+      "top3_hits": 49,
       "auto": 58,
       "autoPrecision": 0.7241,
       "confirm": 2,
@@ -1901,13 +3896,19 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": ""
     },
     {
       "variant": "V9 RRF(TF-IDF, BM25)",
       "n": 60,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
       "top1": 0.7,
       "top3": 0.8167,
+      "top1_hits": 42,
+      "top3_hits": 49,
       "auto": 0,
       "autoPrecision": 0.0,
       "confirm": 0,
@@ -2101,7 +4102,344 @@
           ],
           "chapter": 3
         }
-      ]
+      ],
+      "note": ""
+    },
+    {
+      "variant": "V0-MC32 补充集（误区关）",
+      "n": 32,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
+      "top1": 0.5625,
+      "top3": 0.8438,
+      "top1_hits": 18,
+      "top3_hits": 27,
+      "auto": 12,
+      "autoPrecision": 0.8333,
+      "confirm": 15,
+      "failed": 5,
+      "coverage": 0.8438,
+      "precisionAboveFloor": 0.6296,
+      "calibration": {
+        "0.0-0.4": {
+          "n": 7,
+          "acc": 0.2857
+        },
+        "0.4-0.6": {
+          "n": 11,
+          "acc": 0.4545
+        },
+        "0.6-0.8": {
+          "n": 5,
+          "acc": 0.8
+        },
+        "0.8-1.0": {
+          "n": 9,
+          "acc": 0.7778
+        }
+      },
+      "misses": [
+        {
+          "qId": "MC01",
+          "gold": "KP0202",
+          "top3": [
+            "KP0203",
+            "KP0204",
+            "KP0206"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC04",
+          "gold": "KP0208",
+          "top3": [
+            "KP0206",
+            "KP0208",
+            "KP0207"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC07",
+          "gold": "KP0210",
+          "top3": [
+            "KP0304",
+            "KP0210",
+            "KP0308"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC10",
+          "gold": "KP0209",
+          "top3": [
+            "KP0205",
+            "KP0210",
+            "KP0209"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC11",
+          "gold": "KP0207",
+          "top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC14",
+          "gold": "KP0207",
+          "top3": [
+            "KP0206",
+            "KP0207",
+            "KP0208"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC15",
+          "gold": "KP0210",
+          "top3": [
+            "KP0204",
+            "KP0205",
+            "KP0201"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC19",
+          "gold": "KP0309",
+          "top3": [
+            "KP0301",
+            "KP0302",
+            "KP0204"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC21",
+          "gold": "KP0303",
+          "top3": [
+            "KP0307",
+            "KP0306",
+            "KP0303"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC24",
+          "gold": "KP0303",
+          "top3": [
+            "KP0306",
+            "KP0301",
+            "KP0305"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC25",
+          "gold": "KP0302",
+          "top3": [
+            "KP0301",
+            "KP0205",
+            "KP0310"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC28",
+          "gold": "KP0304",
+          "top3": [
+            "KP0205",
+            "KP0304",
+            "KP0210"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC29",
+          "gold": "KP0305",
+          "top3": [
+            "KP0308",
+            "KP0301",
+            "KP0305"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC32",
+          "gold": "KP0306",
+          "top3": [
+            "KP0305",
+            "KP0306",
+            "KP0208"
+          ],
+          "chapter": 3
+        }
+      ],
+      "note": "补充观察集，含选项文本噪声，不作门禁"
+    },
+    {
+      "variant": "V2-MC32 补充集（误区开）",
+      "n": 32,
+      "floor": 0.35,
+      "chapter_mode": "none",
+      "use_misconception": false,
+      "top1": 0.625,
+      "top3": 0.8438,
+      "top1_hits": 20,
+      "top3_hits": 27,
+      "auto": 12,
+      "autoPrecision": 0.9167,
+      "confirm": 15,
+      "failed": 5,
+      "coverage": 0.8438,
+      "precisionAboveFloor": 0.7037,
+      "calibration": {
+        "0.0-0.4": {
+          "n": 6,
+          "acc": 0.3333
+        },
+        "0.4-0.6": {
+          "n": 11,
+          "acc": 0.4545
+        },
+        "0.6-0.8": {
+          "n": 7,
+          "acc": 0.8571
+        },
+        "0.8-1.0": {
+          "n": 8,
+          "acc": 0.875
+        }
+      },
+      "misses": [
+        {
+          "qId": "MC01",
+          "gold": "KP0202",
+          "top3": [
+            "KP0203",
+            "KP0204",
+            "KP0206"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC07",
+          "gold": "KP0210",
+          "top3": [
+            "KP0304",
+            "KP0210",
+            "KP0308"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC10",
+          "gold": "KP0209",
+          "top3": [
+            "KP0205",
+            "KP0210",
+            "KP0209"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC15",
+          "gold": "KP0210",
+          "top3": [
+            "KP0205",
+            "KP0204",
+            "KP0201"
+          ],
+          "chapter": 2
+        },
+        {
+          "qId": "MC19",
+          "gold": "KP0309",
+          "top3": [
+            "KP0301",
+            "KP0204",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC21",
+          "gold": "KP0303",
+          "top3": [
+            "KP0307",
+            "KP0303",
+            "KP0306"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC24",
+          "gold": "KP0303",
+          "top3": [
+            "KP0301",
+            "KP0305",
+            "KP0304"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC25",
+          "gold": "KP0302",
+          "top3": [
+            "KP0301",
+            "KP0205",
+            "KP0309"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC28",
+          "gold": "KP0304",
+          "top3": [
+            "KP0205",
+            "KP0304",
+            "KP0210"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC29",
+          "gold": "KP0305",
+          "top3": [
+            "KP0308",
+            "KP0301",
+            "KP0305"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC30",
+          "gold": "KP0310",
+          "top3": [
+            "KP0309",
+            "KP0310",
+            "KP0302"
+          ],
+          "chapter": 3
+        },
+        {
+          "qId": "MC32",
+          "gold": "KP0306",
+          "top3": [
+            "KP0305",
+            "KP0306",
+            "KP0208"
+          ],
+          "chapter": 3
+        }
+      ],
+      "note": "补充观察集，含选项文本噪声，不作门禁"
     }
   ],
   "baseline_misses": [
@@ -2265,5 +4603,848 @@
       ],
       "chapter": 3
     }
-  ]
+  ],
+  "per_case": [
+    {
+      "qId": "Q_0201",
+      "gold": "KP0201",
+      "ranked_top3": [
+        "KP0201",
+        "KP0206",
+        "KP0208"
+      ],
+      "score": 0.3333,
+      "cosine": 0.1,
+      "decision": "FAILED",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0202",
+      "gold": "KP0202",
+      "ranked_top3": [
+        "KP0202",
+        "KP0306",
+        "KP0209"
+      ],
+      "score": 1.0,
+      "cosine": 0.3149,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0203",
+      "gold": "KP0203",
+      "ranked_top3": [
+        "KP0203",
+        "KP0309",
+        "KP0307"
+      ],
+      "score": 0.7617,
+      "cosine": 0.2285,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0204",
+      "gold": "KP0204",
+      "ranked_top3": [
+        "KP0204",
+        "KP0201",
+        "KP0205"
+      ],
+      "score": 0.704,
+      "cosine": 0.2112,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0205",
+      "gold": "KP0205",
+      "ranked_top3": [
+        "KP0205",
+        "KP0301",
+        "KP0306"
+      ],
+      "score": 1.0,
+      "cosine": 0.3325,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0206",
+      "gold": "KP0206",
+      "ranked_top3": [
+        "KP0206",
+        "KP0207",
+        "KP0208"
+      ],
+      "score": 0.9638,
+      "cosine": 0.2891,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0207",
+      "gold": "KP0207",
+      "ranked_top3": [
+        "KP0207",
+        "KP0208",
+        "KP0307"
+      ],
+      "score": 0.2886,
+      "cosine": 0.0866,
+      "decision": "FAILED",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0208",
+      "gold": "KP0208",
+      "ranked_top3": [
+        "KP0208",
+        "KP0209",
+        "KP0201"
+      ],
+      "score": 0.2461,
+      "cosine": 0.0738,
+      "decision": "FAILED",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0209",
+      "gold": "KP0209",
+      "ranked_top3": [
+        "KP0209",
+        "KP0210",
+        "KP0207"
+      ],
+      "score": 0.2089,
+      "cosine": 0.0627,
+      "decision": "FAILED",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0210",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0210",
+        "KP0310",
+        "KP0304"
+      ],
+      "score": 0.3746,
+      "cosine": 0.1124,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0211",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0210",
+        "KP0302",
+        "KP0307"
+      ],
+      "score": 0.3338,
+      "cosine": 0.1002,
+      "decision": "FAILED",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0212",
+      "gold": "KP0207",
+      "ranked_top3": [
+        "KP0207",
+        "KP0206",
+        "KP0304"
+      ],
+      "score": 0.8042,
+      "cosine": 0.2413,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0213",
+      "gold": "KP0201",
+      "ranked_top3": [
+        "KP0201",
+        "KP0202",
+        "KP0205"
+      ],
+      "score": 0.6996,
+      "cosine": 0.2099,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0214",
+      "gold": "KP0205",
+      "ranked_top3": [
+        "KP0205",
+        "KP0201",
+        "KP0206"
+      ],
+      "score": 0.957,
+      "cosine": 0.2871,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0215",
+      "gold": "KP0206",
+      "ranked_top3": [
+        "KP0206",
+        "KP0207",
+        "KP0208"
+      ],
+      "score": 1.0,
+      "cosine": 0.3638,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0216",
+      "gold": "KP0207",
+      "ranked_top3": [
+        "KP0207",
+        "KP0206",
+        "KP0209"
+      ],
+      "score": 1.0,
+      "cosine": 0.3885,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0217",
+      "gold": "KP0208",
+      "ranked_top3": [
+        "KP0208",
+        "KP0206",
+        "KP0201"
+      ],
+      "score": 0.9688,
+      "cosine": 0.2906,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0218",
+      "gold": "KP0202",
+      "ranked_top3": [
+        "KP0202",
+        "KP0209",
+        "KP0205"
+      ],
+      "score": 1.0,
+      "cosine": 0.4893,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0219",
+      "gold": "KP0202",
+      "ranked_top3": [
+        "KP0202",
+        "KP0207",
+        "KP0209"
+      ],
+      "score": 0.5423,
+      "cosine": 0.1627,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0220",
+      "gold": "KP0203",
+      "ranked_top3": [
+        "KP0203",
+        "KP0207",
+        "KP0201"
+      ],
+      "score": 0.999,
+      "cosine": 0.2997,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0221",
+      "gold": "KP0204",
+      "ranked_top3": [
+        "KP0204",
+        "KP0201",
+        "KP0301"
+      ],
+      "score": 0.6973,
+      "cosine": 0.2092,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0222",
+      "gold": "KP0206",
+      "ranked_top3": [
+        "KP0206",
+        "KP0308",
+        "KP0203"
+      ],
+      "score": 0.4925,
+      "cosine": 0.1478,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0223",
+      "gold": "KP0207",
+      "ranked_top3": [
+        "KP0206",
+        "KP0207",
+        "KP0204"
+      ],
+      "score": 0.4296,
+      "cosine": 0.1289,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0224",
+      "gold": "KP0206",
+      "ranked_top3": [
+        "KP0206",
+        "KP0207",
+        "KP0208"
+      ],
+      "score": 0.5652,
+      "cosine": 0.1695,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0225",
+      "gold": "KP0202",
+      "ranked_top3": [
+        "KP0202",
+        "KP0208",
+        "KP0209"
+      ],
+      "score": 0.7727,
+      "cosine": 0.2318,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0226",
+      "gold": "KP0209",
+      "ranked_top3": [
+        "KP0209",
+        "KP0202",
+        "KP0306"
+      ],
+      "score": 0.3984,
+      "cosine": 0.1195,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0227",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0302",
+        "KP0307",
+        "KP0308"
+      ],
+      "score": 0.4107,
+      "cosine": 0.1232,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0228",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0202",
+        "KP0308",
+        "KP0306"
+      ],
+      "score": 0.584,
+      "cosine": 0.1752,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0229",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0302",
+        "KP0304",
+        "KP0310"
+      ],
+      "score": 0.4283,
+      "cosine": 0.1285,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0230",
+      "gold": "KP0210",
+      "ranked_top3": [
+        "KP0202",
+        "KP0204",
+        "KP0301"
+      ],
+      "score": 0.5836,
+      "cosine": 0.1751,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0301",
+      "gold": "KP0301",
+      "ranked_top3": [
+        "KP0301",
+        "KP0205",
+        "KP0209"
+      ],
+      "score": 0.4824,
+      "cosine": 0.1447,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0302",
+      "gold": "KP0302",
+      "ranked_top3": [
+        "KP0205",
+        "KP0301",
+        "KP0307"
+      ],
+      "score": 0.2569,
+      "cosine": 0.0771,
+      "decision": "FAILED",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0303",
+      "gold": "KP0302",
+      "ranked_top3": [
+        "KP0302",
+        "KP0309",
+        "KP0304"
+      ],
+      "score": 0.4069,
+      "cosine": 0.1221,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0304",
+      "gold": "KP0301",
+      "ranked_top3": [
+        "KP0301",
+        "KP0309",
+        "KP0204"
+      ],
+      "score": 0.8373,
+      "cosine": 0.2512,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0305",
+      "gold": "KP0309",
+      "ranked_top3": [
+        "KP0309",
+        "KP0310",
+        "KP0303"
+      ],
+      "score": 0.4662,
+      "cosine": 0.1399,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0306",
+      "gold": "KP0308",
+      "ranked_top3": [
+        "KP0308",
+        "KP0303",
+        "KP0306"
+      ],
+      "score": 0.9682,
+      "cosine": 0.2905,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0307",
+      "gold": "KP0305",
+      "ranked_top3": [
+        "KP0305",
+        "KP0309",
+        "KP0304"
+      ],
+      "score": 0.595,
+      "cosine": 0.1785,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0308",
+      "gold": "KP0304",
+      "ranked_top3": [
+        "KP0210",
+        "KP0304",
+        "KP0310"
+      ],
+      "score": 0.4841,
+      "cosine": 0.1452,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0309",
+      "gold": "KP0306",
+      "ranked_top3": [
+        "KP0306",
+        "KP0210",
+        "KP0305"
+      ],
+      "score": 0.5204,
+      "cosine": 0.1561,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0310",
+      "gold": "KP0307",
+      "ranked_top3": [
+        "KP0307",
+        "KP0304",
+        "KP0306"
+      ],
+      "score": 0.5173,
+      "cosine": 0.1552,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0311",
+      "gold": "KP0303",
+      "ranked_top3": [
+        "KP0303",
+        "KP0306",
+        "KP0307"
+      ],
+      "score": 0.4984,
+      "cosine": 0.1495,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0312",
+      "gold": "KP0306",
+      "ranked_top3": [
+        "KP0306",
+        "KP0305",
+        "KP0309"
+      ],
+      "score": 1.0,
+      "cosine": 0.3231,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0313",
+      "gold": "KP0308",
+      "ranked_top3": [
+        "KP0308",
+        "KP0206",
+        "KP0305"
+      ],
+      "score": 0.834,
+      "cosine": 0.2502,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0314",
+      "gold": "KP0309",
+      "ranked_top3": [
+        "KP0309",
+        "KP0310",
+        "KP0303"
+      ],
+      "score": 0.5971,
+      "cosine": 0.1791,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0315",
+      "gold": "KP0310",
+      "ranked_top3": [
+        "KP0310",
+        "KP0309",
+        "KP0303"
+      ],
+      "score": 0.4816,
+      "cosine": 0.1445,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0316",
+      "gold": "KP0307",
+      "ranked_top3": [
+        "KP0307",
+        "KP0301",
+        "KP0303"
+      ],
+      "score": 0.7013,
+      "cosine": 0.2104,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0317",
+      "gold": "KP0304",
+      "ranked_top3": [
+        "KP0304",
+        "KP0210",
+        "KP0310"
+      ],
+      "score": 0.7088,
+      "cosine": 0.2126,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0318",
+      "gold": "KP0308",
+      "ranked_top3": [
+        "KP0308",
+        "KP0306",
+        "KP0304"
+      ],
+      "score": 0.5382,
+      "cosine": 0.1614,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0319",
+      "gold": "KP0305",
+      "ranked_top3": [
+        "KP0305",
+        "KP0309",
+        "KP0306"
+      ],
+      "score": 0.7704,
+      "cosine": 0.2311,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0320",
+      "gold": "KP0309",
+      "ranked_top3": [
+        "KP0309",
+        "KP0310",
+        "KP0308"
+      ],
+      "score": 0.5826,
+      "cosine": 0.1748,
+      "decision": "CONFIRM",
+      "hit1": true,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0321",
+      "gold": "KP0303",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0303"
+      ],
+      "score": 0.4763,
+      "cosine": 0.1429,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0322",
+      "gold": "KP0303",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0310"
+      ],
+      "score": 0.7071,
+      "cosine": 0.2121,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0323",
+      "gold": "KP0303",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0310"
+      ],
+      "score": 0.6771,
+      "cosine": 0.2031,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0324",
+      "gold": "KP0303",
+      "ranked_top3": [
+        "KP0304",
+        "KP0306",
+        "KP0302"
+      ],
+      "score": 0.6584,
+      "cosine": 0.1975,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0325",
+      "gold": "KP0305",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0310"
+      ],
+      "score": 0.817,
+      "cosine": 0.2451,
+      "decision": "AUTO",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0326",
+      "gold": "KP0305",
+      "ranked_top3": [
+        "KP0304",
+        "KP0305",
+        "KP0302"
+      ],
+      "score": 0.7026,
+      "cosine": 0.2108,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0327",
+      "gold": "KP0305",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0303"
+      ],
+      "score": 0.4773,
+      "cosine": 0.1432,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0328",
+      "gold": "KP0308",
+      "ranked_top3": [
+        "KP0304",
+        "KP0302",
+        "KP0308"
+      ],
+      "score": 0.6759,
+      "cosine": 0.2028,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": true
+    },
+    {
+      "qId": "Q_0329",
+      "gold": "KP0309",
+      "ranked_top3": [
+        "KP0304",
+        "KP0306",
+        "KP0302"
+      ],
+      "score": 0.6341,
+      "cosine": 0.1902,
+      "decision": "CONFIRM",
+      "hit1": false,
+      "hit3": false
+    },
+    {
+      "qId": "Q_0330",
+      "gold": "KP0310",
+      "ranked_top3": [
+        "KP0310",
+        "KP0306",
+        "KP0304"
+      ],
+      "score": 0.7666,
+      "cosine": 0.23,
+      "decision": "AUTO",
+      "hit1": true,
+      "hit3": true
+    }
+  ],
+  "per_case_variant": "V0 baseline（TF-IDF, IDF^1.5, 语料=概念+名称）"
 }

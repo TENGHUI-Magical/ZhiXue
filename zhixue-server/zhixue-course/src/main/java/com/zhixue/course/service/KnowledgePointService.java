@@ -106,8 +106,11 @@ public class KnowledgePointService {
     }
 
     /**
-     * 取某课程下全部启用知识点的映射画像（知识点 + 关键词）。
+     * 取某课程下全部启用知识点的映射画像（知识点 + 概念 + 错因 + 关键词）。
      * diagnosis 模块通过本方法拿数据，不直接访问 course 的表。
+     * <p>
+     * 返回的是课程**全部**启用知识点，不做章节裁剪：章节只影响映射时"参与排序的候选集合"，
+     * 不能让候选范围反过来改变 IDF 的统计范围（否则阈值标尺随章漂移）。
      *
      * @param courseId 课程 ID
      * @return 画像列表；课程无知识点时返回空列表
@@ -127,7 +130,7 @@ public class KnowledgePointService {
                 .collect(Collectors.groupingBy(KpKeyword::getKpId));
         return kps.stream()
                 .map(kp -> new KpMatchProfile(kp.getKpId(), kp.getName(), kp.getChapterId(),
-                        kp.getConceptText(),
+                        kp.getConceptText(), kp.getMisconception(),
                         byKp.getOrDefault(kp.getKpId(), Collections.emptyList())))
                 .toList();
     }
