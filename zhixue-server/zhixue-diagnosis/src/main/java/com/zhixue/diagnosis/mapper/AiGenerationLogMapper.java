@@ -79,4 +79,27 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                                           @Param("to") LocalDateTime to,
                                           @Param("limit") int limit,
                                           @Param("offset") int offset);
+
+    /**
+     * 学生端评阅回流（05 §4.6）：按学生 + 错题编号集合取已评阅讲解。
+     * 一条错题可能多次生成讲解（缓存回放/重新生成各落一行），调用方按 logId 分组
+     * 取 reviewed_at 最大的一条作为该错题的复核结论。
+     * <p>
+     * logIds 由调用方保证非空且有界（列表页 ≤50），避免空 IN 语法错误与无界查询；
+     * user_id + scene + reviewed_at 组合可走 idx_user_time / idx_pending_review。
+     * </p>
+     */
+    @Select("""
+            <script>
+            SELECT l.*
+            FROM ai_generation_log l
+            WHERE l.user_id = #{userId}
+              AND l.scene = 'RAG'
+              AND l.reviewed_at IS NOT NULL
+              AND l.log_id IN
+              <foreach collection="logIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<AiGenerationLog> selectReviewedByUserAndLogIds(@Param("userId") long userId,
+                                                        @Param("logIds") List<String> logIds);
 }

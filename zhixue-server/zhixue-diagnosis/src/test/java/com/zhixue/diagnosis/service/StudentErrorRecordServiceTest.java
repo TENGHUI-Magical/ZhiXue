@@ -12,7 +12,9 @@ import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
 import com.zhixue.diagnosis.dto.ErrorRecordPageView;
 import com.zhixue.diagnosis.dto.ErrorRecordView;
+import com.zhixue.diagnosis.entity.AiGenerationLog;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
+import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -33,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,6 +56,9 @@ class StudentErrorRecordServiceTest {
     private StudentErrorRecordMapper mapper;
 
     @Mock
+    private AiGenerationLogMapper aiLogMapper;
+
+    @Mock
     private KnowledgePointService knowledgePointService;
 
     @Mock
@@ -69,7 +75,8 @@ class StudentErrorRecordServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new StudentErrorRecordService(mapper, knowledgePointService, questionBankService);
+        service = new StudentErrorRecordService(mapper, aiLogMapper, knowledgePointService,
+                questionBankService);
     }
 
     @Test
@@ -337,6 +344,84 @@ class StudentErrorRecordServiceTest {
                     .hasMessageContaining("status");
         }
         verify(mapper, never()).selectCount(any());
+    }
+
+    /**
+     * 评阅回流（05 §4.6）：列表批量带出复核状态。
+     * EL_2 有两条已评阅讲解（旧 PASS 10-01、新 RETURN 10-26 带评语）→ 聚合取最新 RETURN；
+     * EL_1 从未评阅 → 三字段 null。重新生成讲解产生的新未评阅行不参与聚合，
+     * 旧结论持续可见（退回意见不清退）。
+     */
+    @Test
+    void pageSurfacesLatestReviewPerRecord() {
+        StudentErrorRecord reviewed = record("EL_2", "CONFIRMED");
+        reviewed.setKpId("KP0201");
+        reviewed.setCreatedAt(LocalDateTime.of(2026, 10, 26, 12, 0));
+        StudentErrorRecord unreviewed = record("EL_1", "CONFIRMED");
+        unreviewed.setKpId("KP0202");
+        unreviewed.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
+        when(mapper.selectCount(any())).thenReturn(2L);
+        when(mapper.selectPageByWrapper(any(), anyInt(), anyLong()))
+                .thenReturn(List.of(reviewed, unreviewed));
+        when(knowledgePointService.findByIds(any())).thenReturn(
+                Map.of("KP0201", kp("KP0201", "关系模型"),
+                        "KP0202", kp("KP0202", "事务")));
+        when(aiLogMapper.selectReviewedByUserAndLogIds(eq(2L), anyList())).thenReturn(List.of(
+                reviewRow(101L, "EL_2", "PASS", null, LocalDateTime.of(2026, 10, 1, 9, 0)),
+                reviewRow(102L, "EL_2", "RETURN", "请补充连接条件的书写",
+                        LocalDateTime.of(2026, 10, 26, 9, 0))));
+
+        ErrorRecordPageView page;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            page = service.page(1, 10, null, null);
+        }
+
+        ErrorRecordView first = page.records().get(0);
+        assertThat(first.reviewResult()).isEqualTo("RETURN");
+        assertThat(first.reviewComment()).isEqualTo("请补充连接条件的书写");
+        assertThat(first.reviewedAt()).isEqualTo("2026-10-26 09:00:00");
+        ErrorRecordView second = page.records().get(1);
+        assertThat(second.reviewResult()).isNull();
+        assertThat(second.reviewComment()).isNull();
+        assertThat(second.reviewedAt()).isNull();
+        // 回流一次批量查询，不逐条 N+1
+        verify(aiLogMapper, times(1)).selectReviewedByUserAndLogIds(eq(2L), anyList());
+    }
+
+    /** 详情同样带出复核状态；单条出口走同一聚合口径。 */
+    @Test
+    void detailCarriesLatestReview() {
+        StudentErrorRecord record = record("EL_1", "CONFIRMED");
+        record.setKpId("KP0201");
+        record.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
+        when(mapper.selectById("EL_1")).thenReturn(record);
+        when(knowledgePointService.findById("KP0201")).thenReturn(kp());
+        when(aiLogMapper.selectReviewedByUserAndLogIds(eq(2L), anyList())).thenReturn(List.of(
+                reviewRow(7L, "EL_1", "PASS", "讲解到位", LocalDateTime.of(2026, 10, 27, 8, 30))));
+
+        ErrorRecordView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            view = service.detail("EL_1");
+        }
+
+        assertThat(view.reviewResult()).isEqualTo("PASS");
+        assertThat(view.reviewComment()).isEqualTo("讲解到位");
+        assertThat(view.reviewedAt()).isEqualTo("2026-10-27 08:30:00");
+    }
+
+    private AiGenerationLog reviewRow(long logPk, String logId, String result, String comment,
+                                      LocalDateTime reviewedAt) {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setLogPk(logPk);
+        row.setLogId(logId);
+        row.setUserId(2L);
+        row.setScene("RAG");
+        row.setReviewResult(result);
+        row.setTeacherComment(comment);
+        row.setReviewedAt(reviewedAt);
+        return row;
     }
 
     private ErrorRecordCreate createRequest() {

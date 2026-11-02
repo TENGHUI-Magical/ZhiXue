@@ -13,7 +13,9 @@ import com.zhixue.diagnosis.dto.ConfirmRequest;
 import com.zhixue.diagnosis.dto.ErrorRecordCreate;
 import com.zhixue.diagnosis.dto.ErrorRecordPageView;
 import com.zhixue.diagnosis.dto.ErrorRecordView;
+import com.zhixue.diagnosis.entity.AiGenerationLog;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
+import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -48,13 +52,16 @@ public class StudentErrorRecordService {
             "CALCULATION_ERROR", "BOUNDARY_ERROR");
 
     private final StudentErrorRecordMapper mapper;
+    private final AiGenerationLogMapper aiLogMapper;
     private final KnowledgePointService knowledgePointService;
     private final QuestionBankService questionBankService;
 
     public StudentErrorRecordService(StudentErrorRecordMapper mapper,
+                                     AiGenerationLogMapper aiLogMapper,
                                      KnowledgePointService knowledgePointService,
                                      QuestionBankService questionBankService) {
         this.mapper = mapper;
+        this.aiLogMapper = aiLogMapper;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
     }
@@ -216,8 +223,11 @@ public class StudentErrorRecordService {
         List<StudentErrorRecord> rows = mapper.selectPageByWrapper(query, size, (long) (page - 1) * size);
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(
                 rows.stream().map(StudentErrorRecord::getKpId).toList());
+        // 评阅回流（05 §4.6）：一次批量取本页错题的最新已评阅讲解，避免逐条 N+1
+        Map<String, AiGenerationLog> reviewByLogId = latestReviews(userId,
+                rows.stream().map(StudentErrorRecord::getLogId).toList());
         List<ErrorRecordView> records = rows.stream()
-                .map(row -> toView(row, kpById.get(row.getKpId())))
+                .map(row -> toView(row, kpById.get(row.getKpId()), reviewByLogId.get(row.getLogId())))
                 .toList();
         return new ErrorRecordPageView(page, size, total, records);
     }
@@ -263,17 +273,20 @@ public class StudentErrorRecordService {
                 .last("LIMIT 1"));
     }
 
-    /** 实体 → 视图：补齐 kpName，隐藏 clientToken 等内部字段。 */
+    /** 实体 → 视图：补齐 kpName 与复核状态，隐藏 clientToken 等内部字段。 */
     private ErrorRecordView toView(StudentErrorRecord record) {
         KnowledgePoint kp = null;
         if (record.getKpId() != null && !record.getKpId().isBlank()) {
             kp = knowledgePointService.findById(record.getKpId());
         }
-        return toView(record, kp);
+        AiGenerationLog review = latestReviews(record.getUserId(), List.of(record.getLogId()))
+                .get(record.getLogId());
+        return toView(record, kp, review);
     }
 
-    /** 实体 → 视图；知识点由调用方批量预取，避免列表 N+1。 */
-    private ErrorRecordView toView(StudentErrorRecord record, KnowledgePoint kp) {
+    /** 实体 → 视图；知识点与评阅由调用方批量预取，避免列表 N+1。 */
+    private ErrorRecordView toView(StudentErrorRecord record, KnowledgePoint kp,
+                                   AiGenerationLog review) {
         String kpName = kp == null ? null : kp.getName();
         return new ErrorRecordView(
                 record.getLogId(),
@@ -289,7 +302,40 @@ public class StudentErrorRecordService {
                 record.getStudentNote(),
                 record.getStatus(),
                 iso(record.getConfirmedAt()),
-                iso(record.getCreatedAt()));
+                iso(record.getCreatedAt()),
+                review == null ? null : review.getReviewResult(),
+                review == null ? null : review.getTeacherComment(),
+                review == null ? null : iso(review.getReviewedAt()));
+    }
+
+    /**
+     * 评阅回流聚合（05 §4.6）：错题的复核状态 = 该错题下最新一条已评阅讲解
+     * （scene=RAG 且 reviewed_at 非空，按 reviewed_at 取最大）的结论。
+     * 重新生成讲解不清退旧结论——退回意见在教师评阅新讲解前持续可见。
+     * logIds 为空时直接返回空 Map，不发起 SQL（空 IN 是语法错误）。
+     */
+    private Map<String, AiGenerationLog> latestReviews(long userId, List<String> logIds) {
+        if (logIds == null || logIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, AiGenerationLog> latest = new HashMap<>();
+        for (AiGenerationLog row : aiLogMapper.selectReviewedByUserAndLogIds(userId, logIds)) {
+            if (row == null || row.getLogId() == null) {
+                continue;
+            }
+            latest.merge(row.getLogId(), row, (oldRow, newRow) ->
+                    isNewerReview(newRow, oldRow) ? newRow : oldRow);
+        }
+        return latest;
+    }
+
+    /** reviewed_at 更新（或同刻但 log_pk 更大）的评阅为准，保证聚合确定性。 */
+    private static final Comparator<AiGenerationLog> REVIEW_ORDER = Comparator
+            .comparing(AiGenerationLog::getReviewedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(AiGenerationLog::getLogPk, Comparator.nullsLast(Comparator.naturalOrder()));
+
+    private static boolean isNewerReview(AiGenerationLog candidate, AiGenerationLog current) {
+        return REVIEW_ORDER.compare(candidate, current) > 0;
     }
 
     private String iso(LocalDateTime time) {
