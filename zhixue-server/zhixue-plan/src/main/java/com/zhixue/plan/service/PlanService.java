@@ -22,6 +22,7 @@ import com.zhixue.plan.entity.StudyPlan;
 import com.zhixue.plan.entity.StudyPlanItem;
 import com.zhixue.plan.mapper.StudyPlanItemMapper;
 import com.zhixue.plan.mapper.StudyPlanMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -55,19 +56,22 @@ public class PlanService {
     private final QuestionBankService questionBankService;
     private final PracticeService practiceService;
     private final RepairPriorityService repairPriorityService;
+    private final int cooldownDays;
 
     public PlanService(StudyPlanMapper planMapper,
                        StudyPlanItemMapper itemMapper,
                        CourseService courseService,
                        QuestionBankService questionBankService,
                        PracticeService practiceService,
-                       RepairPriorityService repairPriorityService) {
+                       RepairPriorityService repairPriorityService,
+                       @Value("${recommend.cooldown-days:7}") int cooldownDays) {
         this.planMapper = planMapper;
         this.itemMapper = itemMapper;
         this.courseService = courseService;
         this.questionBankService = questionBankService;
         this.practiceService = practiceService;
         this.repairPriorityService = repairPriorityService;
+        this.cooldownDays = Math.max(1, cooldownDays);
     }
 
     /** 按日期区间查计划；缺省为本周一至周日，明细批量补齐避免 N+1。 */
@@ -154,8 +158,8 @@ public class PlanService {
                 usedQids.add(item.getQId());
             }
         }
-        // 7 天冷却：已练题优先跳过；题库不足时 pickQuestions 会兜底放宽
-        usedQids.addAll(practiceService.recentPracticedQids(userId, 7));
+        // 冷却：已练题优先跳过（recommend.cooldown-days，与推荐、到期复习共用）；题库不足时 pickQuestions 会兜底放宽
+        usedQids.addAll(practiceService.recentPracticedQids(userId, cooldownDays));
 
         List<PlanView> result = new ArrayList<>();
         for (int i = 0; i < 7; i++) {

@@ -3,6 +3,7 @@ package com.zhixue.diagnosis.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.zhixue.diagnosis.dto.ErrorTypeAgg;
 import com.zhixue.diagnosis.dto.KpPracticeSignal;
+import com.zhixue.diagnosis.dto.QuestionPracticeSignal;
 import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.PracticeRecord;
@@ -182,13 +183,15 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                            @Param("offset") int offset);
 
     /**
-     * 单学生课程内按知识点的补漏信号（PRP 排序）：总次数、错误数、最后一次正确作答时间、
-     * 最近一次错误错因。行数受 学生 × 知识点 约束，不拉明细。
+     * 单学生课程内按知识点的补漏信号（PRP 排序 + 到期复习判定）：总次数、错误数、
+     * 最后一次正确作答时间、最后一次任意作答时间、最近一次错误错因。行数受 学生 × 知识点 约束，不拉明细。
      * <p>
      * lastErrorType 用 GROUP_CONCAT 按 practice_id 倒序取首个（GROUP_CONCAT 忽略 NULL，
      * 因此只保留答错记录）；SUBSTRING_INDEX 只取第一段，默认 1024 字节截断只影响尾部。
      * lastCorrectAt 只取 is_correct=1 的最大时间：遗忘紧迫度按“距上次正确作答”衰减——
      * 刚答错的知识点若很久没有正确证据，恰恰是最该补的；用最近任意作答会把这类点误判为不紧迫。
+     * lastPracticedAt 取全部作答的最大时间：到期复习用它做冷却（05 §3.8），
+     * 刚复习过的知识点当天不重复出队。
      */
     @Select("""
             <script>
@@ -196,6 +199,7 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                    COUNT(*) AS totalCount,
                    SUM(CASE WHEN pr.is_correct = 0 THEN 1 ELSE 0 END) AS wrongCount,
                    MAX(CASE WHEN pr.is_correct = 1 THEN pr.created_at END) AS lastCorrectAt,
+                   MAX(pr.created_at) AS lastPracticedAt,
                    SUBSTRING_INDEX(GROUP_CONCAT(
                          CASE WHEN pr.is_correct = 0 THEN pr.error_type END
                          ORDER BY pr.practice_id DESC SEPARATOR ','), ',', 1) AS lastErrorType
@@ -209,6 +213,29 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
             """)
     List<KpPracticeSignal> selectKpSignals(@Param("userId") long userId,
                                            @Param("courseId") long courseId);
+
+    /**
+     * 单学生课程内按（知识点, 题目）的复习信号：该题最后一次答错时间与最后一次答对时间。
+     * 到期复习选题用（05 §3.8）：优先重做最近答错的题，其次重做最近答对的题（同题重测），
+     * 都没有时才用未练过的题兜底。行数受 学生 × 练过题数 约束，不拉明细。
+     * <p>
+     * 注意：本查询是非 script 的 @Select，比较符必须写字面 {@code <>}——
+     * 非 script 注解不做 XML 实体解码，写 {@code &lt;&gt;} 会原样直达 MySQL 报语法错误。
+     */
+    @Select("""
+            SELECT pr.kp_id AS kpId,
+                   pr.q_id AS qId,
+                   MAX(CASE WHEN pr.is_correct = 0 THEN pr.created_at END) AS lastWrongAt,
+                   MAX(CASE WHEN pr.is_correct = 1 THEN pr.created_at END) AS lastCorrectAt
+            FROM practice_record pr
+            LEFT JOIN question_bank qb ON qb.q_id = pr.q_id
+            WHERE pr.user_id = #{userId}
+              AND (qb.course_id = #{courseId} OR qb.q_id IS NULL)
+              AND pr.kp_id IS NOT NULL AND pr.kp_id <> ''
+            GROUP BY pr.kp_id, pr.q_id
+            """)
+    List<QuestionPracticeSignal> selectQuestionSignals(@Param("userId") long userId,
+                                                       @Param("courseId") long courseId);
 
     /**
      * 错因分布（班级画像 errorDist / 学生画像 errorDist）：SQL GROUP BY error_type，

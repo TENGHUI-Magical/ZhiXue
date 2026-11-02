@@ -223,13 +223,6 @@ public class PortraitService {
         LocalDateTime now = LocalDateTime.now(ZONE);
         LocalDateTime aggregateSince = now.minusDays(aggregateWindowDays);
 
-        Map<String, UserKpAgg> kpStats = new HashMap<>();
-        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(null, List.of(userId),
-                halfLifeDays, now, aggregateSince)) {
-            if (!isBlank(agg.getKpId())) {
-                kpStats.put(agg.getKpId(), agg);
-            }
-        }
         Map<String, Integer> errorDist = new HashMap<>();
         for (ErrorTypeAgg agg : practiceRecordMapper.aggregateErrorType(null, userId,
                 aggregateSince)) {
@@ -249,45 +242,14 @@ public class PortraitService {
             }
         }
 
-        // CONFIRMED 错题补事件：qId 已有练习记录的跳过（DISTINCT 投影，不拉明细）
-        List<StudentErrorRecord> uploadedErrors = errorRecordMapper.selectList(
-                new LambdaQueryWrapper<StudentErrorRecord>()
-                        .eq(StudentErrorRecord::getUserId, userId)
-                        .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
-                        .ge(StudentErrorRecord::getCreatedAt, aggregateSince)
-                        .select(StudentErrorRecord::getQId, StudentErrorRecord::getKpId,
-                                StudentErrorRecord::getErrorType,
-                                StudentErrorRecord::getConfirmedAt,
-                                StudentErrorRecord::getCreatedAt));
-        Set<String> practicedQids = new HashSet<>(
-                practiceRecordMapper.selectDistinctQidsByUser(userId));
-        for (StudentErrorRecord error : uploadedErrors) {
-            if (isBlank(error.getKpId())) {
-                continue;
-            }
-            if (!isBlank(error.getQId()) && practicedQids.contains(error.getQId())) {
-                continue; // 同一次错误已由练习记录计入，避免重复
-            }
-            LocalDateTime at = error.getConfirmedAt() != null
-                    ? error.getConfirmedAt() : error.getCreatedAt();
-            UserKpAgg stat = kpStats.computeIfAbsent(error.getKpId(), key -> {
-                UserKpAgg created = new UserKpAgg();
-                created.setUserId(userId);
-                created.setKpId(key);
-                created.setEvents(0);
-                created.setSuccessWeight(0.0);
-                created.setSeveritySum(0.0);
-                created.setErrorCount(0);
-                return created;
-            });
-            stat.setEvents((stat.getEvents() == null ? 0 : stat.getEvents()) + 1);
-            stat.setErrorCount((stat.getErrorCount() == null ? 0 : stat.getErrorCount()) + 1);
-            stat.setSeveritySum((stat.getSeveritySum() == null ? 0.0 : stat.getSeveritySum())
-                    + masteryCalculator.errorWeight(error.getErrorType(), at, now));
-            totalEvents++;
-            totalError++;
-            mergeErrorType(errorDist, error.getErrorType());
+        // per-kp 聚合（练习 + 无练习覆盖的 CONFIRMED 错题补事件），与到期复习共用同一口径
+        KpAggregatePass pass = aggregateUserKps(userId, now, aggregateSince);
+        Map<String, UserKpAgg> kpStats = pass.kpStats();
+        for (Map.Entry<String, Integer> entry : pass.uploadedErrorDist().entrySet()) {
+            errorDist.merge(entry.getKey(), entry.getValue(), Integer::sum);
         }
+        totalEvents += pass.uploadedEvents();
+        totalError += pass.uploadedErrors();
         if (kpStats.isEmpty()) {
             return null;
         }
@@ -340,6 +302,79 @@ public class PortraitService {
 
         return new PortraitView(LocalDate.now(ZONE), scores, weakest, errorDist,
                 totalEvents, totalError);
+    }
+
+    /**
+     * 单学生 per-kp 聚合（含无练习覆盖的 CONFIRMED 错题补事件），供画像与到期复习共用：
+     * 学生在同一页面看到的画像掌握度与到期复习排序里的掌握度必须同源，不能两处口径。
+     * 掌握度由调用方用同一 halfLifeDays 构造的 {@link MasteryCalculator#mastery} 计算。
+     */
+    public Map<String, UserKpAgg> userKpAggregates(long userId) {
+        LocalDateTime now = LocalDateTime.now(ZONE);
+        return aggregateUserKps(userId, now, now.minusDays(aggregateWindowDays)).kpStats();
+    }
+
+    /** 一次聚合 pass：per-kp 权重 + 错题补事件对总量/错因分布的增量，避免提取后重复查询。 */
+    private KpAggregatePass aggregateUserKps(long userId, LocalDateTime now,
+                                            LocalDateTime aggregateSince) {
+        Map<String, UserKpAgg> kpStats = new HashMap<>();
+        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(null, List.of(userId),
+                halfLifeDays, now, aggregateSince)) {
+            if (!isBlank(agg.getKpId())) {
+                kpStats.put(agg.getKpId(), agg);
+            }
+        }
+
+        // CONFIRMED 错题补事件：qId 已有练习记录的跳过（DISTINCT 投影，不拉明细）
+        List<StudentErrorRecord> uploadedErrorRecords = errorRecordMapper.selectList(
+                new LambdaQueryWrapper<StudentErrorRecord>()
+                        .eq(StudentErrorRecord::getUserId, userId)
+                        .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
+                        .ge(StudentErrorRecord::getCreatedAt, aggregateSince)
+                        .select(StudentErrorRecord::getQId, StudentErrorRecord::getKpId,
+                                StudentErrorRecord::getErrorType,
+                                StudentErrorRecord::getConfirmedAt,
+                                StudentErrorRecord::getCreatedAt));
+        Set<String> practicedQids = new HashSet<>(
+                practiceRecordMapper.selectDistinctQidsByUser(userId));
+        int uploadedEvents = 0;
+        int uploadedErrors = 0;
+        Map<String, Integer> uploadedErrorDist = new HashMap<>();
+        for (StudentErrorRecord error : uploadedErrorRecords) {
+            if (isBlank(error.getKpId())) {
+                continue;
+            }
+            if (!isBlank(error.getQId()) && practicedQids.contains(error.getQId())) {
+                continue; // 同一次错误已由练习记录计入，避免重复
+            }
+            LocalDateTime at = error.getConfirmedAt() != null
+                    ? error.getConfirmedAt() : error.getCreatedAt();
+            UserKpAgg stat = kpStats.computeIfAbsent(error.getKpId(), key -> {
+                UserKpAgg created = new UserKpAgg();
+                created.setUserId(userId);
+                created.setKpId(key);
+                created.setEvents(0);
+                created.setSuccessWeight(0.0);
+                created.setSeveritySum(0.0);
+                created.setErrorCount(0);
+                return created;
+            });
+            stat.setEvents((stat.getEvents() == null ? 0 : stat.getEvents()) + 1);
+            stat.setErrorCount((stat.getErrorCount() == null ? 0 : stat.getErrorCount()) + 1);
+            stat.setSeveritySum((stat.getSeveritySum() == null ? 0.0 : stat.getSeveritySum())
+                    + masteryCalculator.errorWeight(error.getErrorType(), at, now));
+            uploadedEvents++;
+            uploadedErrors++;
+            if (!isBlank(error.getErrorType())) {
+                uploadedErrorDist.merge(error.getErrorType(), 1, Integer::sum);
+            }
+        }
+        return new KpAggregatePass(kpStats, uploadedEvents, uploadedErrors, uploadedErrorDist);
+    }
+
+    /** per-kp 聚合 pass 结果：kpStats 供画像/到期复习，uploaded* 为错题补事件的增量。 */
+    private record KpAggregatePass(Map<String, UserKpAgg> kpStats, int uploadedEvents,
+                                   int uploadedErrors, Map<String, Integer> uploadedErrorDist) {
     }
 
     /**
@@ -452,12 +487,6 @@ public class PortraitService {
     private String kpName(Map<String, KnowledgePoint> kpMap, String kpId) {
         KnowledgePoint kp = kpMap.get(kpId);
         return kp == null ? null : kp.getName();
-    }
-
-    private void mergeErrorType(Map<String, Integer> errorDist, String errorType) {
-        if (!isBlank(errorType)) {
-            errorDist.merge(errorType, 1, Integer::sum);
-        }
     }
 
     private boolean isBlank(String value) {

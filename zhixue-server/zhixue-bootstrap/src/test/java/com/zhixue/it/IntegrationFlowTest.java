@@ -1100,6 +1100,56 @@ class IntegrationFlowTest {
         assertThat(rows).isEqualTo(1);
     }
 
+    /**
+     * 到期复习队列（真库 SQL：selectKpSignals 的 lastPracticedAt 冷却列 +
+     * selectQuestionSignals 的重做选题）。三种边界一起锁定：
+     * 刚复习过（冷却内）、未过半衰期、从未答对（走 PRP 不进到期队列）。
+     * 掌握度断言用业务区间，不写死精确浮点（契约口径见 05 §3.8）。
+     */
+    @Test
+    void dueReviewQueueSurfacesForgottenKps() throws Exception {
+        long userId = userIdOf("it_user");
+        String token = login();
+        List<String> qIds = courseQids(4);
+
+        // KP0201：40 天前答对 + 10 天前概念混淆答错 → 到期；建议重做最近答错的那道题
+        insertPractice(userId, "due-a-ok", qIds.get(0), "KP0201", true, 30, 40, null);
+        insertPractice(userId, "due-a-err", qIds.get(0), "KP0201", false, 30, 10, "CONCEPT_CONFUSION");
+        // KP0202：45 天前答对、从未答错 → 到期（只对过也该防遗忘复习）；重做最近答对的题
+        insertPractice(userId, "due-b-ok", qIds.get(1), "KP0202", true, 30, 45, null);
+        // 冷却内：40 天前答对但 3 天前又练过（错题刚复习过）→ 不出队
+        insertPractice(userId, "due-c-ok", qIds.get(2), "KP0203", true, 30, 40, null);
+        insertPractice(userId, "due-c-err", qIds.get(2), "KP0203", false, 30, 3, "METHOD_MISSING");
+        // 未过半衰期：28 天前答对 → 不出队
+        insertPractice(userId, "due-d-ok", qIds.get(3), "KP0204", true, 30, 28, null);
+        // 从未答对：只错过 → 不是“复习”是“补漏”，走 PRP，不进到期队列
+        insertPractice(userId, "due-e-err", qIds.get(3), "KP0205", false, 30, 40, "CONCEPT_CONFUSION");
+
+        HttpResponse<String> response = getJson("/api/plans/due-reviews?courseId=1", token);
+        assertThat(code(response)).isZero();
+        List<Map<String, Object>> items = JsonPath.read(body(response), "$.data");
+
+        // 排序：久未答对 + 掌握度更低的 KP0201 在 KP0202 之前；其余三种边界全部被挡住
+        assertThat(items).extracting(item -> item.get("kpId"))
+                .containsExactly("KP0201", "KP0202");
+        Map<String, Object> first = items.get(0);
+        assertThat(first.get("source")).isEqualTo("DUE_REVIEW");
+        assertThat(first.get("qId")).isEqualTo(qIds.get(0));
+        assertThat(((Number) first.get("daysSinceLastCorrect")).intValue()).isEqualTo(40);
+        // 手算：sw=0.5^(40/30)=0.397、ss=1.0×0.5^(10/30)=0.794 → Beta(2.397,2.794) 均值≈0.462
+        assertThat(((Number) first.get("mastery")).doubleValue()).isGreaterThan(0.4).isLessThan(0.55);
+        assertThat(((Number) first.get("sampleCount")).intValue()).isEqualTo(2);
+        assertThat((String) first.get("reason"))
+                .contains("距上次答对 40 天").contains("概念混淆");
+        Map<String, Object> second = items.get(1);
+        assertThat(second.get("qId")).isEqualTo(qIds.get(1));
+        assertThat((String) second.get("reason")).contains("距上次答对 45 天").contains("防遗忘复习");
+
+        // 鉴权与课程校验：未登录 40100，课程不存在 40400
+        assertThat(code(getJson("/api/plans/due-reviews?courseId=1", null))).isEqualTo(40100);
+        assertThat(code(getJson("/api/plans/due-reviews?courseId=999", token))).isEqualTo(40400);
+    }
+
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
         for (int i = 0; i < 100; i++) {
             Integer count = jdbcTemplate.queryForObject(

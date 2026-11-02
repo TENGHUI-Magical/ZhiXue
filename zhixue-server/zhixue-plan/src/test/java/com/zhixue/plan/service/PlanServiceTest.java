@@ -66,7 +66,7 @@ class PlanServiceTest {
     @BeforeEach
     void setUp() {
         service = new PlanService(planMapper, itemMapper, courseService,
-                questionBankService, practiceService, repairPriorityService);
+                questionBankService, practiceService, repairPriorityService, 7);
     }
 
     @Test

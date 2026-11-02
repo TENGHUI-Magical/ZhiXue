@@ -21,6 +21,27 @@ export interface StudyPlan {
 export const listPlans = (from: string, to: string) =>
   api.get<StudyPlan[]>("/api/plans", { from, to });
 
+/** 到期复习项（契约 DueReviewItem；判定与排序见 docs/05 §3.8） */
+export interface DueReviewItem {
+  /** 来源标识：今日任务三来源之一，到期复习排最前 */
+  source: "DUE_REVIEW";
+  kpId: string;
+  kpName?: string | null;
+  /** 建议重做的题目（优先最近答错的题） */
+  qId: string;
+  questionText?: string | null;
+  difficulty?: number | null;
+  daysSinceLastCorrect?: number;
+  /** 掌握度（与画像同口径）；窗口外无证据按先验 0.5 */
+  mastery?: number | null;
+  sampleCount?: number;
+  /** 可解释理由，如“距上次答对 40 天，已过半衰期 + 概念混淆型错误” */
+  reason?: string;
+}
+
+export const getDueReviews = (courseId: number) =>
+  api.get<DueReviewItem[]>("/api/plans/due-reviews", { courseId });
+
 export const generatePlans = (payload: {
   courseId: number;
   weekStart: string;

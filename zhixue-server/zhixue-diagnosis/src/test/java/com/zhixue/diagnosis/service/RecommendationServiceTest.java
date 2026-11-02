@@ -59,7 +59,7 @@ class RecommendationServiceTest {
     void setUp() {
         service = new RecommendationService(errorRecordService, knowledgePointService,
                 questionBankService, recommendationRecordMapper, practiceRecordMapper,
-                repairPriorityService);
+                repairPriorityService, 7);
         lenient().when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
         lenient().when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
         // 先修/后继为空时不查库；给批量查询一个空默认，避免严格 stub 误报

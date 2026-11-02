@@ -15,6 +15,7 @@ import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +51,8 @@ public class RecommendationService {
     private static final int RECENT_PRACTICE_LIMIT = 5;
     private static final int DEFAULT_AVG_DIFFICULTY = 2;
     private static final int MAX_DIFFICULTY = 3;
+    /** 05 §3.3.3：冷却不足时的第二档放宽（固定梯度，不随 cooldown-days 缩放） */
+    private static final int RELAXED_COOLDOWN_DAYS = 3;
 
     private final StudentErrorRecordService errorRecordService;
     private final KnowledgePointService knowledgePointService;
@@ -57,19 +60,22 @@ public class RecommendationService {
     private final RecommendationRecordMapper recommendationRecordMapper;
     private final PracticeRecordMapper practiceRecordMapper;
     private final RepairPriorityService repairPriorityService;
+    private final int cooldownDays;
 
     public RecommendationService(StudentErrorRecordService errorRecordService,
                                  KnowledgePointService knowledgePointService,
                                  QuestionBankService questionBankService,
                                  RecommendationRecordMapper recommendationRecordMapper,
                                  PracticeRecordMapper practiceRecordMapper,
-                                 RepairPriorityService repairPriorityService) {
+                                 RepairPriorityService repairPriorityService,
+                                 @Value("${recommend.cooldown-days:7}") int cooldownDays) {
         this.errorRecordService = errorRecordService;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
         this.recommendationRecordMapper = recommendationRecordMapper;
         this.practiceRecordMapper = practiceRecordMapper;
         this.repairPriorityService = repairPriorityService;
+        this.cooldownDays = Math.max(1, cooldownDays);
     }
 
     /**
@@ -98,8 +104,9 @@ public class RecommendationService {
 
         int avgDiff = recentAvgDifficulty(userId, resolvedKp);
         String currentQid = record == null ? null : record.getQId();
-        Set<String> cooldown7 = practicedQids(userId, resolvedCourseId, 7);
-        Set<String> cooldown3 = practicedQids(userId, resolvedCourseId, 3);
+        // 冷却基准来自 recommend.cooldown-days（05 §0），与计划排题、到期复习共用同一参数
+        Set<String> cooldownBase = practicedQids(userId, resolvedCourseId, cooldownDays);
+        Set<String> cooldownRelaxed = practicedQids(userId, resolvedCourseId, RELAXED_COOLDOWN_DAYS);
 
         List<QuestionView> same = questionBankService.listByKp(resolvedCourseId, resolvedKp);
         // 05 §3.1/§3.6：先修/后继池走 question_kp 关联（含次要关联），题量不足时同池兜底
@@ -109,17 +116,17 @@ public class RecommendationService {
         Set<String> picked = new HashSet<>();
         List<Recommendation> result = new ArrayList<>(3);
 
-        addIfPresent(result, pick(same, picked, currentQid, cooldown7, cooldown3, avgDiff, avgDiff,
+        addIfPresent(result, pick(same, picked, currentQid, cooldownBase, cooldownRelaxed, avgDiff, avgDiff,
                 d -> d <= avgDiff), "CONSOLIDATE", REASON_CONSOLIDATE, picked);
 
         List<QuestionView> variantPool = prereq.isEmpty() ? same : prereq;
-        addIfPresent(result, pick(variantPool, picked, currentQid, cooldown7, cooldown3, avgDiff,
+        addIfPresent(result, pick(variantPool, picked, currentQid, cooldownBase, cooldownRelaxed, avgDiff,
                 avgDiff, d -> Math.abs(d - avgDiff) <= 1), "VARIANT", REASON_VARIANT, picked);
 
         List<QuestionView> advancePool = successor.isEmpty() ? same : successor;
         // 05 §3.2：拓展层优先 min(3, 均值+1)，候选不足才放宽为 ≥ 均值
         int advanceTarget = Math.min(MAX_DIFFICULTY, avgDiff + 1);
-        addIfPresent(result, pick(advancePool, picked, currentQid, cooldown7, cooldown3, avgDiff,
+        addIfPresent(result, pick(advancePool, picked, currentQid, cooldownBase, cooldownRelaxed, avgDiff,
                 advanceTarget, d -> d >= avgDiff), "ADVANCE", REASON_ADVANCE, picked);
 
         // 05 §3.7：与计划生成共用补漏排序，按先修权重 × 遗忘紧迫度 × 错因可修复性重排三层，

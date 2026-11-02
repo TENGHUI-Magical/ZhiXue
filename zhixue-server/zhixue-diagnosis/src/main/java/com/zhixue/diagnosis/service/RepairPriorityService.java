@@ -215,8 +215,13 @@ public class RepairPriorityService {
                 DEFAULT_REPAIRABILITY);
     }
 
-    private String label(String errorType) {
+    /** 错因 → 展示名；同包的到期复习理由复用，避免两处映射漂移。 */
+    static String errorLabel(String errorType) {
         return ERROR_LABEL.getOrDefault(errorType.trim().toUpperCase(Locale.ROOT), "错因未归类");
+    }
+
+    private String label(String errorType) {
+        return errorLabel(errorType);
     }
 
     /** 距最后一次正确作答的整天数；null 表示从未答对（紧迫度记 1.0，最该补）。 */

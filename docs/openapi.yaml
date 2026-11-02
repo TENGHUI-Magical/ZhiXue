@@ -419,6 +419,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PlanListResponse' }
+  /api/plans/due-reviews:
+    get:
+      tags: [plan]
+      summary: 到期复习队列（05 §3.8：距上次答对已过半衰期且冷却外的知识点，附建议重做的题与可解释理由）
+      parameters:
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DueReviewListResponse' }
   /api/plans/generate:
     post:
       tags: [plan]
@@ -1109,6 +1124,30 @@ components:
               kpId: { type: string }
               sortNo: { type: integer }
               isDone: { type: boolean }
+    DueReviewListResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items: { $ref: '#/components/schemas/DueReviewItem' }
+    DueReviewItem:
+      type: object
+      properties:
+        source: { type: string, enum: [DUE_REVIEW] }
+        kpId: { type: string }
+        kpName: { type: string }
+        qId: { type: string }
+        questionText: { type: string }
+        difficulty: { type: integer, minimum: 1, maximum: 3 }
+        daysSinceLastCorrect: { type: integer, description: 距上次正确作答天数（满 24 小时计数） }
+        mastery: { type: number, description: 掌握度（与画像同口径；聚合窗口外无证据按先验 0.5） }
+        sampleCount: { type: integer, description: 该知识点累计练习次数 }
+        reason:
+          type: string
+          maxLength: 50
+          description: 到期理由（05 §3.8 模板拼接），如“距上次答对 40 天，已过半衰期 + 概念混淆型错误”
     ReviewQueueResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

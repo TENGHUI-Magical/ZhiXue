@@ -127,6 +127,27 @@
           </div>
         </el-card>
 
+        <!-- 到期复习：三来源中排最前，复习项不被新题挤掉（docs/05 §3.8） -->
+        <el-card v-if="dueReviews.length" class="section-card due-card" shadow="never">
+          <div class="section-head">
+            <span>到期复习</span>
+            <span class="due-caption">距上次答对已过半衰期，先复习再练新题</span>
+          </div>
+          <div class="due-list">
+            <div v-for="due in dueReviews" :key="due.kpId" class="due-row">
+              <div class="due-main">
+                <div class="due-kp">
+                  {{ due.kpName || due.kpId }} <span class="due-id">{{ due.kpId }}</span>
+                </div>
+                <p class="due-reason">
+                  {{ due.reason }} · 掌握度 {{ pct(due.mastery) }} · 样本 {{ due.sampleCount ?? 0 }}
+                </p>
+              </div>
+              <el-button size="small" @click="openDuePractice(due)">重做这题</el-button>
+            </div>
+          </div>
+        </el-card>
+
         <!-- 推荐练习 -->
         <el-card v-if="recommendations.length" class="section-card" header="接着练这些" shadow="never">
           <div class="rec-grid">
@@ -139,7 +160,7 @@
               <p class="rec-text">{{ rec.questionText }}</p>
               <div class="rec-foot">
                 <span class="rec-id">{{ rec.qId }}</span>
-                <el-button type="primary" size="small" @click="openPractice(rec)">开始练习</el-button>
+                <el-button size="small" @click="openPractice(rec)">开始练习</el-button>
               </div>
             </div>
           </div>
@@ -177,7 +198,7 @@ import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import { DEFAULT_COURSE_ID, getRecommendations, type Recommendation } from "../api/diagnosis";
 import { listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
 import { getPortrait, type Portrait } from "../api/portrait";
-import { listPlans, type StudyPlan } from "../api/plan";
+import { getDueReviews, listPlans, type DueReviewItem, type StudyPlan } from "../api/plan";
 
 const router = useRouter();
 
@@ -186,10 +207,12 @@ const planError = ref("");
 const portraitError = ref("");
 const latestErrorMsg = ref("");
 const recError = ref("");
+const dueError = ref("");
 const allPlans = ref<StudyPlan[]>([]);
 const portrait = ref<Portrait | null>(null);
 const latestError = ref<ErrorRecordItem | null>(null);
 const recommendations = ref<Recommendation[]>([]);
+const dueReviews = ref<DueReviewItem[]>([]);
 
 const drawerVisible = ref(false);
 const activeQId = ref("");
@@ -266,6 +289,8 @@ const pct = (value?: number | null) =>
   typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
 
 const conclusion = computed(() => {
+  // 三来源优先级（docs/05 §3.8）：到期复习 > 逾期计划 > 薄弱补漏 > 新知识推进
+  if (dueReviews.value.length) return `今日有 ${dueReviews.value.length} 个知识点到期该复习`;
   if (overdueCount.value > 0) return `先补上逾期的 ${overdueCount.value} 道计划题`;
   if (weakest.value) return `最该补的是「${weakest.value.name || weakest.value.kpId}」`;
   if (todayRemaining.value > 0) return `今天还有 ${todayRemaining.value} 道计划题`;
@@ -275,6 +300,9 @@ const conclusion = computed(() => {
 
 const evidence = computed(() => {
   const items: string[] = [];
+  if (dueReviews.value.length) {
+    items.push(`到期复习：${dueReviews.value.length} 项（距上次答对已过半衰期）`);
+  }
   if (overdueCount.value > 0) items.push(`计划：逾期 ${overdueCount.value} 题`);
   if (weakest.value) {
     items.push(
@@ -290,8 +318,18 @@ const evidence = computed(() => {
   return items;
 });
 
-type Primary = { label: string; kind: "route" | "practice"; to?: string; rec?: Recommendation };
+type Primary = {
+  label: string;
+  kind: "route" | "practice" | "due";
+  to?: string;
+  rec?: Recommendation;
+  due?: DueReviewItem;
+};
 const primary = computed<Primary | null>(() => {
+  // 到期复习最优先：遗忘是时间驱动的事实，复习项不能被新题挤掉
+  if (dueReviews.value.length) {
+    return { label: `先复习（${dueReviews.value.length} 项）`, kind: "due" };
+  }
   if (overdueCount.value > 0) {
     return { label: `继续计划（${overdueCount.value} 题）`, kind: "route", to: "/plan" };
   }
@@ -324,11 +362,12 @@ const isFirstUse = computed(
 );
 const hasPartialError = computed(
   () => !!planError.value || !!portraitError.value || !!latestErrorMsg.value || !!recError.value
+    || !!dueError.value
 );
 // 计划与画像都拿不到时，不能把失败写成“今天没有紧急任务”
 const fatalError = computed(() => !!planError.value && !!portraitError.value);
 const partialErrorText = computed(() =>
-  ["部分数据暂不可用", planError.value, portraitError.value, latestErrorMsg.value, recError.value]
+  ["部分数据暂不可用", planError.value, portraitError.value, latestErrorMsg.value, recError.value, dueError.value]
     .filter(Boolean)
     .join("；")
 );
@@ -401,15 +440,30 @@ const loadRecommendations = async () => {
   }
 };
 
+const loadDueReviews = async () => {
+  dueError.value = "";
+  try {
+    // 到期复习独立降级：失败只影响本卡片，不阻断计划/画像
+    dueReviews.value = (await getDueReviews(DEFAULT_COURSE_ID)) ?? [];
+  } catch (e) {
+    dueError.value = (e as Error).message || "到期复习加载失败";
+    dueReviews.value = [];
+  }
+};
+
 const loadAll = async () => {
   loading.value = true;
-  await Promise.all([loadPlans(), loadPortrait(), loadLatestError()]);
+  await Promise.all([loadPlans(), loadPortrait(), loadLatestError(), loadDueReviews()]);
   await loadRecommendations();
   loading.value = false;
 };
 
 const handlePrimary = () => {
   if (!primary.value) return;
+  if (primary.value.kind === "due") {
+    openDuePractice(dueReviews.value[0]);
+    return;
+  }
   if (primary.value.kind === "practice" && primary.value.rec) {
     openPractice(primary.value.rec);
     return;
@@ -421,6 +475,15 @@ const openPractice = (rec: Recommendation) => {
   activeQId.value = rec.qId;
   activeKpId.value = "";
   activeRecommendationId.value = rec.recommendationId ?? null;
+  drawerVisible.value = true;
+};
+
+const openDuePractice = (due: DueReviewItem) => {
+  if (!due) return;
+  activeQId.value = due.qId;
+  activeKpId.value = due.kpId || "";
+  // 到期复习不落 recommendation 表，作答走 source=SELF；练习记录本身就是复习回执
+  activeRecommendationId.value = null;
   drawerVisible.value = true;
 };
 
@@ -717,6 +780,44 @@ onMounted(loadAll);
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
+.due-caption {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  font-weight: 400;
+}
+.due-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.due-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface-muted);
+}
+.due-main {
+  min-width: 0;
+  flex: 1;
+}
+.due-kp {
+  color: var(--app-text);
+  font-weight: 500;
+}
+.due-id {
+  margin-left: 6px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.due-reason {
+  margin: 4px 0 0;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-xs);
+  line-height: 1.6;
+}
 @media (max-width: 1024px) {
   .hero-main {
     grid-template-columns: minmax(0, 1fr) 132px;
@@ -743,6 +844,10 @@ onMounted(loadAll);
   }
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+  .due-row {
+    flex-direction: column;
+    align-items: flex-start;
   }
   .metric-card {
     padding: 12px 0;

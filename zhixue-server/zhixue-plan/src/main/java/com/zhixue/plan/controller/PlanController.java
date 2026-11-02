@@ -1,6 +1,8 @@
 package com.zhixue.plan.controller;
 
 import com.zhixue.common.api.ApiResponse;
+import com.zhixue.diagnosis.dto.DueReviewItem;
+import com.zhixue.diagnosis.service.DueReviewService;
 import com.zhixue.plan.dto.CheckinRequest;
 import com.zhixue.plan.dto.CheckinResult;
 import com.zhixue.plan.dto.PlanGenerateRequest;
@@ -28,9 +30,11 @@ import java.util.List;
 public class PlanController {
 
     private final PlanService planService;
+    private final DueReviewService dueReviewService;
 
-    public PlanController(PlanService planService) {
+    public PlanController(PlanService planService, DueReviewService dueReviewService) {
         this.planService = planService;
+        this.dueReviewService = dueReviewService;
     }
 
     @GetMapping
@@ -40,6 +44,12 @@ public class PlanController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ApiResponse.ok(planService.list(from, to));
+    }
+
+    /** 到期复习队列（05 §3.8）：今日该复习的知识点 + 建议重做的题 + 可解释理由。 */
+    @GetMapping("/due-reviews")
+    public ApiResponse<List<DueReviewItem>> dueReviews(@RequestParam Long courseId) {
+        return ApiResponse.ok(dueReviewService.dueReviews(courseId));
     }
 
     @PostMapping("/generate")
