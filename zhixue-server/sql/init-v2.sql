@@ -197,7 +197,8 @@ CREATE TABLE IF NOT EXISTS ocr_task (
   PRIMARY KEY (task_id),
   UNIQUE KEY uk_user_client (user_id, client_token),
   KEY idx_user_status (user_id, status),
-  KEY idx_status_time (status, created_at)
+  KEY idx_status_time (status, created_at),
+  KEY idx_status_updated (status, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OCR任务表';
 
 -- ------------------------------------------------------------
@@ -220,7 +221,9 @@ CREATE TABLE IF NOT EXISTS practice_record (
   UNIQUE KEY uk_user_client (user_id, client_token),
   KEY idx_user_kp (user_id, kp_id),
   KEY idx_user_time (user_id, created_at),
-  KEY idx_q (q_id)
+  KEY idx_q (q_id),
+  KEY idx_user_q (user_id, q_id),
+  KEY idx_course_agg (q_id, user_id, kp_id, is_correct, error_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='练习作答记录表';
 
 -- ------------------------------------------------------------
@@ -321,7 +324,7 @@ CREATE TABLE IF NOT EXISTS ai_generation_log (
   PRIMARY KEY (log_pk),
   KEY idx_explain (explain_id),
   KEY idx_scene_time (scene, created_at),
-  KEY idx_pending_review (scene, reviewed_at),
+  KEY idx_pending_review (scene, reviewed_at, created_at),
   KEY idx_user_time (user_id, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI调用日志与教师评阅表';
 
