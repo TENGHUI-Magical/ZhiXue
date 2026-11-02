@@ -50,6 +50,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -1352,11 +1353,15 @@ class IntegrationFlowTest {
 
     private void insertPractice(long userId, String clientToken, String qId, String kpId,
                                 boolean correct, int costSeconds, int daysAgo, String errorType) {
+        // 播种时间截断到整秒：MySQL DATETIME(0) 会把带毫秒的值四舍五入进位，
+        // 若进位后晚于查询时刻捕获的 now，同批记录会被两次查询算成 N-1 与 N 天
+        // （CI run 41516986743 实证：90 天种子被学生端算 89 天、教师端 90 天，
+        // 1e-9 掌握度一致断言红）。截断后存储值不进位，任何查询时刻都 >= N 整天。
         jdbcTemplate.update("INSERT INTO practice_record (user_id, client_token, q_id, kp_id, "
                         + "source, is_correct, my_answer, error_type, cost_seconds, created_at) "
                         + "VALUES (?, ?, ?, ?, 'PLAN', ?, 'A', ?, ?, ?)",
                 userId, clientToken, qId, kpId, correct ? 1 : 0, errorType, costSeconds,
-                LocalDateTime.now(ZONE).minusDays(daysAgo));
+                LocalDateTime.now(ZONE).minusDays(daysAgo).truncatedTo(ChronoUnit.SECONDS));
     }
 
     /** C12 三个学生：u1 4 次/2 错/均 45s、u2 2 次全错/均 25s、u3 4 次全对/均 25s；u1 另有本周计划。 */
