@@ -20,8 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -55,17 +56,20 @@ public class RecommendationService {
     private final QuestionBankService questionBankService;
     private final RecommendationRecordMapper recommendationRecordMapper;
     private final PracticeRecordMapper practiceRecordMapper;
+    private final RepairPriorityService repairPriorityService;
 
     public RecommendationService(StudentErrorRecordService errorRecordService,
                                  KnowledgePointService knowledgePointService,
                                  QuestionBankService questionBankService,
                                  RecommendationRecordMapper recommendationRecordMapper,
-                                 PracticeRecordMapper practiceRecordMapper) {
+                                 PracticeRecordMapper practiceRecordMapper,
+                                 RepairPriorityService repairPriorityService) {
         this.errorRecordService = errorRecordService;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
         this.recommendationRecordMapper = recommendationRecordMapper;
         this.practiceRecordMapper = practiceRecordMapper;
+        this.repairPriorityService = repairPriorityService;
     }
 
     /**
@@ -117,6 +121,11 @@ public class RecommendationService {
         int advanceTarget = Math.min(MAX_DIFFICULTY, avgDiff + 1);
         addIfPresent(result, pick(advancePool, picked, currentQid, cooldown7, cooldown3, avgDiff,
                 advanceTarget, d -> d >= avgDiff), "ADVANCE", REASON_ADVANCE, picked);
+
+        // 05 §3.7：与计划生成共用补漏排序，按先修权重 × 遗忘紧迫度 × 错因可修复性重排三层，
+        // 理由改为可解释的组合模板；题目所属知识点由题池映射（题目本身不冗余 kpId 到推荐 DTO）。
+        applyRepairPriority(result, kpByQid(same, prereq, successor),
+                repairPriorityService.rank(userId, resolvedCourseId));
 
         if (result.size() < 3) {
             // 05 §3.3.3：数量不足时整批改用统一模板，提示题库待补充
@@ -174,6 +183,60 @@ public class RecommendationService {
         picked.add(question.qId());
         result.add(new Recommendation(null, question.qId(), layer, reason,
                 question.difficulty(), false, question.questionText()));
+    }
+
+    /** 题号 → 主知识点：用于把题目映射到补漏评分（题池已加载，不再回查题库）。 */
+    @SafeVarargs
+    private final Map<String, String> kpByQid(List<QuestionView>... pools) {
+        Map<String, String> mapping = new HashMap<>();
+        for (List<QuestionView> pool : pools) {
+            for (QuestionView question : pool) {
+                if (question.qId() != null && question.primaryKpId() != null) {
+                    mapping.putIfAbsent(question.qId(), question.primaryKpId());
+                }
+            }
+        }
+        return mapping;
+    }
+
+    /**
+     * 05 §3.7：按补漏评分重排推荐列表，并用同一评分生成可解释理由。
+     * 评分相同按层序、题号兜底，保证同一输入多次调用顺序稳定；题库为空时直接返回。
+     */
+    private void applyRepairPriority(List<Recommendation> result, Map<String, String> kpByQid,
+                                     RepairPriorityService.RankedCourse ranked) {
+        if (result.isEmpty()) {
+            return;
+        }
+        Map<String, RepairPriorityService.Priority> priorities = ranked.priorityByKp();
+        result.sort(Comparator
+                .comparingDouble((Recommendation item) ->
+                        score(priorities, kpByQid.get(item.qId())))
+                .reversed()
+                .thenComparingInt(item -> layerOrder(item.layer()))
+                .thenComparing(Recommendation::qId));
+        for (int i = 0; i < result.size(); i++) {
+            Recommendation item = result.get(i);
+            RepairPriorityService.Priority priority = priorities.get(kpByQid.get(item.qId()));
+            result.set(i, new Recommendation(item.recommendationId(), item.qId(), item.layer(),
+                    repairPriorityService.explain(priority, item.reason()), item.difficulty(),
+                    item.isAdopted(), item.questionText()));
+        }
+    }
+
+    private double score(Map<String, RepairPriorityService.Priority> priorities, String kpId) {
+        RepairPriorityService.Priority priority = kpId == null ? null : priorities.get(kpId);
+        return priority == null ? 0.0 : priority.score();
+    }
+
+    private int layerOrder(String layer) {
+        if ("CONSOLIDATE".equals(layer)) {
+            return 0;
+        }
+        if ("VARIANT".equals(layer)) {
+            return 1;
+        }
+        return "ADVANCE".equals(layer) ? 2 : 3;
     }
 
     private int difficulty(QuestionView q) {
@@ -237,6 +300,7 @@ public class RecommendationService {
      */
     private List<Recommendation> persist(String logId, long userId, List<Recommendation> result) {
         List<Recommendation> persisted = new ArrayList<>(result.size());
+        int rankNo = 1;
         for (Recommendation item : result) {
             RecommendationRecord row = new RecommendationRecord();
             row.setUserId(userId);
@@ -244,7 +308,7 @@ public class RecommendationService {
             row.setQId(item.qId());
             row.setLayer(item.layer());
             row.setReason(item.reason());
-            row.setRankNo(1);
+            row.setRankNo(rankNo++);
             row.setIsAdopted(0);
             try {
                 recommendationRecordMapper.insert(row);

@@ -13,6 +13,7 @@ import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.service.AnswerGrader;
 import com.zhixue.diagnosis.service.PracticeService;
+import com.zhixue.diagnosis.service.RepairPriorityService;
 import com.zhixue.plan.dto.CheckinRequest;
 import com.zhixue.plan.dto.CheckinResult;
 import com.zhixue.plan.dto.PlanGenerateRequest;
@@ -53,17 +54,20 @@ public class PlanService {
     private final CourseService courseService;
     private final QuestionBankService questionBankService;
     private final PracticeService practiceService;
+    private final RepairPriorityService repairPriorityService;
 
     public PlanService(StudyPlanMapper planMapper,
                        StudyPlanItemMapper itemMapper,
                        CourseService courseService,
                        QuestionBankService questionBankService,
-                       PracticeService practiceService) {
+                       PracticeService practiceService,
+                       RepairPriorityService repairPriorityService) {
         this.planMapper = planMapper;
         this.itemMapper = itemMapper;
         this.courseService = courseService;
         this.questionBankService = questionBankService;
         this.practiceService = practiceService;
+        this.repairPriorityService = repairPriorityService;
     }
 
     /** 按日期区间查计划；缺省为本周一至周日，明细批量补齐避免 N+1。 */
@@ -111,22 +115,17 @@ public class PlanService {
             throw new BizException(ErrorCode.PARAM_ERROR, "weekStart 不能为空");
         }
         Course course = courseService.getActiveById(request.courseId());
-        List<KnowledgePoint> kps = courseService.listActiveKnowledgePoints(course.getCourseId());
-        if (kps.isEmpty()) {
+        // 05 §3.7：补漏排序（先修 1—2 跳 × 遗忘紧迫度 × 错因可修复性）与推荐共用同一口径
+        RepairPriorityService.RankedCourse ranked =
+                repairPriorityService.rank(userId, course.getCourseId());
+        List<KnowledgePoint> orderedKps = ranked.knowledgePoints();
+        if (orderedKps.isEmpty()) {
             throw new BizException(ErrorCode.NOT_FOUND, "课程暂无知识点");
         }
         List<QuestionView> allQuestions = questionBankService.listByCourse(course.getCourseId());
         if (allQuestions.isEmpty()) {
             throw new BizException(ErrorCode.NOT_FOUND, "课程暂无题目");
         }
-
-        Map<String, Long> wrongCounts = practiceService.wrongCountByKp(userId);
-        List<KnowledgePoint> orderedKps = new ArrayList<>(kps);
-        orderedKps.sort(Comparator
-                .comparingLong((KnowledgePoint kp) -> wrongCounts.getOrDefault(kp.getKpId(), 0L))
-                .reversed()
-                .thenComparing(kp -> kp.getSortNo() == null ? 0 : kp.getSortNo())
-                .thenComparing(KnowledgePoint::getKpId));
         Map<String, List<QuestionView>> questionsByKp = new LinkedHashMap<>();
         for (KnowledgePoint kp : orderedKps) {
             questionsByKp.put(kp.getKpId(), new ArrayList<>());

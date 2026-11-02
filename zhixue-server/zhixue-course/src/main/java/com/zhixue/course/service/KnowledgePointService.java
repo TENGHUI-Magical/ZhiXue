@@ -145,4 +145,19 @@ public class KnowledgePointService {
                         .eq(KnowledgePrereq::getPrereqKpId, kpId))
                 .stream().map(KnowledgePrereq::getKpId).toList();
     }
+
+    /**
+     * 批量取某组知识点作为“后继”时的先修边（一次查询）。
+     * 供补漏排序做 1—2 跳先修遍历，避免逐知识点调用 prerequisites 造成 N+1。
+     *
+     * @param kpIds 知识点编号集合
+     * @return 以 kpId 为后继的先修边；入参为空时返回空列表
+     */
+    public List<KnowledgePrereq> listPrereqEdges(Collection<String> kpIds) {
+        if (kpIds == null || kpIds.isEmpty()) {
+            return List.of();
+        }
+        return knowledgePrereqMapper.selectList(new LambdaQueryWrapper<KnowledgePrereq>()
+                .in(KnowledgePrereq::getKpId, kpIds));
+    }
 }

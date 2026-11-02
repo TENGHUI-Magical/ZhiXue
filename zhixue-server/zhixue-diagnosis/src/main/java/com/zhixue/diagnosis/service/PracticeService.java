@@ -20,9 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -166,21 +164,6 @@ public class PracticeService {
                 .map(PracticeRecord::getQId)
                 .filter(qId -> qId != null && !qId.isBlank())
                 .collect(Collectors.toSet());
-    }
-
-    /** 近阶段错题按知识点计数；供计划生成优先选薄弱点。 */
-    public Map<String, Long> wrongCountByKp(long userId) {
-        List<PracticeRecord> records = practiceRecordMapper.selectList(
-                new LambdaQueryWrapper<PracticeRecord>()
-                        .eq(PracticeRecord::getUserId, userId)
-                        .eq(PracticeRecord::getIsCorrect, 0));
-        Map<String, Long> counts = new HashMap<>();
-        for (PracticeRecord record : records) {
-            if (record.getKpId() != null && !record.getKpId().isBlank()) {
-                counts.merge(record.getKpId(), 1L, Long::sum);
-            }
-        }
-        return counts;
     }
 
     /** 计划打卡幂等查询：返回首次 PLAN 作答；不存在返回 null。 */

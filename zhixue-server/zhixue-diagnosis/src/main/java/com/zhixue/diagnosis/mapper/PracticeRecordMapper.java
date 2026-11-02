@@ -2,6 +2,7 @@ package com.zhixue.diagnosis.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.zhixue.diagnosis.dto.ErrorTypeAgg;
+import com.zhixue.diagnosis.dto.KpPracticeSignal;
 import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.PracticeRecord;
@@ -145,6 +146,33 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                            @Param("to") LocalDateTime to,
                                            @Param("limit") int limit,
                                            @Param("offset") int offset);
+
+    /**
+     * 单学生课程内按知识点的补漏信号（PRP 排序）：总次数、错误数、最近练习时间、
+     * 最近一次错误错因。行数受 学生 × 知识点 约束，不拉明细。
+     * <p>
+     * lastErrorType 用 GROUP_CONCAT 按 practice_id 倒序取首个（GROUP_CONCAT 忽略 NULL，
+     * 因此只保留答错记录）；SUBSTRING_INDEX 只取第一段，默认 1024 字节截断只影响尾部。
+     */
+    @Select("""
+            <script>
+            SELECT pr.kp_id AS kpId,
+                   COUNT(*) AS totalCount,
+                   SUM(CASE WHEN pr.is_correct = 0 THEN 1 ELSE 0 END) AS wrongCount,
+                   MAX(pr.created_at) AS lastPracticedAt,
+                   SUBSTRING_INDEX(GROUP_CONCAT(
+                         CASE WHEN pr.is_correct = 0 THEN pr.error_type END
+                         ORDER BY pr.practice_id DESC SEPARATOR ','), ',', 1) AS lastErrorType
+            FROM practice_record pr
+            LEFT JOIN question_bank qb ON qb.q_id = pr.q_id
+            WHERE pr.user_id = #{userId}
+              AND (qb.course_id = #{courseId} OR qb.q_id IS NULL)
+              AND pr.kp_id IS NOT NULL AND pr.kp_id &lt;&gt; ''
+            GROUP BY pr.kp_id
+            </script>
+            """)
+    List<KpPracticeSignal> selectKpSignals(@Param("userId") long userId,
+                                           @Param("courseId") long courseId);
 
     /**
      * 课程维度错因分布（班级画像 errorDist）：SQL GROUP BY error_type，行数受错因类型数约束，

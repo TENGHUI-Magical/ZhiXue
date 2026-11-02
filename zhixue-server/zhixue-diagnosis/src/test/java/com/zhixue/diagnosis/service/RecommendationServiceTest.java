@@ -17,6 +17,7 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,14 +49,23 @@ class RecommendationServiceTest {
     @Mock
     private PracticeRecordMapper practiceRecordMapper;
 
+    @Mock
+    private RepairPriorityService repairPriorityService;
+
     private RecommendationService service;
 
     @BeforeEach
     void setUp() {
         service = new RecommendationService(errorRecordService, knowledgePointService,
-                questionBankService, recommendationRecordMapper, practiceRecordMapper);
+                questionBankService, recommendationRecordMapper, practiceRecordMapper,
+                repairPriorityService);
         lenient().when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
         lenient().when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
+        // 默认无补漏评分：保持原有层序，理由走固定模板
+        lenient().when(repairPriorityService.rank(anyLong(), anyLong()))
+                .thenReturn(new RepairPriorityService.RankedCourse(List.of(), Map.of()));
+        lenient().when(repairPriorityService.explain(any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
         KnowledgePoint kp = new KnowledgePoint();
         kp.setKpId("KP0201");
         kp.setName("关系模型");
@@ -143,7 +153,47 @@ class RecommendationServiceTest {
                 .hasMessageContaining("courseId");
     }
 
+    @Test
+    void repairPriorityReordersLayersAndExplainsReason() {
+        when(questionBankService.listByKp(1L, "KP0201"))
+                .thenReturn(List.of(question("Q_0201", 2)));
+        when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of("KP0200"));
+        when(questionBankService.listByKpIncludeSecondary(1L, "KP0200"))
+                .thenReturn(List.of(question("Q_0200", 1, "KP0200")));
+        when(knowledgePointService.successors("KP0201")).thenReturn(List.of("KP0202"));
+        when(questionBankService.listByKpIncludeSecondary(1L, "KP0202"))
+                .thenReturn(List.of(question("Q_0202", 3, "KP0202")));
+        when(repairPriorityService.rank(2L, 1L)).thenReturn(new RepairPriorityService.RankedCourse(
+                List.of(),
+                Map.of("KP0200", priority("KP0200", 0.9, 1),
+                        "KP0201", priority("KP0201", 0.4, 0),
+                        "KP0202", priority("KP0202", 0.2, -1))));
+        when(repairPriorityService.explain(any(), any()))
+                .thenReturn("前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误");
+
+        List<Recommendation> result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = service.recommend(null, "KP0201", 1L);
+        }
+
+        // 先修点评分最高 → VARIANT 排到 CONSOLIDATE 前；同分再按层序稳定
+        assertThat(result).extracting(Recommendation::qId)
+                .containsExactly("Q_0200", "Q_0201", "Q_0202");
+        assertThat(result.get(0).reason())
+                .isEqualTo("前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误");
+    }
+
+    private RepairPriorityService.Priority priority(String kpId, double score, int distance) {
+        return new RepairPriorityService.Priority(kpId, score, distance, distance < 0,
+                1.0, 1.0, "CONCEPT_CONFUSION", 38);
+    }
+
     private QuestionView question(String qId, int difficulty) {
-        return new QuestionView(qId, "KP0201", "单选", "题干-" + qId, List.of(), difficulty, "教材");
+        return question(qId, difficulty, "KP0201");
+    }
+
+    private QuestionView question(String qId, int difficulty, String kpId) {
+        return new QuestionView(qId, kpId, "单选", "题干-" + qId, List.of(), difficulty, "教材");
     }
 }

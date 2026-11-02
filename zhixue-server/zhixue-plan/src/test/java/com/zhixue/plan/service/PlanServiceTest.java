@@ -9,6 +9,7 @@ import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.service.PracticeService;
+import com.zhixue.diagnosis.service.RepairPriorityService;
 import com.zhixue.plan.dto.CheckinRequest;
 import com.zhixue.plan.dto.PlanView;
 import com.zhixue.plan.entity.StudyPlan;
@@ -49,6 +50,8 @@ class PlanServiceTest {
     private QuestionBankService questionBankService;
     @Mock
     private PracticeService practiceService;
+    @Mock
+    private RepairPriorityService repairPriorityService;
 
     private PlanService service;
 
@@ -63,7 +66,7 @@ class PlanServiceTest {
     @BeforeEach
     void setUp() {
         service = new PlanService(planMapper, itemMapper, courseService,
-                questionBankService, practiceService);
+                questionBankService, practiceService, repairPriorityService);
     }
 
     @Test

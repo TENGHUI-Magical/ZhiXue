@@ -1022,7 +1022,10 @@ components:
         recommendationId: { type: integer, format: int64 }
         qId: { type: string }
         layer: { type: string, enum: [CONSOLIDATE, VARIANT, ADVANCE] }
-        reason: { type: string, maxLength: 15 }
+        reason:
+          type: string
+          maxLength: 50
+          description: 补漏理由（05 §3.4），三段式：关系 + 距上次练习天数 + 最近错因
         difficulty: { type: integer, minimum: 1, maximum: 3 }
         isAdopted: { type: boolean }
         questionText: { type: string }

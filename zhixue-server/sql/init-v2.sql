@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS recommendation (
   log_id            VARCHAR(20) DEFAULT NULL            COMMENT '基于哪条错题推荐',
   q_id              VARCHAR(20) NOT NULL                COMMENT '推荐题目',
   layer             VARCHAR(20) NOT NULL                COMMENT '层次：CONSOLIDATE / VARIANT / ADVANCE',
-  reason            VARCHAR(50) NOT NULL                COMMENT '推荐理由，≤15 字，模板生成',
+  reason            VARCHAR(50) NOT NULL                COMMENT '推荐理由，≤50 字，补漏评分组合模板',
   rank_no           TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '层内序号',
   is_adopted        TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '学生是否做了这道题',
   created_at        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
