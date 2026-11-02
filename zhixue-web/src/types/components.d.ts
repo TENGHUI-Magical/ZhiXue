@@ -41,6 +41,7 @@ declare module 'vue' {
     ElUpload: typeof import('element-plus/es')['ElUpload']
     PageState: typeof import('./../components/PageState.vue')['default']
     QuestionPracticeDrawer: typeof import('./../components/QuestionPracticeDrawer.vue')['default']
+    ReviewStatus: typeof import('./../components/ReviewStatus.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ThemeSwitcher: typeof import('./../components/ThemeSwitcher.vue')['default']

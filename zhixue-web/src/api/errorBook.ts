@@ -14,6 +14,9 @@ export interface ErrorRecordItem {
   studentNote?: string | null;
   status?: "DRAFT" | "CONFIRMED" | string;
   createdAt?: string;
+  reviewResult?: "PASS" | "RETURN" | null;
+  reviewComment?: string | null;
+  reviewedAt?: string | null;
 }
 
 export interface ErrorRecordPage {
@@ -32,3 +35,6 @@ export interface ErrorRecordQuery {
 
 export const listErrorRecords = (params: ErrorRecordQuery) =>
   api.get<ErrorRecordPage>("/api/error/records", params);
+
+export const getErrorRecord = (logId: string) =>
+  api.get<ErrorRecordItem>(`/api/error/records/${encodeURIComponent(logId)}`);

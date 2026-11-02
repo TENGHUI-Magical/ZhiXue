@@ -47,7 +47,13 @@
 
       <el-card class="table-card desktop-only">
         <el-table :data="records" row-key="logId" stripe>
-          <el-table-column prop="logId" label="编号" width="150" show-overflow-tooltip />
+          <el-table-column label="编号" width="150" show-overflow-tooltip>
+            <template #default="{ row }">
+              <el-button class="error-record-link" link type="primary" @click="openDetail(row as ErrorRecordItem)">
+                {{ row.logId }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column label="知识点" width="160" show-overflow-tooltip>
             <template #default="{ row }">
               {{ row.kpId || "—" }} {{ row.kpName || "" }}
@@ -63,7 +69,8 @@
           </el-table-column>
           <el-table-column label="题干（校正后）" min-width="200" show-overflow-tooltip>
             <template #default="{ row }">
-              {{ row.correctedText || row.ocrText || "（未校正）" }}
+              <div>{{ row.correctedText || row.ocrText || "（未校正）" }}</div>
+              <ReviewStatus :result="row.reviewResult" :comment="row.reviewComment" />
             </template>
           </el-table-column>
           <el-table-column label="状态" width="100">
@@ -111,13 +118,16 @@
       <div class="mobile-only mobile-list">
         <el-card v-for="row in records" :key="row.logId" class="mobile-card">
           <div class="mobile-head">
-            <span class="mobile-id">{{ row.logId }}</span>
+            <el-button class="error-record-link mobile-id" link type="primary" @click="openDetail(row)">
+              {{ row.logId }}
+            </el-button>
             <el-tag :type="row.status === 'CONFIRMED' ? 'success' : 'info'" size="small">
               {{ statusLabel(row.status) }}
             </el-tag>
           </div>
           <div class="mobile-kp">{{ row.kpId || "—" }} {{ row.kpName || "" }}</div>
           <div class="mobile-text">{{ row.correctedText || row.ocrText || "（未校正）" }}</div>
+          <ReviewStatus :result="row.reviewResult" :comment="row.reviewComment" />
           <div class="mobile-foot">
             <el-tag v-if="row.errorType" size="small" type="warning">
               {{ errorTypeLabel(row.errorType) }}
@@ -158,6 +168,23 @@
       :kp-id="activeKpId"
       @completed="drawerVisible = false"
     />
+
+    <el-drawer
+      v-model="detailVisible"
+      title="错题详情"
+      size="520px"
+      class="error-record-drawer"
+      append-to-body
+    >
+      <el-skeleton v-if="detailLoading" :rows="4" animated />
+      <el-alert v-else-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
+      <template v-else-if="detail">
+        <h3 class="detail-title">{{ detail.logId }} {{ detail.kpName || "未关联知识点" }}</h3>
+        <p class="detail-text">{{ detail.correctedText || detail.ocrText || "（未校正）" }}</p>
+        <p v-if="detail.studentNote" class="detail-text">学生备注：{{ detail.studentNote }}</p>
+        <ReviewStatus :result="detail.reviewResult" :comment="detail.reviewComment" />
+      </template>
+    </el-drawer>
   </div>
 </template>
 
@@ -167,7 +194,8 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
-import { listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
+import ReviewStatus from "../components/ReviewStatus.vue";
+import { getErrorRecord, listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
 import { getKnowledgeGraph } from "../api/course";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
 
@@ -184,6 +212,10 @@ const kpOptions = ref<{ kpId: string; name: string }[]>([]);
 const drawerVisible = ref(false);
 const activeQId = ref("");
 const activeKpId = ref("");
+const detailVisible = ref(false);
+const detailLoading = ref(false);
+const detailError = ref("");
+const detail = ref<ErrorRecordItem | null>(null);
 
 const ERROR_LABELS: Record<string, string> = {
   CONCEPT_CONFUSION: "概念混淆",
@@ -233,6 +265,25 @@ const resetFilters = () => {
   load();
 };
 
+
+let detailSeq = 0;
+const openDetail = async (row: ErrorRecordItem) => {
+  const seq = ++detailSeq;
+  detailVisible.value = true;
+  detailLoading.value = true;
+  detailError.value = "";
+  detail.value = null;
+  try {
+    const data = await getErrorRecord(row.logId);
+    if (seq !== detailSeq) return;
+    if (!data) throw new Error("错题详情不存在");
+    detail.value = data;
+  } catch (e) {
+    if (seq === detailSeq) detailError.value = (e as Error).message || "错题详情加载失败";
+  } finally {
+    if (seq === detailSeq) detailLoading.value = false;
+  }
+};
 
 const openPractice = (row: ErrorRecordItem) => {
   if (!row.qId || !row.kpId) {
@@ -310,6 +361,15 @@ onMounted(() => {
   font-size: var(--app-fs-xs);
   cursor: help;
 }
+.detail-title {
+  margin: 0 0 12px;
+  font-size: var(--app-fs-lg);
+}
+.detail-text {
+  color: var(--app-text-secondary);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
 .mobile-list {
   display: flex;
   flex-direction: column;
@@ -348,6 +408,9 @@ onMounted(() => {
   display: none;
 }
 @media (max-width: 1024px) {
+  .error-record-link {
+    min-height: 44px;
+  }
   .page-head {
     flex-direction: column;
   }
