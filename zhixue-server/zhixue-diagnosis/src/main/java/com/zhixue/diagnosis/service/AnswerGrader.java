@@ -2,8 +2,10 @@ package com.zhixue.diagnosis.service;
 
 import com.zhixue.course.entity.QuestionBank;
 
+import java.text.Normalizer;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -16,6 +18,13 @@ public final class AnswerGrader {
     public static final String SELF = "SELF";
 
     private static final Set<String> OBJECTIVE_TYPES = Set.of("单选", "多选", "判断", "判断题");
+
+    /** 判断题等价写法 → T/F；先做整串映射，再退回字母数字归一。 */
+    private static final Map<String, String> JUDGE_ALIASES = Map.ofEntries(
+            Map.entry("对", "T"), Map.entry("正确", "T"), Map.entry("√", "T"),
+            Map.entry("是", "T"), Map.entry("Y", "T"), Map.entry("YES", "T"),
+            Map.entry("错", "F"), Map.entry("错误", "F"), Map.entry("×", "F"),
+            Map.entry("否", "F"), Map.entry("N", "F"), Map.entry("NO", "F"));
 
     private AnswerGrader() {
     }
@@ -48,9 +57,21 @@ public final class AnswerGrader {
         return new Grading(AUTO, answer.equals(normalize(myAnswer)));
     }
 
-    /** 单选/判断：去空白、转大写，只保留字母数字，避免 “B ”/“b”/“B.” 这类格式差异。 */
+    /**
+     * 单选/判断：NFKC 归一全角字符后转大写；判断题先映射 对/错、正确/错误、√/×、T/F
+     * 等等价写法到 T/F，其余只保留字母数字，避免 “B ”/“b”/“B.” 这类格式差异。
+     */
     static String normalize(String raw) {
-        return raw == null ? "" : raw.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
+        if (raw == null) {
+            return "";
+        }
+        String text = Normalizer.normalize(raw, Normalizer.Form.NFKC)
+                .trim().toUpperCase(Locale.ROOT);
+        String alias = JUDGE_ALIASES.get(text);
+        if (alias != null) {
+            return alias;
+        }
+        return text.replaceAll("[^A-Z0-9]", "");
     }
 
     /** 多选：忽略顺序与分隔符，按选项键集合比较；部分选中即错误。 */

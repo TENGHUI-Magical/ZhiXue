@@ -21,7 +21,7 @@
         <div class="stem">{{ detail.questionText }}</div>
 
         <el-radio-group
-          v-if="detail.questionType === '单选' && detail.options?.length"
+          v-if="(detail.questionType === '单选' || isJudge) && detail.options?.length"
           v-model="selectedOption"
           class="options"
         >
@@ -51,6 +51,15 @@
             {{ option.key }}. {{ option.text }}
           </el-checkbox>
         </el-checkbox-group>
+
+        <el-radio-group
+          v-else-if="isJudge"
+          v-model="selectedOption"
+          class="options"
+        >
+          <el-radio value="对" border class="option">对</el-radio>
+          <el-radio value="错" border class="option">错</el-radio>
+        </el-radio-group>
 
         <el-input
           v-else
@@ -199,21 +208,25 @@ const ERROR_TYPE_OPTIONS = [
   { value: "UNCLASSIFIED", label: "暂不确定（未归类）" }
 ];
 
+const isJudge = computed(() =>
+  ["判断", "判断题"].includes(detail.value?.questionType ?? ""));
+
 const canReveal = computed(() => {
   if (!detail.value) return false;
-  if (detail.value.questionType === "单选") return !!selectedOption.value;
+  if (detail.value.questionType === "单选" || isJudge.value) return !!selectedOption.value;
   if (detail.value.questionType === "多选") return selectedOptions.value.length > 0;
   return myAnswer.value.trim().length > 0;
 });
 
 const combinedAnswer = computed(() => {
-  if (detail.value?.questionType === "单选") return selectedOption.value;
+  if (detail.value?.questionType === "单选" || isJudge.value) return selectedOption.value;
   if (detail.value?.questionType === "多选") return selectedOptions.value.join(",");
   return myAnswer.value.trim();
 });
 
-/** 单选/多选由服务端判分；其余题型保留自评 */
-const isObjective = computed(() => ["单选", "多选"].includes(detail.value?.questionType ?? ""));
+/** 单选/多选/判断由服务端判分；其余题型保留自评 */
+const isObjective = computed(() =>
+  ["单选", "多选", "判断", "判断题"].includes(detail.value?.questionType ?? ""));
 
 const reset = () => {
   loadSeq += 1;
