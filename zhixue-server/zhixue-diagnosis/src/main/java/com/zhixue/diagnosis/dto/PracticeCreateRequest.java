@@ -4,19 +4,22 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
  * 提交作答请求（契约 openapi PracticeCreate）。
  * 计划内作答不走本接口，必须走 /api/plans/{planId}/checkin（source=PLAN）。
+ *
+ * <p>客观题（单选/多选）由服务端按题目 answerText 判分，isCorrect 可传但会被忽略；
+ * 主观题（填空/简答/编程等）保留自评，此时 isCorrect 必填。</p>
  */
 public record PracticeCreateRequest(
         @NotBlank(message = "qId 不能为空") String qId,
 
         @NotBlank(message = "kpId 不能为空") String kpId,
 
-        @NotNull(message = "isCorrect 不能为空") Boolean isCorrect,
+        @Schema(nullable = true, description = "兼容旧客户端；客观题由服务端判分并忽略此值，主观题必填")
+        Boolean isCorrect,
 
         @Size(max = 20000, message = "myAnswer 最长 20000 字") String myAnswer,
 

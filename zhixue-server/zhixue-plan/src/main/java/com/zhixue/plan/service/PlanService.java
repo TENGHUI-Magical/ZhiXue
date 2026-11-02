@@ -8,8 +8,10 @@ import com.zhixue.common.exception.BizException;
 import com.zhixue.course.dto.QuestionView;
 import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
+import com.zhixue.diagnosis.service.AnswerGrader;
 import com.zhixue.diagnosis.service.PracticeService;
 import com.zhixue.plan.dto.CheckinRequest;
 import com.zhixue.plan.dto.CheckinResult;
@@ -232,9 +234,7 @@ public class PlanService {
             if (request.myAnswer() == null || request.myAnswer().isBlank()) {
                 throw new BizException(ErrorCode.PARAM_ERROR, "已作答打卡必须提交 myAnswer");
             }
-            if (request.isCorrect() == null) {
-                throw new BizException(ErrorCode.PARAM_ERROR, "已作答打卡必须提交 isCorrect");
-            }
+            // 客观题由服务端判分，isCorrect 可不传；主观题是否必填在 answeredCheckin 里按题型判断
         }
     }
 
@@ -248,10 +248,10 @@ public class PlanService {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
         planMapper.refreshProgress(plan.getPlanId());
-        return buildResult(plan, request.qId(), false, null, null, false, true);
+        return buildResult(plan, request.qId(), false, null, null, false, true, null);
     }
 
-    /** 已作答打卡：按真实作答写 practice_record；幂等命中返回首次结果。 */
+    /** 已作答打卡：客观题服务端判分、主观题自评；幂等命中返回首次结果。 */
     private CheckinResult answeredCheckin(StudyPlan plan, StudyPlanItem item,
                                           CheckinRequest request, long userId) {
         PracticeService.PlanCompletion existing =
@@ -262,15 +262,20 @@ public class PlanService {
         }
         if (item.getIsDone() != null && item.getIsDone() == 1) {
             if (existing != null) {
-                return buildResult(plan, request.qId(), true, request.isCorrect(),
-                        existing.practiceId(), true, false);
+                AnswerGrader.Grading grading = grade(item, request);
+                return buildResult(plan, request.qId(), true, existing.isCorrect(),
+                        existing.practiceId(), true, false, grading.mode());
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
 
+        AnswerGrader.Grading grading = grade(item, request);
+        if (AnswerGrader.SELF.equals(grading.mode()) && request.isCorrect() == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "主观题必须提交自评结果");
+        }
         PracticeService.PlanCompletion completion = existing != null ? existing
                 : practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
-                request.clientToken(), request.myAnswer(), Boolean.TRUE.equals(request.isCorrect()),
+                request.clientToken(), request.myAnswer(), grading.correct(),
                 request.costSeconds(), request.errorType());
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())
@@ -281,21 +286,28 @@ public class PlanService {
             StudyPlanItem current = itemMapper.selectById(item.getItemId());
             if (current != null && current.getIsDone() != null
                     && current.getIsDone() == 1 && existing != null) {
-                return buildResult(plan, request.qId(), true, request.isCorrect(),
-                        existing.practiceId(), true, false);
+                return buildResult(plan, request.qId(), true, existing.isCorrect(),
+                        existing.practiceId(), true, false, grading.mode());
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
         // 原子重算完成数与状态，避免并发打卡把 done_count 写小
         planMapper.refreshProgress(plan.getPlanId());
-        return buildResult(plan, request.qId(), true, request.isCorrect(),
-                completion.practiceId(), existing != null, true);
+        return buildResult(plan, request.qId(), true,
+                existing != null ? existing.isCorrect() : grading.correct(),
+                completion.practiceId(), existing != null, true, grading.mode());
+    }
+
+    /** 客观题取题目 answerText 服务端判分；主观题保留客户端自评。 */
+    private AnswerGrader.Grading grade(StudyPlanItem item, CheckinRequest request) {
+        QuestionBank question = questionBankService.getById(item.getQId());
+        return AnswerGrader.grade(question, request.myAnswer(), request.isCorrect());
     }
 
     /** 回执用内存计划对象推导完成数，避免每次都再 SELECT 一次。 */
     private CheckinResult buildResult(StudyPlan plan, String qId, boolean verified,
                                       Boolean isCorrect, Long practiceId,
-                                      boolean duplicate, boolean incremented) {
+                                      boolean duplicate, boolean incremented, String gradingMode) {
         int total = plan.getPlanCount() == null ? 0 : plan.getPlanCount();
         int base = plan.getDoneCount() == null ? 0 : plan.getDoneCount();
         int done = Math.max(0, base + (incremented ? 1 : 0));
@@ -303,7 +315,7 @@ public class PlanService {
             done = Math.min(done, total);
         }
         return new CheckinResult(plan.getPlanId(), qId, done, total, verified, isCorrect,
-                practiceId, duplicate);
+                gradingMode, practiceId, duplicate);
     }
 
     private List<PlanView> toViews(List<StudyPlan> plans) {

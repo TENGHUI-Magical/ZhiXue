@@ -46,6 +46,8 @@ export interface CheckinResult {
   planCount?: number;
   verified?: boolean;
   isCorrect?: boolean | null;
+  /** AUTO=客观题服务端判分；SELF=主观题自评 */
+  gradingMode?: "AUTO" | "SELF" | null;
   practiceId?: number | null;
   duplicate?: boolean;
 }

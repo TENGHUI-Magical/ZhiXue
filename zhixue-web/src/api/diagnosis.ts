@@ -122,7 +122,8 @@ export const getRecommendations = (params: {
 export interface PracticeSubmitPayload {
   qId: string;
   kpId: string;
-  isCorrect: boolean;
+  /** 客观题可不传（服务端判分并忽略）；主观题必传自评 */
+  isCorrect?: boolean | null;
   myAnswer?: string | null;
   errorType?: string | null;
   costSeconds?: number | null;
@@ -131,9 +132,18 @@ export interface PracticeSubmitPayload {
   clientToken: string;
 }
 
-/** 提交作答（契约 POST /api/practices）：推荐题/自主练习；计划内作答走打卡接口 */
+export interface PracticeSubmitResult {
+  practiceId: number;
+  duplicate: boolean;
+  /** AUTO=客观题服务端判分；SELF=主观题自评；幂等回放时可能为空 */
+  gradingMode?: "AUTO" | "SELF" | null;
+  /** 服务端最终对错；幂等回放时来自首次记录 */
+  isCorrect?: boolean | null;
+}
+
+/** 提交作答（契约 POST /api/practices）：客观题服务端判分，主观题自评 */
 export const submitPractice = (payload: PracticeSubmitPayload) =>
-  api.post<{ practiceId: number; duplicate: boolean }>("/api/practices", payload);
+  api.post<PracticeSubmitResult>("/api/practices", payload);
 
 /** 解析单个 SSE 帧：Java 发出的是 `event:meta`（冒号后无空格），必须 trim */
 export const parseSseFrame = (frame: string, onFrame: (event: string, payload: Record<string, unknown>) => void) => {

@@ -62,7 +62,8 @@ public class PracticeService {
         long userId = StpUtil.getLoginIdAsLong();
         PracticeRecord existing = findByClientToken(userId, request.clientToken());
         if (existing != null) {
-            return new PracticeResultView(existing.getPracticeId(), true);
+            return new PracticeResultView(existing.getPracticeId(), true, null,
+                    toBoolean(existing.getIsCorrect()));
         }
 
         validateLength(request);
@@ -71,6 +72,14 @@ public class PracticeService {
         if (!Objects.equals(question.getCourseId(), kp.getCourseId())) {
             throw new BizException(ErrorCode.PARAM_ERROR, "题目与知识点不属于同一课程");
         }
+
+        // 客观题由服务端按 answerText 判分，客户端 isCorrect 不参与；主观题保留自评
+        AnswerGrader.Grading grading = AnswerGrader.grade(question, request.myAnswer(),
+                request.isCorrect());
+        if (AnswerGrader.SELF.equals(grading.mode()) && request.isCorrect() == null) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "主观题必须提交自评结果");
+        }
+        boolean isCorrect = grading.correct();
 
         String source = request.source();
         if (source == null) {
@@ -87,7 +96,7 @@ public class PracticeService {
         if (errorType != null && !ERROR_TYPES.contains(errorType)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "errorType 非法: " + errorType);
         }
-        if (Boolean.TRUE.equals(request.isCorrect())) {
+        if (isCorrect) {
             errorType = null;
         }
 
@@ -108,7 +117,7 @@ public class PracticeService {
         record.setQId(request.qId());
         record.setKpId(request.kpId());
         record.setSource(source);
-        record.setIsCorrect(Boolean.TRUE.equals(request.isCorrect()) ? 1 : 0);
+        record.setIsCorrect(isCorrect ? 1 : 0);
         record.setMyAnswer(request.myAnswer());
         record.setErrorType(errorType);
         record.setCostSeconds(request.costSeconds());
@@ -118,7 +127,8 @@ public class PracticeService {
         } catch (DuplicateKeyException e) {
             PracticeRecord winner = findByClientToken(userId, request.clientToken());
             if (winner != null) {
-                return new PracticeResultView(winner.getPracticeId(), true);
+                return new PracticeResultView(winner.getPracticeId(), true, null,
+                        toBoolean(winner.getIsCorrect()));
             }
             throw e;
         }
@@ -131,7 +141,8 @@ public class PracticeService {
                             .set(RecommendationRecord::getIsAdopted, 1));
         }
         PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
-        return new PracticeResultView(saved == null ? record.getPracticeId() : saved.getPracticeId(), false);
+        return new PracticeResultView(saved == null ? record.getPracticeId() : saved.getPracticeId(),
+                false, grading.mode(), isCorrect);
     }
 
     /** 按 userId + clientToken 查首次作答。 */
@@ -179,7 +190,7 @@ public class PracticeService {
             return null;
         }
         return new PlanCompletion(record.getPracticeId(), record.getQId(),
-                record.getSource(), true);
+                record.getSource(), true, toBoolean(record.getIsCorrect()));
     }
 
     /**
@@ -203,7 +214,7 @@ public class PracticeService {
                 throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "clientToken 已用于其他作答");
             }
             return new PlanCompletion(existing.getPracticeId(), existing.getQId(),
-                    existing.getSource(), true);
+                    existing.getSource(), true, toBoolean(existing.getIsCorrect()));
         }
 
         PracticeRecord record = new PracticeRecord();
@@ -223,19 +234,23 @@ public class PracticeService {
             if (winner != null && Objects.equals(winner.getQId(), qId)
                     && "PLAN".equals(winner.getSource())) {
                 return new PlanCompletion(winner.getPracticeId(), winner.getQId(),
-                        winner.getSource(), true);
+                        winner.getSource(), true, toBoolean(winner.getIsCorrect()));
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "clientToken 冲突");
         }
         PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
         return new PlanCompletion(saved == null ? record.getPracticeId() : saved.getPracticeId(),
-                qId, "PLAN", false);
+                qId, "PLAN", false, isCorrect);
     }
 
     private void validateLength(PracticeCreateRequest request) {
         if (request.qId().length() > 20 || request.kpId().length() > 20) {
             throw new BizException(ErrorCode.PARAM_ERROR, "qId/kpId 最长 20 字");
         }
+    }
+
+    private static Boolean toBoolean(Integer value) {
+        return value == null ? null : value == 1;
     }
 
     /**
@@ -245,7 +260,9 @@ public class PracticeService {
      * @param qId        题目编号
      * @param source     来源（PLAN）
      * @param duplicate  是否幂等命中
+     * @param isCorrect  首次记录的服务端最终对错（主观题=自评值）
      */
-    public record PlanCompletion(Long practiceId, String qId, String source, boolean duplicate) {
+    public record PlanCompletion(Long practiceId, String qId, String source,
+                                 boolean duplicate, Boolean isCorrect) {
     }
 }

@@ -463,7 +463,10 @@ paths:
                   type: boolean
                   description: 是否已完成作答；false = 仅记录进度（不计正确率/不入可信闭环）
                 myAnswer: { type: string, nullable: true, maxLength: 20000, description: answered=true 时必填 }
-                isCorrect: { type: boolean, nullable: true, description: answered=true 时必填 }
+                isCorrect:
+                  type: boolean
+                  nullable: true
+                  description: 客观题可不传（服务端按 answerText 判分并忽略）；主观题必填自评
                 costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
                 errorType:
                   type: [string, "null"]
@@ -708,6 +711,11 @@ components:
                 planCount: { type: integer }
                 verified: { type: boolean, description: 是否计入可信闭环（answered=true 才为 true） }
                 isCorrect: { type: boolean, nullable: true }
+                gradingMode:
+                  type: string
+                  nullable: true
+                  enum: [AUTO, SELF, null]
+                  description: AUTO=客观题服务端判分；SELF=主观题自评；answered=false 时为 null
                 practiceId: { type: integer, format: int64, nullable: true }
                 duplicate: { type: boolean }
     HealthResponse:
@@ -967,11 +975,14 @@ components:
         title: { type: string, nullable: true }
     PracticeCreate:
       type: object
-      required: [qId, kpId, isCorrect, clientToken]
+      required: [qId, kpId, clientToken]
       properties:
         qId: { type: string, example: Q_012 }
         kpId: { type: string, example: KP0301 }
-        isCorrect: { type: boolean }
+        isCorrect:
+          type: boolean
+          nullable: true
+          description: 兼容旧客户端；单选/多选由服务端按 answerText 判分并忽略此值，主观题必填自评
         myAnswer: { type: string, nullable: true, maxLength: 20000 }
         errorType:
           type: [string, "null"]
@@ -991,6 +1002,15 @@ components:
               properties:
                 practiceId: { type: integer, format: int64 }
                 duplicate: { type: boolean, description: 幂等命中时为 true，返回首次结果 }
+                gradingMode:
+                  type: string
+                  nullable: true
+                  enum: [AUTO, SELF, null]
+                  description: AUTO=客观题服务端判分；SELF=主观题自评；幂等回放时可为 null
+                isCorrect:
+                  type: boolean
+                  nullable: true
+                  description: 服务端最终对错；幂等回放时来自首次记录
     RecommendationListResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

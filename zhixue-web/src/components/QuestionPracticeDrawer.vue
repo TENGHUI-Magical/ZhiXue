@@ -94,16 +94,30 @@
           <div v-if="answer.analysisText" class="analysis">
             <strong>解析：</strong>{{ answer.analysisText }}
           </div>
-          <el-divider content-position="left">自评</el-divider>
+          <el-divider content-position="left">{{ isObjective ? "系统判分" : "自评" }}</el-divider>
           <div class="actions">
-            <el-button type="success" :loading="submitting" @click="submit(true)">
-              我答对了
+            <el-button
+              v-if="isObjective"
+              type="primary"
+              :loading="submitting"
+              @click="submit()"
+            >
+              提交本题（系统判分）
             </el-button>
-            <el-button type="warning" :loading="submitting" @click="submit(false)">
-              我答错了
-            </el-button>
+            <template v-else>
+              <el-button type="success" :loading="submitting" @click="submit(true)">
+                我答对了（自评）
+              </el-button>
+              <el-button type="warning" :loading="submitting" @click="submit(false)">
+                我答错了（自评）
+              </el-button>
+            </template>
           </div>
-          <div class="hint">{{ mode === 'plan' ? '自评后打卡：按真实作答计入正确率与可信闭环。' : '自评会写入练习记录；推荐题会标记为已采纳。' }}</div>
+          <div class="hint">
+            {{ isObjective
+              ? "客观题由服务端按标准答案判分，所选答案提交后不可自行改判。"
+              : "主观题无法自动判分，提交后按自评计入；请如实选择。" }}
+          </div>
         </div>
       </template>
     </PageState>
@@ -172,6 +186,9 @@ const combinedAnswer = computed(() => {
   if (detail.value?.questionType === "多选") return selectedOptions.value.join(",");
   return myAnswer.value.trim();
 });
+
+/** 单选/多选由服务端判分；其余题型保留自评 */
+const isObjective = computed(() => ["单选", "多选"].includes(detail.value?.questionType ?? ""));
 
 const reset = () => {
   loadSeq += 1;
@@ -246,7 +263,7 @@ const reveal = async () => {
   }
 };
 
-const submit = async (isCorrect: boolean) => {
+const submit = async (isCorrect?: boolean) => {
   if (!detail.value || submitting.value) return;
   const kpId = detail.value.kpId || props.kpId;
   if (!kpId) {
@@ -255,7 +272,7 @@ const submit = async (isCorrect: boolean) => {
   }
   submitting.value = true;
   try {
-    // 计划模式：打卡走 checkin（answered=true），按真实作答记正确率，不双写 /practices
+    // 计划模式：打卡走 checkin（answered=true）；客观题由服务端判分，主观题自评
     if (props.mode === "plan" && props.planId != null) {
       const costSeconds = openedAt ? Math.max(0, Math.round((Date.now() - openedAt) / 1000)) : null;
       const result = await checkinPlan(props.planId, {
@@ -267,10 +284,12 @@ const submit = async (isCorrect: boolean) => {
         costSeconds
       });
       submitToken = "";
-      ElMessage.success(result.verified
-        ? (isCorrect ? "已打卡：本题正确" : "已打卡：本题错误")
-        : "已打卡");
-      emit("completed", { isCorrect, practiceId: result.practiceId ?? undefined, verified: result.verified });
+      const actual = result.isCorrect ?? isCorrect ?? false;
+      const mode = result.gradingMode ?? (isObjective.value ? "AUTO" : "SELF");
+      ElMessage.success(mode === "AUTO"
+        ? (actual ? "已打卡：系统判分正确" : "已打卡：系统判分错误")
+        : (actual ? "已打卡：自评正确" : "已打卡：自评错误"));
+      emit("completed", { isCorrect: actual, practiceId: result.practiceId ?? undefined, verified: result.verified });
       visible.value = false;
       return;
     }
@@ -286,8 +305,14 @@ const submit = async (isCorrect: boolean) => {
       clientToken: tokenForCurrentQuestion()
     });
     submitToken = "";
-    ElMessage.success(result.duplicate ? "已提交过，返回首次结果" : "已记录作答");
-    emit("completed", { isCorrect, practiceId: result.practiceId });
+    const actual = result.isCorrect ?? isCorrect ?? false;
+    const mode = result.gradingMode ?? (isObjective.value ? "AUTO" : "SELF");
+    ElMessage.success(result.duplicate
+      ? "已提交过，返回首次结果"
+      : (mode === "AUTO"
+        ? (actual ? "系统判分：正确" : "系统判分：错误")
+        : (actual ? "已记录自评：正确" : "已记录自评：错误")));
+    emit("completed", { isCorrect: actual, practiceId: result.practiceId });
     visible.value = false;
   } catch (e) {
     ElMessage.error((e as Error).message || "提交失败");

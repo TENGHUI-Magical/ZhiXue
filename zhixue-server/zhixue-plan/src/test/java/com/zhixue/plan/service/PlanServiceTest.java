@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.service.PracticeService;
@@ -28,7 +29,10 @@ import java.time.ZoneId;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
@@ -138,6 +142,49 @@ class PlanServiceTest {
                         org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.any(),
                         org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void objectiveCheckinUsesServerGrading() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanCount(3);
+        plan.setDoneCount(0);
+        plan.setStatus("PENDING");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        StudyPlanItem item = new StudyPlanItem();
+        item.setItemId(5L);
+        item.setPlanId(1L);
+        item.setQId("Q_0201");
+        item.setKpId("KP0201");
+        item.setIsDone(0);
+        when(itemMapper.selectOne(any())).thenReturn(item);
+
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0201");
+        question.setQuestionType("单选");
+        question.setAnswerText("B");
+        when(questionBankService.getById("Q_0201")).thenReturn(question);
+        when(practiceService.findCompletionByToken(2L, "token-auto")).thenReturn(null);
+        when(practiceService.recordPlanCompletion(anyLong(), any(), any(), any(), any(),
+                anyBoolean(), any(), any()))
+                .thenReturn(new PracticeService.PlanCompletion(
+                        55L, "Q_0201", "PLAN", false, false));
+        when(itemMapper.update(any(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            // 客户端误传 isCorrect=true，服务端按 myAnswer=A 与 answerText=B 判为错
+            com.zhixue.plan.dto.CheckinResult result = service.checkin(1L,
+                    new CheckinRequest("Q_0201", "token-auto", true, "A", true, 10, null, null));
+            assertFalse(result.isCorrect());
+            assertEquals("AUTO", result.gradingMode());
+            org.mockito.Mockito.verify(practiceService)
+                    .recordPlanCompletion(2L, "Q_0201", "KP0201", "token-auto", "A",
+                            false, 10, null);
+        }
     }
 
     @Test
