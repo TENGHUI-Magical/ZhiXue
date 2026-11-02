@@ -3,6 +3,8 @@ package com.zhixue.user.config;
 import cn.dev33.satoken.stp.StpInterface;
 import com.zhixue.user.entity.SysUser;
 import com.zhixue.user.mapper.SysUserMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -13,6 +15,8 @@ import java.util.List;
  */
 @Component
 public class SaTokenRoleProvider implements StpInterface {
+
+    private static final Logger log = LoggerFactory.getLogger(SaTokenRoleProvider.class);
 
     private final SysUserMapper sysUserMapper;
 
@@ -36,7 +40,9 @@ public class SaTokenRoleProvider implements StpInterface {
                 return List.of();
             }
             return List.of(user.getRole());
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            // 失败关闭：读角色异常时按无角色处理，避免旧 token 继续获得权限
+            log.warn("读取用户角色失败，按无角色处理 loginId={}", loginId, e);
             return List.of();
         }
     }

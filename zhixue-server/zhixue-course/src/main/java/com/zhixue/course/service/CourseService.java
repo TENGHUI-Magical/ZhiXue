@@ -14,6 +14,8 @@ import com.zhixue.course.mapper.CourseChapterMapper;
 import com.zhixue.course.mapper.CourseMapper;
 import com.zhixue.course.mapper.KnowledgePointMapper;
 import com.zhixue.course.mapper.KnowledgePrereqMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -26,6 +28,8 @@ import java.util.Map;
  */
 @Service
 public class CourseService {
+
+    private static final Logger log = LoggerFactory.getLogger(CourseService.class);
 
     private final CourseMapper courseMapper;
     private final CourseChapterMapper chapterMapper;
@@ -132,7 +136,8 @@ public class CourseService {
                 }
             }
             return result;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("课程维度配置 JSON 解析失败，按空列表降级", e);
             return List.of();
         }
     }

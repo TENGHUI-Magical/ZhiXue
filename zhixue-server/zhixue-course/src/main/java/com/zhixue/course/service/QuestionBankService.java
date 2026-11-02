@@ -10,6 +10,8 @@ import com.zhixue.course.dto.QuestionView;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.mapper.QuestionBankMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
@@ -25,6 +27,8 @@ import java.util.Map;
  */
 @Service
 public class QuestionBankService {
+
+    private static final Logger log = LoggerFactory.getLogger(QuestionBankService.class);
 
     private final QuestionBankMapper questionBankMapper;
     private final ObjectMapper objectMapper;
@@ -233,7 +237,8 @@ public class QuestionBankService {
                 }
             }
             return result;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("题目选项 JSON 解析失败，按空数组降级", e);
             return List.of();
         }
     }
