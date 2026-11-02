@@ -41,6 +41,7 @@ class RagExplainRequest(BaseModel):
     misconception: Optional[str] = Field(default=None, description="常见误区，换行分隔")
     textbookPage: Optional[str] = Field(default=None, description="教材页码，来源追溯")
     questionText: Optional[str] = Field(default=None, description="学生错题题干；为空时做概念讲解")
+    answerText: Optional[str] = Field(default=None, description="题目标准答案，仅用于输出泄露校验，不进入 Prompt")
     errorType: Optional[str] = Field(default=None, description="契约五类错因英文 Key")
     courseId: int = Field(default=1, description="课程 ID")
     logId: Optional[str] = Field(default=None, description="错题记录编号；竖切阶段可为空")

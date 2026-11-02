@@ -55,6 +55,22 @@ class ExplainCacheServiceTest {
     }
 
     @Test
+    void conceptTextChangesCacheKeyAndFollowsContractHash() throws Exception {
+        var keyMethod = ExplainCacheService.class.getMethod(
+                "key", String.class, String.class, String.class, String.class);
+        String keyA = (String) keyMethod.invoke(service, "KP0201", "CONCEPT_CONFUSION", "求闭包", "概念A");
+        String keyB = (String) keyMethod.invoke(service, "KP0201", "CONCEPT_CONFUSION", "求闭包", "概念B");
+
+        String conceptHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest("概念A".getBytes(StandardCharsets.UTF_8)));
+        String raw = "KP0201CONCEPT_CONFUSION求闭包|concept:" + conceptHash;
+        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                .digest(raw.getBytes(StandardCharsets.UTF_8)));
+        assertThat(keyA).isEqualTo("zhixue:explain:cache:" + expected);
+        assertThat(keyB).isNotEqualTo(keyA);
+    }
+
+    @Test
     void getReturnsParsedSnapshot() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         ExplainCacheService.Cached cached = new ExplainCacheService.Cached(

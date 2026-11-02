@@ -314,6 +314,36 @@ class IntegrationFlowTest {
     }
 
     @Test
+    void conceptTextChangeInvalidatesPreviousExplanationCache() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-concept-version");
+        String original = jdbcTemplate.queryForObject(
+                "SELECT concept_text FROM knowledge_point WHERE kp_id = 'KP0201'", String.class);
+        assertThat(original).isNotBlank();
+        try {
+            String first = body(explain(token, logId));
+            assertThat(first).contains("第一段讲解").doesNotContain("\"cached\":true");
+            assertThat(AI_CALLS.get()).isEqualTo(1);
+
+            String second = body(explain(token, logId));
+            assertThat(second).contains("\"model\":\"cache\"", "\"cached\":true");
+            assertThat(AI_CALLS.get()).isEqualTo(1);
+
+            jdbcTemplate.update("UPDATE knowledge_point SET concept_text = ? WHERE kp_id = 'KP0201'",
+                    "概念B_MARKER：只用于验证缓存版本失效");
+            String third = body(explain(token, logId));
+            assertThat(third).contains("概念B讲解").doesNotContain("\"model\":\"cache\"");
+            assertThat(AI_CALLS.get()).isEqualTo(2);
+
+            String fourth = body(explain(token, logId));
+            assertThat(fourth).contains("概念B讲解", "\"model\":\"cache\"", "\"cached\":true");
+            assertThat(AI_CALLS.get()).isEqualTo(2);
+        } finally {
+            jdbcTemplate.update("UPDATE knowledge_point SET concept_text = ? WHERE kp_id = 'KP0201'", original);
+        }
+    }
+
+    @Test
     void explainRateLimitReturns42900AfterTenRequests() throws Exception {
         String token = login();
         String logId = createAndConfirm(token, "ct-rate");
@@ -1782,7 +1812,8 @@ class IntegrationFlowTest {
                 write(output, "event: chunk\ndata: {\"content\":\"第二段讲解。\"}\n\n");
                 return;
             }
-            write(output, "event: chunk\ndata: {\"content\":\"第一段讲解。\"}\n\n");
+            String chunk = requestBody.contains("概念B_MARKER") ? "概念B讲解。" : "第一段讲解。";
+            write(output, "event: chunk\ndata: {\"content\":\"" + chunk + "\"}\n\n");
             write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
                     + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\",\"tokens\":10,\"promptTokens\":5}\n\n");
         } catch (IOException ignored) {

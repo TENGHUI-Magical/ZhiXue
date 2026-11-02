@@ -117,6 +117,12 @@ _PAGE_RE = re.compile(
     re.IGNORECASE,
 )
 _SENTENCE_END_RE = re.compile(r"[。！？!?；;\n]")
+_OPTION_LEAK_RE = re.compile(
+    r"(?:正确答案|正确选项|答案|应选|选)\s*(?:是|为|选|：|:)?\s*([A-D])(?:\s*项)?(?![A-Za-z])",
+    re.IGNORECASE,
+)
+_OPTION_ANSWER_RE = re.compile(r"^\s*([A-D])(?:\s*项)?\s*$", re.IGNORECASE)
+_NEGATION_BEFORE_RE = re.compile(r"(?:不能|不应|不|别|排除)\s*$")
 
 
 def _page_bounds(match: re.Match) -> tuple[int, int]:
@@ -147,8 +153,34 @@ def sanitize_page_citations(text: str, textbook_page: str | None) -> str:
     return _PAGE_RE.sub(replace, text or "")
 
 
-async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None) -> AsyncIterator[str]:
-    """逐句校验，避免 P999 等引用跨 delta 绕过；不缓冲整篇讲解。"""
+def _normalized_answer(text: str) -> str:
+    return "".join(ch.lower() for ch in (text or "") if ch.isalnum())
+
+
+def is_answer_leak(sentence: str, answer_text: str | None) -> bool:
+    """识别答案原文、归一化原文及选项泄露句式；解释性/否定引用不误判。"""
+    answer = (answer_text or "").strip()
+    if not answer or not sentence:
+        return False
+    option = _OPTION_ANSWER_RE.match(answer)
+    if option:
+        expected = option.group(1).upper()
+        for match in _OPTION_LEAK_RE.finditer(sentence):
+            if match.group(1).upper() != expected:
+                continue
+            if _NEGATION_BEFORE_RE.search(sentence[:match.start()]):
+                continue
+            return True
+        return False
+    if answer.lower() in sentence.lower():
+        return True
+    normalized = _normalized_answer(answer)
+    return len(normalized) >= 4 and normalized in _normalized_answer(sentence)
+
+
+async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
+                       answer_text: str | None = None) -> AsyncIterator[str]:
+    """逐句校验页码并删除答案泄露句；不缓冲整篇讲解。"""
     buf = ""
     async for delta in stream:
         buf += delta
@@ -158,9 +190,17 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None) ->
                 break
             end = boundary.end()
             sentence, buf = buf[:end], buf[end:]
-            yield sanitize_page_citations(sentence, textbook_page)
+            clean = sanitize_page_citations(sentence, textbook_page)
+            if is_answer_leak(clean, answer_text):
+                logger.warning("检测到答案泄露句，已删除该句")
+            else:
+                yield clean
     if buf:
-        yield sanitize_page_citations(buf, textbook_page)
+        clean = sanitize_page_citations(buf, textbook_page)
+        if not is_answer_leak(clean, answer_text):
+            yield clean
+        else:
+            logger.warning("检测到答案泄露句，已删除该句")
 
 
 def _template_chunks(req: RagExplainRequest) -> list[str]:
@@ -235,7 +275,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                 async for delta in _guard_pages(_buffered(_stream_openai(
                         f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
                         settings.deepseek_api_key, settings.llm_model_main, messages,
-                        usage, include_usage=True)), req.textbookPage):
+                        usage, include_usage=True)), req.textbookPage, req.answerText):
                     delivered = True
                     yield _sse("chunk", {"content": delta})
                 if delivered:
@@ -263,16 +303,18 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
             async for delta in _guard_pages(_buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
                     settings.glm_api_key, settings.llm_model_fallback, messages, usage)),
-                    req.textbookPage):
+                    req.textbookPage, req.answerText):
                 delivered = True
                 yield _sse("chunk", {"content": delta})
-            yield _sse("done", {"degraded": True, "blocked": False,
-                                "modelUsed": settings.llm_model_fallback,
-                                "promptVersion": PROMPT_VERSION,
-                                "tokens": int(usage.get("completion_tokens", 0)),
-                                "promptTokens": int(usage.get("prompt_tokens", 0)),
-                                "elapsedMs": int((time.time() - start) * 1000)})
-            return
+            if delivered:
+                yield _sse("done", {"degraded": True, "blocked": False,
+                                    "modelUsed": settings.llm_model_fallback,
+                                    "promptVersion": PROMPT_VERSION,
+                                    "tokens": int(usage.get("completion_tokens", 0)),
+                                    "promptTokens": int(usage.get("prompt_tokens", 0)),
+                                    "elapsedMs": int((time.time() - start) * 1000)})
+                return
+            logger.warning("L2 输出全部被过滤，降级本地模板")
         except Exception as exc:
             if delivered:
                 # 已输出部分 GLM 正文时直接中断，由 Java 标记 L3，不再追加模板造成混合正文

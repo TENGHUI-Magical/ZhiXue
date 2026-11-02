@@ -2,7 +2,9 @@ package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.controller.DiagnosisController;
 import com.zhixue.diagnosis.dto.ExplainRequest;
@@ -23,6 +25,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -56,6 +59,9 @@ class RagExplainServiceTest {
     private StudentErrorRecordService errorRecordService;
 
     @Mock
+    private QuestionBankService questionBankService;
+
+    @Mock
     private AiGenerationLogMapper aiGenerationLogMapper;
 
     @Mock
@@ -71,8 +77,8 @@ class RagExplainServiceTest {
     @BeforeEach
     void setUp() {
         AiClientProperties properties = new AiClientProperties("http://127.0.0.1:1", 1);
-        service = new RagExplainService(knowledgePointService, errorRecordService, properties,
-                new ObjectMapper(), aiGenerationLogMapper, explainCacheService);
+        service = new RagExplainService(knowledgePointService, errorRecordService, questionBankService,
+                properties, new ObjectMapper(), aiGenerationLogMapper, explainCacheService);
         DiagnosisController controller = new DiagnosisController(
                 mock(KpMappingService.class), service, mock(RecommendationService.class),
                 mock(OcrService.class), explainRateLimiter, mock(ExplainQueryService.class));
@@ -110,7 +116,7 @@ class RagExplainServiceTest {
     @Test
     void cacheHitReplaysFullContentWithoutCallingUpstream() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "缓存中的完整讲解", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -140,7 +146,7 @@ class RagExplainServiceTest {
     @Test
     void cacheHitSanitizesPagesOutsideKnowledgePointWhitelist() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "参见教材P999，合法 P34。", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -164,7 +170,7 @@ class RagExplainServiceTest {
     @Test
     void forceRefreshSkipsCacheRead() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
 
         String body = BODY.replace("\"questionText\"", "\"forceRefresh\":true,\"questionText\"");
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -175,6 +181,19 @@ class RagExplainServiceTest {
         }
 
         verify(explainCacheService, never()).get(anyString());
+    }
+
+    @Test
+    void upstreamPayloadCarriesAnswerTextForOutputGuard() {
+        stubRecordAndKp("关系模型的核心概念");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        ExplainRequest request = new ExplainRequest();
+        request.setLogId("EL_1");
+
+        Map<String, Object> payload = service.buildUpstreamPayload(
+                request, kp, "CONCEPT_CONFUSION", "t-test", "求闭包", "B");
+
+        assertThat(payload).containsEntry("answerText", "B");
     }
 
     @Test
@@ -193,6 +212,7 @@ class RagExplainServiceTest {
     private void stubRecordAndKp(String conceptText) {
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId("EL_1");
+        record.setQId("Q_0201");
         record.setKpId("KP0201");
         record.setErrorType("CONCEPT_CONFUSION");
         record.setCorrectedText("求闭包（校正）");
@@ -202,7 +222,10 @@ class RagExplainServiceTest {
         kp.setConceptText(conceptText);
         kp.setTextbookPage("P34");
 
-        when(errorRecordService.getConfirmed("EL_1")).thenReturn(record);
+        lenient().when(errorRecordService.getConfirmed("EL_1")).thenReturn(record);
         when(knowledgePointService.getById("KP0201")).thenReturn(kp);
+        QuestionBank question = new QuestionBank();
+        question.setAnswerText("B");
+        lenient().when(questionBankService.getById("Q_0201")).thenReturn(question);
     }
 }

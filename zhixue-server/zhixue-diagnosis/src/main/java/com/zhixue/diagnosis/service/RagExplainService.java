@@ -7,7 +7,9 @@ import com.zhixue.common.api.ErrorCode;
 import jakarta.annotation.PreDestroy;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.KnowledgePointService;
+import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.dto.ExplainRequest;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
@@ -86,6 +88,7 @@ public class RagExplainService {
 
     private final KnowledgePointService knowledgePointService;
     private final StudentErrorRecordService errorRecordService;
+    private final QuestionBankService questionBankService;
     private final AiClientProperties aiClientProperties;
     private final ObjectMapper objectMapper;
     private final AiGenerationLogMapper aiGenerationLogMapper;
@@ -104,12 +107,14 @@ public class RagExplainService {
 
     public RagExplainService(KnowledgePointService knowledgePointService,
                              StudentErrorRecordService errorRecordService,
+                             QuestionBankService questionBankService,
                              AiClientProperties aiClientProperties,
                              ObjectMapper objectMapper,
                              AiGenerationLogMapper aiGenerationLogMapper,
                              ExplainCacheService explainCacheService) {
         this.knowledgePointService = knowledgePointService;
         this.errorRecordService = errorRecordService;
+        this.questionBankService = questionBankService;
         this.aiClientProperties = aiClientProperties;
         this.objectMapper = objectMapper;
         this.aiGenerationLogMapper = aiGenerationLogMapper;
@@ -195,11 +200,13 @@ public class RagExplainService {
             return emitter;
         }
 
-        // 契约 §6：sha1(kpId + errorType + correctedText)，TTL 7 天；forceRefresh 跳过读缓存。
+        String answerText = resolveAnswerText(record);
+
+        // 契约 §6：sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天；forceRefresh 跳过读缓存。
         // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText；
         // 同一份文本同时用于缓存键和上游 prompt，避免“按 A 生成、按 B 缓存”。
         String cacheText = resolveCacheText(record, request);
-        String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText);
+        String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText, kp.getConceptText());
         if (!Boolean.TRUE.equals(request.getForceRefresh())) {
             ExplainCacheService.Cached cached = explainCacheService.get(cacheKey);
             if (cached != null && cached.content() != null && !cached.content().isBlank()) {
@@ -267,7 +274,8 @@ public class RagExplainService {
         sendMeta(emitter, explainId, traceId, META_MODEL);
         sendSource(emitter, kp);
 
-        Map<String, Object> payload = buildUpstreamPayload(request, kp, errorType, traceId, cacheText);
+        Map<String, Object> payload = buildUpstreamPayload(
+                request, kp, errorType, traceId, cacheText, answerText);
         Flux<ServerSentEvent<String>> stream = webClient.post()
                 .uri("/api/rag/explain")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -514,6 +522,20 @@ public class RagExplainService {
         send(emitter, "error", error);
     }
 
+    /** 仅把答案用于 AI 输出泄露校验；无 qId 或题目失效时不阻断既有讲解。 */
+    private String resolveAnswerText(StudentErrorRecord record) {
+        if (record.getQId() == null || record.getQId().isBlank()) {
+            return null;
+        }
+        try {
+            QuestionBank question = questionBankService.getById(record.getQId());
+            return question == null ? null : question.getAnswerText();
+        } catch (BizException exc) {
+            log.warn("题目答案不可用，跳过本次输出泄露校验 logId={} qId={}", record.getLogId(), record.getQId());
+            return null;
+        }
+    }
+
     /**
      * 解析本轮讲解使用的题干文本：CONFIRMED 记录的 correctedText 优先，空则回退请求 questionText。
      * 该值同时用于缓存键和上游 prompt，保证“生成依据”与“缓存键”一致。
@@ -524,9 +546,9 @@ public class RagExplainService {
                 ? request.getQuestionText() : correctedText;
     }
 
-    private Map<String, Object> buildUpstreamPayload(ExplainRequest request, KnowledgePoint kp,
-                                                     String errorType, String traceId,
-                                                     String questionText) {
+    Map<String, Object> buildUpstreamPayload(ExplainRequest request, KnowledgePoint kp,
+                                             String errorType, String traceId,
+                                             String questionText, String answerText) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("traceId", traceId);
         payload.put("kpId", kp.getKpId());
@@ -535,6 +557,7 @@ public class RagExplainService {
         payload.put("misconception", kp.getMisconception());
         payload.put("textbookPage", kp.getTextbookPage());
         payload.put("questionText", questionText);
+        payload.put("answerText", answerText);
         payload.put("errorType", errorType);
         payload.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
         payload.put("logId", request.getLogId());

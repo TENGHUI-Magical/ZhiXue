@@ -44,10 +44,10 @@ def _parse(frames: list[str]) -> list[tuple[str, dict]]:
     return events
 
 
-def _collect() -> list[tuple[str, dict]]:
+def _collect(payload: dict | None = None) -> list[tuple[str, dict]]:
     async def run() -> list[str]:
         frames = []
-        async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
+        async for frame in rag_service.stream_explain(RagExplainRequest(**(payload or PAYLOAD))):
             frames.append(frame)
         return frames
 
@@ -172,3 +172,51 @@ def test_stream_explain_sanitizes_model_pages_before_emitting(
     assert "P999" not in content
     assert "教材相关章节" in content
     assert "P34" in content
+
+
+@pytest.mark.parametrize("sentence,answer,expected", [
+    ("答案是B。", "B", True),
+    ("正确选项为C项。", "C", True),
+    ("选 D。", "D", True),
+    ("正确答案为 B 项。", "B", True),
+    ("DELETE  FROM 用于删数据。", "DELETE FROM", True),
+    ("B 选项错在没考虑空值。", "B", False),
+    ("不能选 B，因为它忽略空值。", "B", False),
+    ("不应选B。", "B", False),
+    ("答案不是 B，先别急着下结论。", "B", False),
+    ("这里讨论的是 SQL 的 BETWEEN。", "B", False),
+])
+def test_answer_leak_controlled_samples(sentence: str, answer: str, expected: bool) -> None:
+    detector = getattr(rag_service, "is_answer_leak")
+    assert detector(sentence, answer) is expected
+
+
+def test_output_guard_drops_only_leaking_sentences() -> None:
+    async def run() -> str:
+        async def source():
+            yield "先看候选码的最小性。"
+            yield "答案是B。"
+            yield "再检查真子集。"
+
+        guard = getattr(rag_service, "_guard_pages")
+        return "".join([delta async for delta in guard(source(), "P38", "B")])
+
+    assert asyncio.run(run()) == "先看候选码的最小性。再检查真子集。"
+
+
+def test_stream_explain_falls_back_to_template_when_all_sentences_leak(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        yield "答案是B。"
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+    events = _collect({**PAYLOAD, "answerText": "B"})
+    content = "".join(data["content"] for name, data in events if name == "chunk")
+    levels = [data["level"] for name, data in events if name == "degraded"]
+    done = [data for name, data in events if name == "done"][-1]
+    assert levels == ["L3"]
+    assert done["modelUsed"] == "local-template"
+    assert "答案是B" not in content
