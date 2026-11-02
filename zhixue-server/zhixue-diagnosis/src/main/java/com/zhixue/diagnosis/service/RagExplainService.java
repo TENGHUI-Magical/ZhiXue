@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * RAG 流式讲解网关（契约 V2：POST /api/diagnosis/explain，SSE）。
@@ -64,6 +67,11 @@ public class RagExplainService {
 
     /** meta.model 暂用 auto；接入模型配置同步后改为真实模型名 */
     private static final String META_MODEL = "auto";
+
+    private static final Pattern PAGE_CITATION = Pattern.compile(
+            "(?<![A-Za-z0-9])P\\s*(\\d+)(?:\\s*[—–-]\\s*(\\d+))?"
+                    + "|第\\s*(\\d+)(?:\\s*[—–-]\\s*(\\d+))?\\s*页",
+            Pattern.CASE_INSENSITIVE);
 
     /** SSE 帧显式 UTF-8：TEXT_PLAIN 默认 ISO-8859-1 会把中文写成问号 */
     private static final MediaType TEXT_PLAIN_UTF8 =
@@ -201,11 +209,12 @@ public class RagExplainService {
                         sendSource(emitter, source);
                     }
                 }
-                send(emitter, "delta", Map.of("text", cached.content()));
+                String replay = sanitizePageCitations(cached.content(), kp.getTextbookPage());
+                send(emitter, "delta", Map.of("text", replay));
                 sendDone(emitter, explainId, start, 0, true);
                 writeLog(explainId, traceId, userId, request.getLogId(), kp.getKpId(),
                         "cache", false, null, System.currentTimeMillis() - start,
-                        cached.promptVersion(), 0, 0, cached.content(), false,
+                        cached.promptVersion(), 0, 0, replay, false,
                         new AtomicBoolean(false));
                 emitter.complete();
                 return emitter;
@@ -409,6 +418,43 @@ public class RagExplainService {
         source.put("textbookPage", kp.getTextbookPage());
         source.put("title", kp.getName());
         send(emitter, "source", source);
+    }
+
+    /** 缓存整文回放前按当前知识点页码白名单清洗，避免旧缓存绕过 AI 侧校验。 */
+    private String sanitizePageCitations(String content, String textbookPage) {
+        if (content == null || content.isEmpty()) {
+            return content;
+        }
+        Set<Integer> allowed = pageNumbers(textbookPage);
+        Matcher matcher = PAGE_CITATION.matcher(content);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            if (!allowed.containsAll(pageNumbers(matcher.group()))) {
+                String prefix = content.substring(0, matcher.start());
+                String replacement = prefix.endsWith("教材") || prefix.endsWith("》")
+                        ? "相关章节" : "教材相关章节";
+                matcher.appendReplacement(out, replacement);
+            }
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    private Set<Integer> pageNumbers(String text) {
+        Set<Integer> pages = new HashSet<>();
+        if (text == null) {
+            return pages;
+        }
+        Matcher matcher = PAGE_CITATION.matcher(text);
+        while (matcher.find()) {
+            int start = Integer.parseInt(matcher.group(1) != null ? matcher.group(1) : matcher.group(3));
+            String endValue = matcher.group(2) != null ? matcher.group(2) : matcher.group(4);
+            int end = endValue == null ? start : Integer.parseInt(endValue);
+            for (int page = Math.min(start, end); page <= Math.max(start, end); page++) {
+                pages.add(page);
+            }
+        }
+        return pages;
     }
 
     /** 上游 ref 形如「《数据库系统概论（第6版）》P38」，只取页码部分回给前端。 */

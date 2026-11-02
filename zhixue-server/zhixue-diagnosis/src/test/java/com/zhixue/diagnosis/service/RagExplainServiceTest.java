@@ -138,6 +138,30 @@ class RagExplainServiceTest {
     }
 
     @Test
+    void cacheHitSanitizesPagesOutsideKnowledgePointWhitelist() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
+        when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
+                "参见教材P999，合法 P34。", "deepseek-chat", "v1",
+                List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
+                "2026-10-26T12:00:00"));
+
+        MvcResult result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = mockMvc.perform(post("/api/diagnosis/explain")
+                            .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+            result = mockMvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
+        }
+
+        String body = result.getResponse().getContentAsString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(body).doesNotContain("P999", "教材教材相关章节");
+        assertThat(body).contains("参见教材相关章节", "P34");
+    }
+
+    @Test
     void forceRefreshSkipsCacheRead() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
         when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）")).thenReturn("k1");
