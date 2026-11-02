@@ -1,5 +1,5 @@
 # 智学领航 · 演示库统一入口（本地 MySQL 8）
-# 用途：按章节顺序导入第1—4章种子 + 演示账号 + 演示练习/错题/评阅数据。
+# 用途：按章节顺序导入第1—5章种子 + 演示账号 + 演示练习/错题/评阅数据。
 # 幂等：所有种子均为 upsert；默认不删库，只有显式 -Recreate -Force 才重建。
 # 用法：
 #   $env:DB_PASSWORD = '<本机 root 口令>'
@@ -43,8 +43,11 @@ $files = @(
     'seed-question-ch02-ch03.sql',
     'seed-kp-ch04.sql',
     'seed-question-ch04.sql',
+    'seed-kp-ch05.sql',
+    'seed-question-ch05.sql',
     'seed-prereq-ch01.sql',
     'seed-prereq-ch04.sql',
+    'seed-prereq-ch05.sql',
     'seed-demo-users.sql',
     'seed-demo-data.sql'
 )
