@@ -383,7 +383,7 @@ paths:
   /api/portraits/me:
     get:
       tags: [portrait]
-      summary: 当前学生画像（最新快照）
+      summary: 当前学生画像（实时聚合）
       responses:
         '200':
           description: 成功

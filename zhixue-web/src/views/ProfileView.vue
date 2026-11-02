@@ -53,7 +53,7 @@
             <div class="learning-copy">
               <div class="card-head">
                 <span>学习概览</span>
-                <span class="card-sub">{{ portrait?.statDate || "尚无快照" }}</span>
+                <span class="card-sub">{{ portrait?.statDate || "暂无数据" }}</span>
               </div>
               <h3>{{ learningTitle }}</h3>
               <p>{{ learningSub }}</p>
@@ -165,7 +165,7 @@ const learningTitle = computed(() =>
 const learningSub = computed(() => {
   if (!portrait.value) return "完成一次错题诊断并确认后，这里会出现你的学习概览。";
   if (!weakest.value) return "已完成练习，但样本还不足以排出薄弱点；继续完成诊断与计划。";
-  return `画像快照 ${portrait.value.statDate || "—"} · 训练样本 ${portrait.value.totalPractice ?? 0} 次 · 已确认错题 ${portrait.value.totalError ?? 0} 条`;
+  return `画像数据（截至 ${portrait.value.statDate || "—"}）· 训练样本 ${portrait.value.totalPractice ?? 0} 次 · 已确认错题 ${portrait.value.totalError ?? 0} 条`;
 });
 const roleLabel = computed(() => {
   if (profile.value.role === "TEACHER") return "教师";

@@ -43,7 +43,7 @@ import java.util.Set;
 /**
  * 学情画像服务。
  * <p>
- * 有快照读最新快照；无快照时对学生个人画像做一次只读的即时汇总（不落库），
+ * 有快照读最新快照（预留，当前无写入方）；无快照时对学生个人画像做一次只读的即时汇总（不落库），
  * 保证前端首访有数据。班级画像为课程维度实时聚合 MVP，口径见实现注释。
  * <p>
  * 掌握度按 docs/05 §2 计算：错因严重度 × 30 天半衰，训练事件 = 练习作答
@@ -90,7 +90,10 @@ public class PortraitService {
         this.minSamples = Math.max(1, minSamples);
     }
 
-    /** 当前学生最新画像；无快照且无作答时返回 null（前端空态）。 */
+    /**
+     * 当前学生最新画像；优先读最新快照（预留，当前无写入方），无快照时实时聚合；
+     * 无作答时返回 null。
+     */
     public PortraitView me() {
         long userId = StpUtil.getLoginIdAsLong();
         LearningPortraitSnapshot snapshot = snapshotMapper.selectOne(
@@ -201,7 +204,7 @@ public class PortraitService {
     }
 
     /**
-     * 即时画像（无快照时）。
+     * 即时画像（无快照时的正常路径，实时聚合练习与 CONFIRMED 错题）。
      * 训练事件互斥：练习记录一条算一条；CONFIRMED 错题若已有同 qId 的练习记录则跳过，
      * 否则补一条错误事件；DRAFT 错题不参与（查询已按 status 过滤）。
      */
@@ -315,6 +318,11 @@ public class PortraitService {
                 totalEvents, totalError);
     }
 
+    /**
+     * 从快照还原画像（**预留未启用**）。
+     * 当前 learning_portrait_snapshot 没有写入方（无 @Scheduled / 无插入路径），
+     * 正常请求走 transientPortrait；启用前不得据此宣称"每日快照"。
+     */
     private PortraitView fromSnapshot(LearningPortraitSnapshot snapshot) {
         Map<String, Double> scores = parseNumberMap(snapshot.getDimensionScores(), "dimensionScores");
         Map<String, Integer> errors = parseIntMap(snapshot.getErrorDist(), "errorDist");
