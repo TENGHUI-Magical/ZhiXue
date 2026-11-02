@@ -14,7 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * 讲解结果缓存（契约 V2 §6）：key = sha256(kpId + errorType + correctedText)，TTL 7 天。
+ * 讲解结果缓存（契约 V2 §6）：key = sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天。
  * <p>
  * 只缓存 L1 正常完成、未拦截、有正文的结果；Redis 不可用时跳过缓存直调模型，绝不返回 500。
  */
@@ -46,6 +46,13 @@ public class ExplainCacheService {
      */
     public String key(String kpId, String errorType, String questionText) {
         String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText);
+        return KEY_PREFIX + sha256(raw);
+    }
+
+    /** 概念原文参与版本计算：concept_text 改变后，旧 key 不再命中。 */
+    public String key(String kpId, String errorType, String questionText, String conceptText) {
+        String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText)
+                + "|concept:" + sha256(nullToEmpty(conceptText));
         return KEY_PREFIX + sha256(raw);
     }
 

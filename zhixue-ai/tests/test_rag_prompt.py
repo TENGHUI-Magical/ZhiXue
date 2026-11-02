@@ -24,3 +24,10 @@ def test_prompt_without_hits_keeps_original_shape():
     user = _prompt(req, [])[1]["content"]
     assert "检索切片" not in user
     assert "概念原文" in user
+
+
+def test_prompt_never_includes_answer_text():
+    req = RagExplainRequest(kpId="KP0201", kpName="关系模型", conceptText="概念原文",
+                            answerText="SECRET_ANSWER")
+    user = _prompt(req, [])[1]["content"]
+    assert "SECRET_ANSWER" not in user

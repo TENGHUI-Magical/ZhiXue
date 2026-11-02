@@ -29,7 +29,7 @@
 - 只用 `conceptText/misconception/textbookPage` 中的事实；没有就承认“资料不足”。
 - 不输出完整作业答案；不编造引用；不生成“实验表明”等结论。
 - 引用格式：`《数据库系统概论（第6版）》Pxx`；`sources` 由 Java/Python 结构化下发，不靠模型自由生成。
-- 低温度 `0.3`，同一输入尽量稳定；缓存键 `sha256(kpId+errorType+correctedText)`，TTL 7 天。
+- 低温度 `0.3`，同一输入尽量稳定；缓存键 `sha256(kpId+errorType+correctedText+"|concept:"+sha256(conceptText))`，TTL 7 天；概念内容变化后旧缓存自动失效。
 
 ## 3. 版本与评估
 
