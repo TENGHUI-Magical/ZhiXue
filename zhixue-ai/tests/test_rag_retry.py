@@ -126,3 +126,49 @@ def test_l2_partial_failure_does_not_append_template(monkeypatch: pytest.MonkeyP
     levels = [data.get("level") for name, data in events if name == "degraded"]
     assert levels == ["L2"], "不得再追加 L3 降级事件"
     assert "done" not in names, "不得再发送完整模板后的 done"
+
+
+def test_page_whitelist_keeps_allowed_pages_and_ignores_kp_id() -> None:
+    sanitize = getattr(rag_service, "sanitize_page_citations")
+    text = sanitize("KP0203 见 P38 与第38页；P39 越界。", "P38")
+    assert text == "KP0203 见 P38 与第38页；教材相关章节 越界。"
+
+
+def test_page_whitelist_expands_allowed_ranges() -> None:
+    sanitize = getattr(rag_service, "sanitize_page_citations")
+    text = sanitize("P35 合法，P37 越界；第36页也合法。", "P34—36")
+    assert text == "P35 合法，教材相关章节 越界；第36页也合法。"
+
+
+def test_page_whitelist_does_not_duplicate_textbook_word() -> None:
+    sanitize = getattr(rag_service, "sanitize_page_citations")
+    assert sanitize("参见教材P999。", "P38") == "参见教材相关章节。"
+
+
+def test_page_guard_sanitizes_citation_split_across_deltas() -> None:
+    async def run() -> str:
+        async def source():
+            yield "见 P9"
+            yield "99；保留 P38。"
+
+        guard = getattr(rag_service, "_guard_pages")
+        return "".join([delta async for delta in guard(source(), "P38")])
+
+    assert asyncio.run(run()) == "见 教材相关章节；保留 P38。"
+
+
+def test_stream_explain_sanitizes_model_pages_before_emitting(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        yield "越界 P9"
+        yield "99；合法 P34。"
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+    events = _collect()
+    content = "".join(data["content"] for name, data in events if name == "chunk")
+    assert "P999" not in content
+    assert "教材相关章节" in content
+    assert "P34" in content

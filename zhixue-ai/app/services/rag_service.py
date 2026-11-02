@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from typing import AsyncIterator
@@ -110,6 +111,58 @@ async def _buffered(stream: AsyncIterator[str], size: int = 12) -> AsyncIterator
         yield buf
 
 
+_PAGE_RE = re.compile(
+    r"(?<![A-Za-z0-9])P\s*(\d+)(?:\s*[—–-]\s*(\d+))?"
+    r"|第\s*(\d+)(?:\s*[—–-]\s*(\d+))?\s*页",
+    re.IGNORECASE,
+)
+_SENTENCE_END_RE = re.compile(r"[。！？!?；;\n]")
+
+
+def _page_bounds(match: re.Match) -> tuple[int, int]:
+    start = int(match.group(1) or match.group(3))
+    end = int(match.group(2) or match.group(4) or start)
+    return min(start, end), max(start, end)
+
+
+def _pages(text: str) -> set[int]:
+    allowed: set[int] = set()
+    for match in _PAGE_RE.finditer(text or ""):
+        start, end = _page_bounds(match)
+        allowed.update(range(start, end + 1))
+    return allowed
+
+
+def sanitize_page_citations(text: str, textbook_page: str | None) -> str:
+    """只保留知识点白名单内的页码；越界引用替换为不带页码的章节提示。"""
+    allowed = _pages(textbook_page or "")
+
+    def replace(match: re.Match) -> str:
+        start, end = _page_bounds(match)
+        if set(range(start, end + 1)) <= allowed:
+            return match.group(0)
+        prefix = match.string[:match.start()]
+        return "相关章节" if prefix.endswith(("教材", "》")) else "教材相关章节"
+
+    return _PAGE_RE.sub(replace, text or "")
+
+
+async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None) -> AsyncIterator[str]:
+    """逐句校验，避免 P999 等引用跨 delta 绕过；不缓冲整篇讲解。"""
+    buf = ""
+    async for delta in stream:
+        buf += delta
+        while True:
+            boundary = _SENTENCE_END_RE.search(buf)
+            if boundary is None:
+                break
+            end = boundary.end()
+            sentence, buf = buf[:end], buf[end:]
+            yield sanitize_page_citations(sentence, textbook_page)
+    if buf:
+        yield sanitize_page_citations(buf, textbook_page)
+
+
 def _template_chunks(req: RagExplainRequest) -> list[str]:
     """L3 本地模板：只用已核对过的概念切片与误区，逐段给出思路。"""
     name = req.kpName or req.kpId
@@ -179,10 +232,10 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         delivered = False
         for attempt in (1, 2):
             try:
-                async for delta in _buffered(_stream_openai(
+                async for delta in _guard_pages(_buffered(_stream_openai(
                         f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
                         settings.deepseek_api_key, settings.llm_model_main, messages,
-                        usage, include_usage=True)):
+                        usage, include_usage=True)), req.textbookPage):
                     delivered = True
                     yield _sse("chunk", {"content": delta})
                 if delivered:
@@ -207,9 +260,10 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         delivered = False
         try:
             yield _sse("degraded", {"level": "L2", "reason": "L1 调用失败"})
-            async for delta in _buffered(_stream_openai(
+            async for delta in _guard_pages(_buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
-                    settings.glm_api_key, settings.llm_model_fallback, messages, usage)):
+                    settings.glm_api_key, settings.llm_model_fallback, messages, usage)),
+                    req.textbookPage):
                 delivered = True
                 yield _sse("chunk", {"content": delta})
             yield _sse("done", {"degraded": True, "blocked": False,
@@ -229,7 +283,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
 
     yield _sse("degraded", {"level": "L3", "reason": "L1/L2 均不可用，使用本地模板"})
     for chunk in _template_chunks(req):
-        yield _sse("chunk", {"content": chunk})
+        yield _sse("chunk", {"content": sanitize_page_citations(chunk, req.textbookPage)})
         await asyncio.sleep(0.02)
     yield _sse("done", {"degraded": True, "blocked": False, "modelUsed": "local-template",
                         "promptVersion": PROMPT_VERSION,
