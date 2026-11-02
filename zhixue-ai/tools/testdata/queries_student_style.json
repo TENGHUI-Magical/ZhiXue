@@ -1,0 +1,205 @@
+{
+  "label": "学生式检索查询集（人工构造）",
+  "note": "32 条查询按学生常见提问方式人工编写，不复制 concept_text；gold 由对应知识点人工指定。用于 RAG 检索鲁棒性回归，不是真实学生试用采集数据，不代表真实查询分布或教学效果。",
+  "created": "2026-11-03",
+  "categories": {
+    "concept": "概念解释型",
+    "calculation": "求值/计算型",
+    "comparison": "对比型",
+    "troubleshooting": "错误排查型"
+  },
+  "queries": [
+    {
+      "qId": "S-C01",
+      "category": "concept",
+      "gold": "KP0107",
+      "text": "数据库为什么要有外模式、模式和内模式？这三层分别给谁用？"
+    },
+    {
+      "qId": "S-C02",
+      "category": "concept",
+      "gold": "KP0203",
+      "text": "候选码和主码是不是一回事？为什么候选码还要求真子集不能唯一标识？"
+    },
+    {
+      "qId": "S-C03",
+      "category": "concept",
+      "gold": "KP0308",
+      "text": "SQL 里的 NULL 到底代表什么，为什么不能把它当成 0 或空字符串？"
+    },
+    {
+      "qId": "S-C04",
+      "category": "concept",
+      "gold": "KP0602",
+      "text": "函数依赖 X→Y 直观上是什么意思？是不是 X 相同则 Y 就必须相同？"
+    },
+    {
+      "qId": "S-C05",
+      "category": "concept",
+      "gold": "KP0607",
+      "text": "多值依赖和普通函数依赖有什么不同，为什么会进一步引出 4NF？"
+    },
+    {
+      "qId": "S-C06",
+      "category": "concept",
+      "gold": "KP0706",
+      "text": "扩展 ER 模型里的 ISA、特化和概括是在解决什么建模问题？"
+    },
+    {
+      "qId": "S-C07",
+      "category": "concept",
+      "gold": "KP0803",
+      "text": "WITH RECURSIVE 为什么能查组织架构这种一层层向下的数据？"
+    },
+    {
+      "qId": "S-C08",
+      "category": "concept",
+      "gold": "KP0407",
+      "text": "强制存取控制里的主体、客体、密级和许可证分别指什么？"
+    },
+    {
+      "qId": "S-Q01",
+      "category": "calculation",
+      "gold": "KP0202",
+      "text": "域 D1={a,b}、D2={1,2,3}，它们的笛卡儿积有多少个元组，应该怎么数？"
+    },
+    {
+      "qId": "S-Q02",
+      "category": "calculation",
+      "gold": "KP0210",
+      "text": "学生表先筛选成绩及格的人，再只保留学号和姓名，分别用了哪两种关系运算？"
+    },
+    {
+      "qId": "S-Q03",
+      "category": "calculation",
+      "gold": "KP0303",
+      "text": "选课表按学生分组，找出平均成绩超过 80 的学号，GROUP BY 和 HAVING 怎么写？"
+    },
+    {
+      "qId": "S-Q04",
+      "category": "calculation",
+      "gold": "KP0608",
+      "text": "已知 A→B、B→C，能不能由 A 推出 C？属性闭包应该一步步怎么算？"
+    },
+    {
+      "qId": "S-Q05",
+      "category": "calculation",
+      "gold": "KP0610",
+      "text": "把 R 拆成 R1 和 R2，怎么检查自然连接后会不会多出原来没有的元组？"
+    },
+    {
+      "qId": "S-Q06",
+      "category": "calculation",
+      "gold": "KP0611",
+      "text": "关系模式已经判到 3NF，接下来想做保持依赖又无损的分解，应按什么算法步骤走？"
+    },
+    {
+      "qId": "S-Q07",
+      "category": "calculation",
+      "gold": "KP0708",
+      "text": "ER 图里一个学生能选多门课，转成关系表时选课联系的主码和外码怎么确定？"
+    },
+    {
+      "qId": "S-Q08",
+      "category": "calculation",
+      "gold": "KP0808",
+      "text": "要用游标逐行输出一个学生的全部选课，声明、打开、取数、关闭的顺序怎么写？"
+    },
+    {
+      "qId": "S-D01",
+      "category": "comparison",
+      "gold": "KP0108",
+      "text": "逻辑独立性和物理独立性分别防什么变化？它们对应哪一级映像？"
+    },
+    {
+      "qId": "S-D02",
+      "category": "comparison",
+      "gold": "KP0305",
+      "text": "相关子查询和不相关子查询的执行过程差在哪？EXISTS 又适合判断什么？"
+    },
+    {
+      "qId": "S-D03",
+      "category": "comparison",
+      "gold": "KP0309",
+      "text": "视图和基本表有什么本质区别，为什么有些视图不能更新？"
+    },
+    {
+      "qId": "S-D04",
+      "category": "comparison",
+      "gold": "KP0403",
+      "text": "自主存取控制和强制存取控制的权限判断方式有什么不同？"
+    },
+    {
+      "qId": "S-D05",
+      "category": "comparison",
+      "gold": "KP0501",
+      "text": "数据库完整性和安全性都在保护数据，它们防的问题一样吗？"
+    },
+    {
+      "qId": "S-D06",
+      "category": "comparison",
+      "gold": "KP0606",
+      "text": "3NF 和 BCNF 的判定条件差在哪里？为什么 BCNF 更严格？"
+    },
+    {
+      "qId": "S-D07",
+      "category": "comparison",
+      "gold": "KP0809",
+      "text": "存储过程和存储函数都能封装 SQL，调用方式和返回值上有什么区别？"
+    },
+    {
+      "qId": "S-D08",
+      "category": "comparison",
+      "gold": "KP0810",
+      "text": "JDBC 里 Statement 和 PreparedStatement 有什么区别，为什么参数查询更推荐后者？"
+    },
+    {
+      "qId": "S-E01",
+      "category": "troubleshooting",
+      "gold": "KP0303",
+      "text": "我按部门统计人数，把 COUNT(*) 写在 WHERE 里报错，应该挪到哪里，为什么？"
+    },
+    {
+      "qId": "S-E02",
+      "category": "troubleshooting",
+      "gold": "KP0307",
+      "text": "执行 UPDATE 后整张表的成绩都被改了，最可能漏写了什么？"
+    },
+    {
+      "qId": "S-E03",
+      "category": "troubleshooting",
+      "gold": "KP0308",
+      "text": "用 WHERE Grade = NULL 查缺考学生一条也查不到，正确写法是什么？"
+    },
+    {
+      "qId": "S-E04",
+      "category": "troubleshooting",
+      "gold": "KP0504",
+      "text": "删除学生时提示选课记录还引用着他，想让学生和选课一起删该设哪种外键策略？"
+    },
+    {
+      "qId": "S-E05",
+      "category": "troubleshooting",
+      "gold": "KP0509",
+      "text": "触发器里取不到 NEW 或 OLD 的值，是不是把行级和语句级触发器写混了？"
+    },
+    {
+      "qId": "S-E06",
+      "category": "troubleshooting",
+      "gold": "KP0609",
+      "text": "分解后原来的函数依赖有些不能再由局部依赖推出，这种问题叫不保持什么？"
+    },
+    {
+      "qId": "S-E07",
+      "category": "troubleshooting",
+      "gold": "KP0805",
+      "text": "嵌入式 SQL 执行后，程序怎么通过 SQLCA 判断数据库操作是否成功？"
+    },
+    {
+      "qId": "S-E08",
+      "category": "troubleshooting",
+      "gold": "KP0810",
+      "text": "JDBC 查询中途报 SQL 异常，结果集、语句和连接该按什么顺序关闭？"
+    }
+  ]
+}

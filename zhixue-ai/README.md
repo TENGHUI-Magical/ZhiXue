@@ -31,6 +31,16 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 #       如需同组联调，临时改 0.0.0.0 后务必在防火墙限制来源
 ```
 
+## RAG 索引（新环境必做）
+
+`data/vector_index/` 是本地生成产物，按 `.gitignore` 规则不随代码分发。**新环境克隆代码、重建演示库或更新知识点 `concept_text` 后，必须重建索引**；否则 `/api/rag/retrieve` 会为空或继续使用旧切片，表现为“检索增强失效”。先配置 MySQL DSN 并启动本服务，再执行：
+
+```bash
+python tools/build_demo_index.py --base-url http://127.0.0.1:8000 --index-dir data/vector_index
+```
+
+索引由 AI 进程在首次检索或嵌入时懒加载并常驻内存，不会监听文件热更新。替换磁盘索引文件、由另一进程重建或合并更新后必须重启本服务；答辩现场统一执行“**重建索引后必须重启 AI 服务**”，再抽查 `KP0810` 的检索与页码来源，避免使用旧进程或旧内存。
+
 ## 与 Java 侧的关系（规划书硬约束）
 
 Java 不直接调用大模型。diagnosis 模块经 HTTP 网关（`zhixue.ai.base-url` = localhost:8000）调用本服务三路由；本服务不对外网暴露端口（部署方案 1 节拓扑）。
