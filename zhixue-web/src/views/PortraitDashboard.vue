@@ -518,6 +518,7 @@ onMounted(load);
   margin-bottom: 6px;
 }
 .weak-name {
+  min-width: 0;
   font-size: var(--app-fs-xs);
   color: var(--app-text);
   overflow: hidden;
@@ -638,5 +639,7 @@ onMounted(load);
   .dash { grid-template-columns: minmax(0, 1fr) !important; }
   .dash > .el-card { grid-column: 1 / -1 !important; }
   .c4, .c5, .c7, .c8, .c12 { grid-column: span 1; }
+  .weak-head { align-items: flex-start; }
+  .weak-name { white-space: normal; overflow-wrap: anywhere; }
 }
 </style>
