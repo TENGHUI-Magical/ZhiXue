@@ -24,7 +24,8 @@ public record PracticeCreateRequest(
         @Size(max = 20000, message = "myAnswer 最长 20000 字") String myAnswer,
 
         @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
-                "CALCULATION_ERROR", "BOUNDARY_ERROR"}, nullable = true)
+                "CALCULATION_ERROR", "BOUNDARY_ERROR", "UNCLASSIFIED"}, nullable = true,
+                description = "主观题自评错因；未选或客观题由服务端推断，无法归类落 UNCLASSIFIED")
         String errorType,
 
         @Min(value = 0, message = "costSeconds 不能为负")

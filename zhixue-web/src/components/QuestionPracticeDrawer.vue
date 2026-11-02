@@ -95,6 +95,20 @@
             <strong>解析：</strong>{{ answer.analysisText }}
           </div>
           <el-divider content-position="left">{{ isObjective ? "系统判分" : "自评" }}</el-divider>
+          <el-select
+            v-if="!isObjective"
+            v-model="selfErrorType"
+            class="error-type"
+            clearable
+            placeholder="错因（可选，默认未归类）"
+          >
+            <el-option
+              v-for="item in ERROR_TYPE_OPTIONS"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
           <div class="actions">
             <el-button
               v-if="isObjective"
@@ -116,7 +130,7 @@
           <div class="hint">
             {{ isObjective
               ? "客观题由服务端按标准答案判分，所选答案提交后不可自行改判。"
-              : "主观题无法自动判分，提交后按自评计入；请如实选择。" }}
+              : "主观题无法自动判分，提交后按自评计入；错因可不选，默认按“未归类”统计。" }}
           </div>
         </div>
       </template>
@@ -173,6 +187,17 @@ const selectedOption = ref("");
 const selectedOptions = ref<string[]>([]);
 const myAnswer = ref("");
 const revealed = ref(false);
+/** 主观题自评错因；不选时后端落 UNCLASSIFIED，客观题由服务端规则推断 */
+const selfErrorType = ref("");
+
+const ERROR_TYPE_OPTIONS = [
+  { value: "CONCEPT_CONFUSION", label: "概念混淆" },
+  { value: "METHOD_MISSING", label: "方法缺失" },
+  { value: "STEP_OMISSION", label: "步骤遗漏" },
+  { value: "CALCULATION_ERROR", label: "计算错误" },
+  { value: "BOUNDARY_ERROR", label: "边界条件" },
+  { value: "UNCLASSIFIED", label: "暂不确定（未归类）" }
+];
 
 const canReveal = computed(() => {
   if (!detail.value) return false;
@@ -206,6 +231,7 @@ const clearFields = () => {
   selectedOptions.value = [];
   myAnswer.value = "";
   revealed.value = false;
+  selfErrorType.value = "";
   submitToken = "";
   submitTokenKey = "";
 };
@@ -271,6 +297,10 @@ const submit = async (isCorrect?: boolean) => {
     return;
   }
   submitting.value = true;
+  // 主观题自评错误时才提交错因；客观题由服务端按规则推断，前端不传
+  const errorType = isCorrect === false && !isObjective.value
+    ? (selfErrorType.value || null)
+    : null;
   try {
     // 计划模式：打卡走 checkin（answered=true）；客观题由服务端判分，主观题自评
     if (props.mode === "plan" && props.planId != null) {
@@ -281,6 +311,7 @@ const submit = async (isCorrect?: boolean) => {
         answered: true,
         myAnswer: combinedAnswer.value,
         isCorrect,
+        errorType,
         costSeconds
       });
       submitToken = "";
@@ -298,7 +329,7 @@ const submit = async (isCorrect?: boolean) => {
       kpId,
       isCorrect,
       myAnswer: combinedAnswer.value,
-      errorType: null,
+      errorType,
       source: props.recommendationId != null ? "RECOMMEND" : "SELF",
       recommendationId: props.recommendationId,
       // 同一题复用 token：超时/连点重试不会写出两条作答
@@ -402,6 +433,11 @@ watch(
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 16px;
+}
+.error-type {
+  width: 240px;
+  max-width: 100%;
+  margin-top: 8px;
 }
 .hint {
   color: var(--app-text-muted);

@@ -18,6 +18,7 @@ import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -33,9 +34,8 @@ import java.util.stream.Collectors;
 public class PracticeService {
 
     private static final Set<String> SOURCES = Set.of("RECOMMEND", "SELF");
-    private static final Set<String> ERROR_TYPES = Set.of(
-            "CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
-            "CALCULATION_ERROR", "BOUNDARY_ERROR");
+    private static final Set<String> ERROR_TYPES = ErrorTypeClassifier.ALLOWED;
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private final PracticeRecordMapper practiceRecordMapper;
     private final RecommendationRecordMapper recommendationRecordMapper;
@@ -94,9 +94,9 @@ public class PracticeService {
         if (errorType != null && !ERROR_TYPES.contains(errorType)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "errorType 非法: " + errorType);
         }
-        if (isCorrect) {
-            errorType = null;
-        }
+        // 05 §2.2：答错必须落五类错因或 UNCLASSIFIED，不允许再写 null；客观题不信任客户端错因
+        errorType = resolveErrorType(userId, question, request.myAnswer(), isCorrect,
+                errorType, request.kpId());
 
         RecommendationRecord recommendation = null;
         if (request.recommendationId() != null) {
@@ -166,6 +166,25 @@ public class PracticeService {
                 .collect(Collectors.toSet());
     }
 
+    /**
+     * 推断并归一错因（05 §2.2）：答对返回 null；答错返回五类之一或 UNCLASSIFIED。
+     * 客观题按题型/干扰项/难度/首次作答/距上次练习规则推断；主观题采用学生自评。
+     * 供提交练习与计划打卡共用，避免两处口径。
+     */
+    public String resolveErrorType(long userId, QuestionBank question, String myAnswer,
+                                   boolean isCorrect, String selfReported, String kpId) {
+        if (isCorrect) {
+            return null;
+        }
+        int priorAttempts = practiceRecordMapper.countByUserAndQid(userId, question.getQId());
+        LocalDateTime lastPracticedAt = kpId == null || kpId.isBlank()
+                ? null : practiceRecordMapper.selectLastPracticedAt(userId, kpId);
+        Integer days = lastPracticedAt == null ? null
+                : (int) Math.max(0, Duration.between(lastPracticedAt, LocalDateTime.now(ZONE)).toDays());
+        return ErrorTypeClassifier.classify(question, myAnswer, false, selfReported,
+                priorAttempts, days);
+    }
+
     /** 计划打卡幂等查询：返回首次 PLAN 作答；不存在返回 null。 */
     public PlanCompletion findCompletionByToken(long userId, String clientToken) {
         PracticeRecord record = findByClientToken(userId, clientToken);
@@ -190,6 +209,10 @@ public class PracticeService {
         }
         if (errorType != null && !ERROR_TYPES.contains(errorType)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "errorType 非法");
+        }
+        // 兜底不变量：答错必须落显式错因，历史调用方漏传时按 UNCLASSIFIED
+        if (!isCorrect && (errorType == null || errorType.isBlank())) {
+            errorType = ErrorTypeClassifier.UNCLASSIFIED;
         }
         PracticeRecord existing = findByClientToken(userId, clientToken);
         if (existing != null) {

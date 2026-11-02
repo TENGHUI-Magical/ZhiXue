@@ -133,6 +133,42 @@ class PracticeServiceTest {
     }
 
     @Test
+    void objectiveWrongPersistsRuleInferredErrorType() {
+        // 首次作答、难度 3、误选干扰项 → BOUNDARY_ERROR（05 §2.7）
+        Submission submission = submit(question("单选", "B", 3),
+                requestWith(false, "A", "token-err-1"));
+        assertEquals("BOUNDARY_ERROR", submission.record().getErrorType());
+    }
+
+    @Test
+    void objectiveIgnoresClientReportedErrorType() {
+        Submission submission = submit(question("单选", "B", 2),
+                requestWith(false, "A", "token-err-2", "CALCULATION_ERROR"));
+        assertEquals("CONCEPT_CONFUSION", submission.record().getErrorType());
+    }
+
+    @Test
+    void multiChoicePartialPersistsStepOmission() {
+        Submission submission = submit(question("多选", "ABC", 2),
+                requestWith(false, "AC", "token-err-3"));
+        assertEquals("STEP_OMISSION", submission.record().getErrorType());
+    }
+
+    @Test
+    void subjectiveWrongDefaultsToUnclassified() {
+        Submission submission = submit(question("简答", "参考答案", 2),
+                requestWith(false, "我的答案", "token-err-4"));
+        assertEquals("UNCLASSIFIED", submission.record().getErrorType());
+    }
+
+    @Test
+    void subjectiveWrongKeepsSelectedErrorType() {
+        Submission submission = submit(question("简答", "参考答案", 2),
+                requestWith(false, "我的答案", "token-err-5", "CONCEPT_CONFUSION"));
+        assertEquals("CONCEPT_CONFUSION", submission.record().getErrorType());
+    }
+
+    @Test
     void subjectiveWithoutSelfAssessmentIsRejected() {
         prepare(question("简答", "参考答案"));
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -234,16 +270,26 @@ class PracticeServiceTest {
     }
 
     private PracticeCreateRequest requestWith(Boolean isCorrect, String myAnswer, String token) {
-        return new PracticeCreateRequest("Q_0201", "KP0201", isCorrect, myAnswer, null,
+        return requestWith(isCorrect, myAnswer, token, null);
+    }
+
+    private PracticeCreateRequest requestWith(Boolean isCorrect, String myAnswer, String token,
+                                              String errorType) {
+        return new PracticeCreateRequest("Q_0201", "KP0201", isCorrect, myAnswer, errorType,
                 30, "SELF", null, token);
     }
 
     private QuestionBank question(String type, String answer) {
+        return question(type, answer, null);
+    }
+
+    private QuestionBank question(String type, String answer, Integer difficulty) {
         QuestionBank question = new QuestionBank();
         question.setQId("Q_0201");
         question.setCourseId(1L);
         question.setQuestionType(type);
         question.setAnswerText(answer);
+        question.setDifficulty(difficulty);
         return question;
     }
 

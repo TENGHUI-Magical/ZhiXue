@@ -471,7 +471,8 @@ paths:
                 errorType:
                   type: [string, "null"]
                   nullable: true
-                  enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
+                  enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, UNCLASSIFIED, null]
+                  description: 主观题自评错因；未选或客观题由服务端推断，无法归类落 UNCLASSIFIED
                 note: { type: string, maxLength: 200 }
       responses:
         '200':
@@ -985,7 +986,8 @@ components:
         errorType:
           type: [string, "null"]
           nullable: true
-          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, null]
+          enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, UNCLASSIFIED, null]
+          description: 主观题自评错因；未选或客观题由服务端推断，无法归类落 UNCLASSIFIED
         costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
         source: { type: string, enum: [RECOMMEND, SELF], default: SELF }
         recommendationId: { type: integer, format: int64, nullable: true, description: 来自推荐时传入，服务端置 is_adopted=1 }

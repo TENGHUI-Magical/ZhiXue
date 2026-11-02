@@ -31,11 +31,12 @@ public record CheckinRequest(
         @Max(value = 86400, message = "costSeconds 不能超过 86400") Integer costSeconds,
 
         @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
-                "CALCULATION_ERROR", "BOUNDARY_ERROR"}, nullable = true)
+                "CALCULATION_ERROR", "BOUNDARY_ERROR", "UNCLASSIFIED"}, nullable = true,
+                description = "主观题自评错因；未选或客观题由服务端推断，无法归类落 UNCLASSIFIED")
         @Pattern(regexp = "CONCEPT_CONFUSION|METHOD_MISSING|STEP_OMISSION"
-                + "|CALCULATION_ERROR|BOUNDARY_ERROR",
+                + "|CALCULATION_ERROR|BOUNDARY_ERROR|UNCLASSIFIED",
                 message = "errorType 仅允许 CONCEPT_CONFUSION/METHOD_MISSING"
-                + "/STEP_OMISSION/CALCULATION_ERROR/BOUNDARY_ERROR")
+                + "/STEP_OMISSION/CALCULATION_ERROR/BOUNDARY_ERROR/UNCLASSIFIED")
         String errorType,
 
         @Size(max = 200, message = "note 最长 200 字") String note) {

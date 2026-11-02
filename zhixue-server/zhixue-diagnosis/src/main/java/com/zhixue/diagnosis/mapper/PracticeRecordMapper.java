@@ -41,6 +41,20 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                      @Param("courseId") long courseId,
                                      @Param("since") LocalDateTime since);
 
+    /** 该生该题历史作答次数（错因推断的“是否首次作答”，参数绑定）。 */
+    @Select("""
+            SELECT COUNT(*) FROM practice_record
+            WHERE user_id = #{userId} AND q_id = #{qId}
+            """)
+    int countByUserAndQid(@Param("userId") long userId, @Param("qId") String qId);
+
+    /** 该生该知识点最近一次练习时间（错因推断的“距上次练习天数”）。 */
+    @Select("""
+            SELECT MAX(created_at) FROM practice_record
+            WHERE user_id = #{userId} AND kp_id = #{kpId}
+            """)
+    LocalDateTime selectLastPracticedAt(@Param("userId") long userId, @Param("kpId") String kpId);
+
     /**
      * 按用户聚合练习统计（C12 学生列表；SQL GROUP BY，避免把明细拉进 JVM）。
      * userIds 为空表示课程内全部学生。返回行数受学生数约束。
@@ -177,16 +191,17 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
     /**
      * 课程维度错因分布（班级画像 errorDist）：SQL GROUP BY error_type，行数受错因类型数约束，
      * 只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
+     * 历史 null/空错因统一归入 UNCLASSIFIED，避免老数据从分布里消失。
      */
     @Select("""
             <script>
-            SELECT error_type AS errorType, COUNT(*) AS cnt FROM practice_record
+            SELECT COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED') AS errorType, COUNT(*) AS cnt
+            FROM practice_record
             WHERE is_correct = 0
               AND q_id IN
               <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
               AND kp_id IS NOT NULL AND kp_id &lt;&gt; ''
-              AND error_type IS NOT NULL AND error_type &lt;&gt; ''
-            GROUP BY error_type
+            GROUP BY COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED')
             </script>
             """)
     List<ErrorTypeAgg> aggregateErrorTypeByCourse(@Param("qIds") List<String> qIds);

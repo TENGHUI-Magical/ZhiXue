@@ -268,14 +268,21 @@ public class PlanService {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
 
-        AnswerGrader.Grading grading = grade(item, request);
+        QuestionBank question = questionBankService.getById(item.getQId());
+        AnswerGrader.Grading grading = AnswerGrader.grade(question, request.myAnswer(),
+                request.isCorrect());
         if (AnswerGrader.SELF.equals(grading.mode()) && request.isCorrect() == null) {
             throw new BizException(ErrorCode.PARAM_ERROR, "主观题必须提交自评结果");
         }
-        PracticeService.PlanCompletion completion = existing != null ? existing
-                : practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
-                request.clientToken(), request.myAnswer(), grading.correct(),
-                request.costSeconds(), request.errorType());
+        PracticeService.PlanCompletion completion = existing;
+        if (completion == null) {
+            // 与自主练习共用错因推断：答错不落 null，客观题不信任客户端错因
+            String errorType = practiceService.resolveErrorType(userId, question,
+                    request.myAnswer(), grading.correct(), request.errorType(), item.getKpId());
+            completion = practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
+                    request.clientToken(), request.myAnswer(), grading.correct(),
+                    request.costSeconds(), errorType);
+        }
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())
                 .eq(StudyPlanItem::getIsDone, 0)

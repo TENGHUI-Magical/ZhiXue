@@ -191,6 +191,49 @@ class PlanServiceTest {
     }
 
     @Test
+    void objectiveWrongCheckinPassesInferredErrorType() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanCount(3);
+        plan.setDoneCount(0);
+        plan.setStatus("PENDING");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        StudyPlanItem item = new StudyPlanItem();
+        item.setItemId(5L);
+        item.setPlanId(1L);
+        item.setQId("Q_0201");
+        item.setKpId("KP0201");
+        item.setIsDone(0);
+        when(itemMapper.selectOne(any())).thenReturn(item);
+
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0201");
+        question.setQuestionType("单选");
+        question.setAnswerText("B");
+        when(questionBankService.getById("Q_0201")).thenReturn(question);
+        when(practiceService.findCompletionByToken(2L, "token-auto-err")).thenReturn(null);
+        // 客户端误报 CALCULATION_ERROR，服务端按规则推断为 CONCEPT_CONFUSION
+        when(practiceService.resolveErrorType(anyLong(), any(), any(), anyBoolean(), any(), any()))
+                .thenReturn("CONCEPT_CONFUSION");
+        when(practiceService.recordPlanCompletion(anyLong(), any(), any(), any(), any(),
+                anyBoolean(), any(), any()))
+                .thenReturn(new PracticeService.PlanCompletion(
+                        56L, "Q_0201", "PLAN", false, false));
+        when(itemMapper.update(any(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            service.checkin(1L, new CheckinRequest("Q_0201", "token-auto-err", true,
+                    "A", false, 10, "CALCULATION_ERROR", null));
+        }
+
+        org.mockito.Mockito.verify(practiceService).recordPlanCompletion(
+                2L, "Q_0201", "KP0201", "token-auto-err", "A", false, 10, "CONCEPT_CONFUSION");
+    }
+
+    @Test
     void pastPendingPlanIsDerivedOverdue() {
         StudyPlan plan = new StudyPlan();
         plan.setPlanId(1L);

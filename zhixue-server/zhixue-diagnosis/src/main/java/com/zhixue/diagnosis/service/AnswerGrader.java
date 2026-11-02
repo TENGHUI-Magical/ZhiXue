@@ -49,12 +49,12 @@ public final class AnswerGrader {
     }
 
     /** 单选/判断：去空白、转大写，只保留字母数字，避免 “B ”/“b”/“B.” 这类格式差异。 */
-    private static String normalize(String raw) {
+    static String normalize(String raw) {
         return raw == null ? "" : raw.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
     }
 
     /** 多选：忽略顺序与分隔符，按选项键集合比较；部分选中即错误。 */
-    private static Set<String> optionSet(String raw) {
+    static Set<String> optionSet(String raw) {
         String cleaned = normalize(raw);
         Set<String> keys = new LinkedHashSet<>();
         for (int i = 0; i < cleaned.length(); i++) {
