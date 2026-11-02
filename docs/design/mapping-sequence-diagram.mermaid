@@ -1,0 +1,33 @@
+sequenceDiagram
+    autonumber
+    actor U as 学生/工作台
+    participant FE as DiagnosisWorkbench.vue
+    participant C as DiagnosisController
+    participant S as KpMappingService
+    participant KP as KnowledgePointService
+    participant DB as MySQL
+
+    U->>FE: 粘贴题干 → analyze()
+    FE->>C: POST /api/diagnosis/map {text, courseId}<br/>（当前不发 chapterId）
+    C->>S: match(MapRequest)
+    S->>KP: listMatchProfiles(courseId)
+    KP->>DB: SELECT knowledge_point WHERE course_id=? AND is_active=1
+    DB-->>KP: N 行（当前 N=60）
+    KP-->>S: List<KpMatchProfile>（含 conceptText + misconception）
+    alt profiles 为空 或 text.trim().length()<5
+        S-->>C: MapResult(FAILED, null, [], false)
+        Note over S: 若线上恒走此分支 → 在线评测表现为 0.0
+    else 正常
+        S->>S: buildStats(all) —— 全量 df/N 与向量（与是否传章无关）
+        S->>S: queryVector = vectorize(termCounts(text))
+        opt chapterId != null（当前无调用方）
+            S->>S: scope = all.filter(chapterId)；空则回退 all
+        end
+        S->>S: 逐候选 cosine → 按「原始 cosine, kpId」排序
+        S->>S: calibrate = min(1, cos/0.3) → round4
+        S->>S: decide()：<floor→FAILED；≥0.60 且差≥0.10→AUTO；否则 CONFIRM
+        S-->>C: MapResult(decision, top1, candidates, false)
+    end
+    C-->>FE: ApiResponse{code:0, data:MapResult}
+    FE->>FE: 若 candidates 非空则预选 top1（建议仅 AUTO 时预选）
+    FE-->>U: 展示 AUTO/CONFIRM/FAILED 与候选列表

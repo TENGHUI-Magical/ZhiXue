@@ -1,0 +1,72 @@
+classDiagram
+    direction LR
+
+    class MapRequest {
+        +String text
+        +Long courseId
+        +Long chapterId
+    }
+    class MapResult {
+        +String decision  «AUTO|CONFIRM|FAILED»
+        +MapCandidate top1
+        +List~MapCandidate~ candidates
+        +boolean degraded
+    }
+    class MapCandidate {
+        +String kpId
+        +String name
+        +double score
+        +String channel  «VECTOR»
+    }
+    class KpMatchProfile {
+        +String kpId
+        +String name
+        +Long chapterId
+        +String conceptText
+        +String misconception  «本次新增»
+        +List~KpKeyword~ keywords
+    }
+    class KpKeyword {
+        +String kpId
+        +String keyword
+        +BigDecimal weight
+    }
+    class KnowledgePointService {
+        +listMatchProfiles(Long courseId) List~KpMatchProfile~
+        +findById(String kpId) KnowledgePoint
+    }
+    class KpMappingService {
+        -double IDF_POWER = 1.5
+        -int NAME_REPEAT = 3
+        -double scoreScale  «mapping.score-scale=0.3»
+        -double autoThreshold  «0.60»
+        -double margin  «0.10»
+        -double confirmFloor  «0.35»
+        -boolean useMisconception  «true»
+        +match(MapRequest) MapResult
+        -corpusOf(KpMatchProfile) String
+        -termCounts(String) Map~String,Integer~
+        -buildStats(List~KpMatchProfile~) CorpusStats
+        -calibrate(double) double
+        -decide(List~MapCandidate~) String
+        -matchedKeywords(List~KpKeyword~, String) List~String~
+    }
+    class CorpusStats {
+        +Map~String,Integer~ docFreq
+        +int docCount  «= 全量画像数 N»
+        +Map~String,Map~String,Double~~ vectors
+        +vectorize(Map~String,Integer~) Map~String,Double~
+        +cosine(Map~String,Double~, String kpId) double
+    }
+    class DiagnosisController {
+        +map(MapRequest) ApiResponse~MapResult~
+    }
+
+    DiagnosisController ..> KpMappingService : 调用 match()
+    KpMappingService ..> KnowledgePointService : listMatchProfiles()
+    KpMappingService ..> MapRequest : 读
+    KpMappingService ..> MapResult : 产出
+    MapResult *-- MapCandidate
+    KpMatchProfile *-- KpKeyword
+    KpMappingService ..> KpMatchProfile : 语料来源
+    KpMappingService ..> CorpusStats : 构建/使用
