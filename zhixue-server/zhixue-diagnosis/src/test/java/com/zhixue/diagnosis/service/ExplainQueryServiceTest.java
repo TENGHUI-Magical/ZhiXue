@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 /**
@@ -133,6 +134,27 @@ class ExplainQueryServiceTest {
         assertThat(view.reviewResult()).isEqualTo("RETURN");
         assertThat(view.reviewComment()).isEqualTo("请补充连接条件的书写");
         assertThat(view.reviewedAt()).isEqualTo("2026-10-27 09:00:00");
+    }
+
+    @Test
+    void teacherCanReadReviewCommentForBackfill() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_teacher");
+        row.setContentText("正文");
+        row.setSourceIds("[]");
+        row.setReviewResult("RETURN");
+        row.setTeacherComment("请补充连接条件书写");
+        when(logMapper.selectOne(any())).thenReturn(row);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(1L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
+            view = service.get("EX_teacher");
+            stp.verify(() -> StpUtil.getLoginIdAsLong(), never());
+        }
+
+        assertThat(view.reviewComment()).isEqualTo("请补充连接条件书写");
     }
 
     @Test

@@ -166,13 +166,13 @@
           <el-tag size="small">{{ detail.dimensionKey || "未分维度" }}</el-tag>
           <el-tag size="small" type="info">{{ detail.textbookPage || "页码待定" }}</el-tag>
         </div>
+        <el-button type="primary" class="kp-practice" :loading="practiceLoading" @click="startPractice">
+          开始练习
+        </el-button>
         <p class="kp-text">{{ detail.conceptText || "暂无概念切片" }}</p>
         <p v-if="detail.misconception" class="kp-text muted">
           <strong>常见误区：</strong>{{ detail.misconception }}
         </p>
-        <el-button type="primary" class="kp-practice" :loading="practiceLoading" @click="startPractice">
-          开始练习
-        </el-button>
       </template>
     </el-drawer>
 

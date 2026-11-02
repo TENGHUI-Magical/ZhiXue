@@ -73,7 +73,7 @@ def main():
         f.write(f"(1, {ch}, {sql_str(args.chapter_title)}, {args.sort_no})\n")
         f.write("ON DUPLICATE KEY UPDATE title = VALUES(title), sort_no = VALUES(sort_no);\n\n")
         for row in kp_rows:
-            mis = "\\n".join(x.strip() for x in re.split(r"[|\n]", (row.get("misconception") or "")) if x.strip())
+            mis = "\n".join(x.strip() for x in re.split(r"[|\n]", (row.get("misconception") or "")) if x.strip())
             f.write(
                 "INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, "
                 "misconception, textbook_page, dimension_key, sort_no, created_by)\n"

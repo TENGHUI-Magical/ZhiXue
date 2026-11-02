@@ -23,7 +23,7 @@ import java.util.Objects;
 /**
  * 讲解记录查询（契约 V2 §5.4：刷新页面后按 explainId 取已生成全文）。
  * <p>
- * 仅允许查询本人记录，避免 explainId 泄露他人讲解内容。
+ * 学生仅可查询本人记录；教师可查询评阅所需记录，避免 explainId 越权泄露。
  */
 @Service
 public class ExplainQueryService {
@@ -53,11 +53,13 @@ public class ExplainQueryService {
      * @throws BizException 记录不存在或不属于当前用户时返回 40400
      */
     public ExplainLogView get(String explainId) {
-        long userId = StpUtil.getLoginIdAsLong();
-        AiGenerationLog row = logMapper.selectOne(new LambdaQueryWrapper<AiGenerationLog>()
-                .eq(AiGenerationLog::getExplainId, explainId)
-                .eq(AiGenerationLog::getUserId, userId)
-                .last("LIMIT 1"));
+        boolean teacher = StpUtil.hasRole("TEACHER");
+        LambdaQueryWrapper<AiGenerationLog> query = new LambdaQueryWrapper<AiGenerationLog>()
+                .eq(AiGenerationLog::getExplainId, explainId);
+        if (!teacher) {
+            query.eq(AiGenerationLog::getUserId, StpUtil.getLoginIdAsLong());
+        }
+        AiGenerationLog row = logMapper.selectOne(query.last("LIMIT 1"));
         if (row == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "讲解记录不存在");
         }

@@ -8,7 +8,9 @@ INSERT INTO course_chapter (course_id, chapter_no, title, sort_no) VALUES
 ON DUPLICATE KEY UPDATE title = VALUES(title), sort_no = VALUES(sort_no);
 
 INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, concept_text, misconception, textbook_page, dimension_key, sort_no, created_by)
-SELECT 'KP0201', 1, chapter_id, '关系模型的基本概念与三要素', '关系模型是用单一结构——关系——描述现实世界实体及其联系的模型。用户看到的关系数据结构是一张二维表：每一行是一个元组，每一列是一个属性，列的取值范围是域，元组中的每一个值是分量。关系模型由三部分组成：关系数据结构、关系操作集合、关系完整性约束。数据结构回答“数据如何表示”，关系操作回答“能施加哪些查询与更新”，完整性约束回答“数据必须满足哪些语义条件”。关系模型建立在集合代数之上，本章用集合论给出关系、关系模式等形式化定义。还要区分型与值：关系模式是对关系的描述，属于型；关系是某一时刻的元组集合，属于值。关系模型的数据结构虽然简单，却能表达丰富的语义，描述现实世界的实体以及实体间的各种联系。与层次模型、网状模型相比，它把实体和联系统一用关系表示，用户只需面对二维表。', '把关系模型只当成二维表，漏掉关系操作与完整性约束\\n认为关系模型的结构与层次、网状模型一样复杂\\n把“关系”与“关系模式”当作同一概念', 'P34', 'concept', '1', 1
+SELECT 'KP0201', 1, chapter_id, '关系模型的基本概念与三要素', '关系模型是用单一结构——关系——描述现实世界实体及其联系的模型。用户看到的关系数据结构是一张二维表：每一行是一个元组，每一列是一个属性，列的取值范围是域，元组中的每一个值是分量。关系模型由三部分组成：关系数据结构、关系操作集合、关系完整性约束。数据结构回答“数据如何表示”，关系操作回答“能施加哪些查询与更新”，完整性约束回答“数据必须满足哪些语义条件”。关系模型建立在集合代数之上，本章用集合论给出关系、关系模式等形式化定义。还要区分型与值：关系模式是对关系的描述，属于型；关系是某一时刻的元组集合，属于值。关系模型的数据结构虽然简单，却能表达丰富的语义，描述现实世界的实体以及实体间的各种联系。与层次模型、网状模型相比，它把实体和联系统一用关系表示，用户只需面对二维表。', '把关系模型只当成二维表，漏掉关系操作与完整性约束
+认为关系模型的结构与层次、网状模型一样复杂
+把“关系”与“关系模式”当作同一概念', 'P34', 'concept', '1', 1
 FROM course_chapter WHERE course_id = 1 AND chapter_no = 2
 ON DUPLICATE KEY UPDATE name = VALUES(name), concept_text = VALUES(concept_text), misconception = VALUES(misconception), textbook_page = VALUES(textbook_page), dimension_key = VALUES(dimension_key), sort_no = VALUES(sort_no);
 

@@ -28,7 +28,8 @@ const courses = [{ courseId: 1, courseName: '数据库系统概论', dimensionCo
 const kpNames = ['关系模型基本概念','关系代数','元组关系演算','关系完整性','规范化初步','函数依赖','范式判定','模式分解','视图与索引','关系模型小结','SQL 概述','连接查询']
 const nodes = kpNames.map((name, i) => ({ id: 'KP' + String(i + 1).padStart(4, '0'), name, chapterId: i < 6 ? 2 : 3 }))
 const edges = nodes.slice(1).map((n, i) => ({ source: nodes[i].id, target: n.id, relation: 'PREREQ' }))
-const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。', misconception: '把笛卡儿积当连接', textbookPage: 'P88', dimensionKey: 'sql' }
+const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。'.repeat(80), misconception: `把笛卡儿积当连接
+第二段仍应可见`, textbookPage: 'P88', dimensionKey: 'sql' }
 const portrait = { statDate: '2026-10-29', dimensionScores: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }, weakestKps: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6 }, { kpId: 'KP0006', name: '函数依赖', mastery: 0.41, sampleCount: 8 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, totalPractice: 18, totalError: 12 }
 const errorPage = { page: 1, size: 10, total: 3, records: [
   { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:00:00' },
@@ -36,9 +37,11 @@ const errorPage = { page: 1, size: 10, total: 3, records: [
   { logId: 'LOG003', qId: 'Q_0303', kpId: 'KP0003', kpName: '连接查询', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '题干 3', createdAt: '2026-10-28T18:00:00', reviewResult: null, reviewComment: null, reviewedAt: null }
 ] }
 const explainLogs = {
-  EXP001: { explainId: 'EXP001', traceId: 'T001', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文一', sources: [{ kpId: 'KP0001', textbookPage: 'P34', title: '关系模型' }], blocked: false, createdAt: '2026-11-01 08:00:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:00:00' },
+  EXP001: { explainId: 'EXP001', traceId: 'T001', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文一', sources: [{ kpId: 'KP0001', textbookPage: 'P34', title: '关系模型' }], blocked: false, createdAt: '2026-11-01 08:00:00', reviewResult: 'PASS', reviewComment: '讲解准确，可继续练习', reviewedAt: '2026-11-03 09:00:00' },
   EXP002: { explainId: 'EXP002', traceId: 'T002', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文二', sources: [{ kpId: 'KP0006', textbookPage: 'P88', title: '函数依赖' }], blocked: false, createdAt: '2026-11-01 08:05:00', reviewResult: 'RETURN', reviewComment: '请补充连接条件的书写', reviewedAt: '2026-11-03 09:10:00' },
-  EXP003: { explainId: 'EXP003', traceId: 'T003', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文三', sources: [], blocked: false, createdAt: '2026-11-01 08:10:00', reviewResult: null, reviewComment: null, reviewedAt: null }
+  EXP003: { explainId: 'EXP003', traceId: 'T003', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文三', sources: [], blocked: false, createdAt: '2026-11-01 08:10:00', reviewResult: null, reviewComment: null, reviewedAt: null },
+  EXP501: { explainId: 'EXP501', traceId: 'T501', model: 'deepseek', degraded: false, degradeLevel: null, content: '待评阅讲解一', sources: [], blocked: false, createdAt: '2026-11-01 08:20:00', reviewResult: null, reviewComment: null, reviewedAt: null },
+  EXP502: { explainId: 'EXP502', traceId: 'T502', model: 'deepseek', degraded: false, degradeLevel: null, content: '待评阅讲解二', sources: [], blocked: false, createdAt: '2026-11-01 08:25:00', reviewResult: null, reviewComment: null, reviewedAt: null }
 }
 const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const monday = (() => {
@@ -55,9 +58,11 @@ const week = Array.from({ length: 7 }, (_, i) => {
 })
 const plans = week.map((d, i) => ({ planId: 100 + i, planDate: d, planCount: 3, doneCount: [3,3,2,1,0,0,0][i], status: i < 3 ? 'DONE' : 'PENDING', items: [1,2,3].map(k => ({ itemId: 1000 + i * 10 + k, qId: 'Q_030' + k, kpId: 'KP000' + k, sortNo: k, isDone: k <= [3,3,2,1,0,0,0][i] })) }))
 const recs = [1,2,3].map(i => ({ recommendationId: 900 + i, qId: 'Q_030' + i, layer: ['CONSOLIDATE','VARIANT','ADVANCE'][i-1], reason: '理由', difficulty: i, isAdopted: false, questionText: '题干 ' + i }))
-const reviewsPage = { page: 1, size: 10, total: 2, records: [
+const reviewsPage = { page: 1, size: 10, total: 4, records: [
   { logPk: 501, explainId: 'EXP501', userName: '张*', kpId: 'KP0012', errorType: 'METHOD_MISSING', model: 'bge', degraded: false, content: '讲解正文……', sources: [{ kpId: 'KP0012', textbookPage: 'P88', title: '连接查询' }], createdAt: '2026-10-29T09:20:00', questionText: '下列连接查询中，能保留左表全部行的是（ ）。', questionType: '单选', options: [{key:'A',text:'INNER JOIN'},{key:'B',text:'LEFT JOIN'},{key:'C',text:'CROSS JOIN'},{key:'D',text:'NATURAL JOIN'}], correctAnswer: 'B', analysisText: 'LEFT JOIN 保留左表全部行。', studentNote: '记错连接类型', waitingSeconds: 5400, reviewStatus: 'PENDING' },
-  { logPk: 502, explainId: 'EXP502', userName: '李*', kpId: 'KP0006', errorType: 'CONCEPT_CONFUSION', model: 'fallback', degraded: true, content: '保底讲解……', sources: [], createdAt: '2026-10-29T08:05:00', questionText: null, questionType: null, options: [], correctAnswer: null, analysisText: null, studentNote: null, waitingSeconds: 18000, reviewStatus: 'PENDING' }
+  { logPk: 502, explainId: 'EXP502', userName: '李*', kpId: 'KP0006', errorType: 'CONCEPT_CONFUSION', model: 'fallback', degraded: true, content: '保底讲解……', sources: [], createdAt: '2026-10-29T08:05:00', questionText: null, questionType: null, options: [], correctAnswer: null, analysisText: null, studentNote: null, waitingSeconds: 18000, reviewStatus: 'PENDING' },
+  { logPk: 503, explainId: 'EXP001', userName: '王同学', kpId: 'KP0001', errorType: 'CONCEPT_CONFUSION', model: 'deepseek', degraded: false, content: '已通过讲解', sources: [], createdAt: '2026-10-28T08:00:00', questionText: '题干 1', questionType: '单选', options: [], correctAnswer: 'A', analysisText: '解析', studentNote: null, waitingSeconds: 1200, reviewStatus: 'REVIEWED', reviewResult: 'PASS' },
+  { logPk: 504, explainId: 'EXP002', userName: '赵同学', kpId: 'KP0006', errorType: 'CONCEPT_CONFUSION', model: 'deepseek', degraded: false, content: '被退回讲解', sources: [], createdAt: '2026-10-28T09:00:00', questionText: '题干 2', questionType: '单选', options: [], correctAnswer: 'B', analysisText: '解析', studentNote: null, waitingSeconds: 2400, reviewStatus: 'REVIEWED', reviewResult: 'RETURN' }
 ] }
 const teacherStudents = { page: 1, size: 20, total: 2, records: [
   { userId: 2, displayName: '张*', practiceCount: 18, correctRate: 0.55, avgCostSeconds: 52, avgMastery: 0.6, errorCount: 6, planDone: 5, planTotal: 21, lastActiveAt: '2026-10-30 21:10:00' },
@@ -602,6 +607,28 @@ try {
   check('评阅：抽屉铺满视口', !!reviewBox && reviewBox.height > 800, JSON.stringify(reviewBox))
   await tpage.keyboard.press('Escape'); await sleep(500)
 
+  await tpage.locator('.el-table__row').first().getByRole('button', { name: '评阅' }).click()
+  await checkNext('评阅：待评阅可填写评语', async () => {
+    const textarea = tpage.locator('.review-drawer textarea')
+    return await textarea.inputValue() === '' && await textarea.isEditable()
+  })
+  await tpage.keyboard.press('Escape'); await sleep(300)
+  await tpage.locator('.status-select').click()
+  await tpage.locator('.el-select-dropdown__item:visible').filter({ hasText: '已评阅' }).click()
+  await sleep(300)
+  await tpage.locator('.el-table__row').filter({ hasText: '王同学' }).getByRole('button', { name: '评阅' }).click()
+  await checkNext('评阅：已通过显示教师评语', async () => {
+    const textarea = tpage.locator('.review-drawer textarea')
+    return await textarea.inputValue() === '讲解准确，可继续练习' && !await textarea.isEditable()
+  })
+  await tpage.keyboard.press('Escape'); await sleep(300)
+  await tpage.locator('.el-table__row').filter({ hasText: '赵同学' }).getByRole('button', { name: '评阅' }).click()
+  await checkNext('评阅：已退回显示教师意见', async () => {
+    const textarea = tpage.locator('.review-drawer textarea')
+    return await textarea.inputValue() === '请补充连接条件的书写' && !await textarea.isEditable()
+  })
+  await tpage.keyboard.press('Escape'); await sleep(300)
+
   await open(tpage, '/teacher/class')
   await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await checkNext('班级：正确率取后端字段', async () => (await tpage.locator('.el-table').innerText()).includes('55%'))
@@ -681,6 +708,18 @@ try {
       await pinchCtx.close()
     }
   }
+  await open(mp, '/knowledge-graph')
+  await open(mp, '/knowledge-graph?kpId=KP0012')
+  await checkNext('移动端/图谱：换行与主动作可见', async () => {
+    const drawerText = await mp.locator('.kp-drawer').innerText()
+    const buttonBox = await mp.locator('.kp-drawer .kp-practice').boundingBox()
+    return !drawerText.includes('\\n') && !!buttonBox && buttonBox.y >= 0 && buttonBox.y + buttonBox.height <= 844
+  })
+  await mp.keyboard.press('Escape'); await sleep(300)
+  await open(mp, '/portrait')
+  await checkNext('移动端/画像：薄弱点名称完整换行', async () =>
+    mp.locator('.weak-name').evaluateAll((elements) => elements.every((element) => getComputedStyle(element).whiteSpace === 'normal'))
+  )
   await mobileCtx.close()
 
   // ---------- 教师移动端：触控与横向溢出 ----------

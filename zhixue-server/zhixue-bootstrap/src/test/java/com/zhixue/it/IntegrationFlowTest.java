@@ -926,6 +926,12 @@ class IntegrationFlowTest {
         assertThat(explainView.get("reviewComment")).isEqualTo("请补充连接条件的书写");
         assertThat((String) explainView.get("reviewedAt")).isNotBlank();
 
+        // 教师端 openReview 回填：教师可读取同一条讲解的 reviewComment，学生归属限制不外溢
+        Map<String, Object> teacherExplainView = JsonPath.read(
+                body(getJson("/api/diagnosis/explain/" + explainId1, teacherToken)), "$.data");
+        assertThat(teacherExplainView.get("reviewResult")).isEqualTo("RETURN");
+        assertThat(teacherExplainView.get("reviewComment")).isEqualTo("请补充连接条件的书写");
+
         // 边界 3：学生补充后重新生成讲解（缓存回放也落新行）→ 退回意见不清退
         String sse2 = body(explain(studentToken, logId));
         assertThat(sse2).contains("event:done");
