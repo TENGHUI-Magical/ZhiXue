@@ -255,13 +255,9 @@ public class RecommendationService {
         return kpCourseId;
     }
 
-    /** 05 §3.1：先修/后继池：按 question_kp 关联取题（含次要关联，05 §3.1） */
+    /** 05 §3.1：先修/后继池：一次 IN 批量查看 question_kp 关联（含次要关联），避免逐 kp N+1。 */
     private List<QuestionView> collectLinked(List<String> kpIds, Long courseId) {
-        List<QuestionView> pool = new ArrayList<>();
-        for (String kpId : kpIds) {
-            pool.addAll(questionBankService.listByKpIncludeSecondary(courseId, kpId));
-        }
-        return pool;
+        return questionBankService.listByKpIdsIncludeSecondary(courseId, kpIds);
     }
 
     /** 05 §3.2：最近 5 条该知识点练习的题目难度均值（四舍五入）；无记录取 2 */

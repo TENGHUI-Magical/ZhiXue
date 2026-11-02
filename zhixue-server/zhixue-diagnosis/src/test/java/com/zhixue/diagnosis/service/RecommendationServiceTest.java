@@ -22,6 +22,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
@@ -61,6 +62,9 @@ class RecommendationServiceTest {
                 repairPriorityService);
         lenient().when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
         lenient().when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
+        // 先修/后继为空时不查库；给批量查询一个空默认，避免严格 stub 误报
+        lenient().when(questionBankService.listByKpIdsIncludeSecondary(anyLong(), anyList()))
+                .thenReturn(List.of());
         // 默认无补漏评分：保持原有层序，理由走固定模板
         lenient().when(repairPriorityService.rank(anyLong(), anyLong()))
                 .thenReturn(new RepairPriorityService.RankedCourse(List.of(), Map.of()));
@@ -79,7 +83,7 @@ class RecommendationServiceTest {
                 .thenReturn(List.of(question("Q_0201", 1), question("Q_0213", 2)));
         when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of());
         when(knowledgePointService.successors("KP0201")).thenReturn(List.of("KP0202"));
-        when(questionBankService.listByKpIncludeSecondary(1L, "KP0202"))
+        when(questionBankService.listByKpIdsIncludeSecondary(1L, List.of("KP0202")))
                 .thenReturn(List.of(question("Q_0219", 2), question("Q_0225", 3)));
 
         List<Recommendation> result;
@@ -158,10 +162,10 @@ class RecommendationServiceTest {
         when(questionBankService.listByKp(1L, "KP0201"))
                 .thenReturn(List.of(question("Q_0201", 2)));
         when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of("KP0200"));
-        when(questionBankService.listByKpIncludeSecondary(1L, "KP0200"))
+        when(questionBankService.listByKpIdsIncludeSecondary(1L, List.of("KP0200")))
                 .thenReturn(List.of(question("Q_0200", 1, "KP0200")));
         when(knowledgePointService.successors("KP0201")).thenReturn(List.of("KP0202"));
-        when(questionBankService.listByKpIncludeSecondary(1L, "KP0202"))
+        when(questionBankService.listByKpIdsIncludeSecondary(1L, List.of("KP0202")))
                 .thenReturn(List.of(question("Q_0202", 3, "KP0202")));
         when(repairPriorityService.rank(2L, 1L)).thenReturn(new RepairPriorityService.RankedCourse(
                 List.of(),

@@ -27,6 +27,26 @@ public interface QuestionBankMapper extends BaseMapper<QuestionBank> {
                                                   @Param("kpId") String kpId);
 
     /**
+     * 批量版主知识点 + question_kp 关联并集查询（推荐先修/后继池，避免逐 kp N+1）。
+     * kpIds 由先修/后继集合传入，有界；IN 参数逐个 #{} 绑定。
+     */
+    @Select("""
+            <script>
+            SELECT qb.* FROM question_bank qb
+            LEFT JOIN question_kp qk ON qk.q_id = qb.q_id
+            WHERE qb.course_id = #{courseId} AND qb.is_active = 1
+              AND (qb.primary_kp_id IN
+                   <foreach collection="kpIds" item="kp" open="(" separator="," close=")">#{kp}</foreach>
+                   OR qk.kp_id IN
+                   <foreach collection="kpIds" item="kp" open="(" separator="," close=")">#{kp}</foreach>)
+            GROUP BY qb.q_id
+            ORDER BY qb.difficulty ASC, qb.q_id ASC
+            </script>
+            """)
+    List<QuestionBank> selectByKpIdsIncludeSecondary(@Param("courseId") Long courseId,
+                                                    @Param("kpIds") List<String> kpIds);
+
+    /**
      * 按 wrapper 过滤并限制条数；LIMIT 参数绑定，替代 `.last("LIMIT ...")` 字符串拼接。
      * `${ew.customSqlSegment}` 为 MyBatis-Plus 生成的 WHERE/ORDER BY 片段，不含 last()。
      */

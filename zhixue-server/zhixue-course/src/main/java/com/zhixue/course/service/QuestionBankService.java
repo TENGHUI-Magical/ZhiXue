@@ -123,6 +123,21 @@ public class QuestionBankService {
     }
 
     /**
+     * 批量按 question_kp 关联取题（含次要关联），一次 IN 查询替代逐 kp 循环。
+     *
+     * @param courseId 课程 ID
+     * @param kpIds    知识点集合；为空返回空列表
+     * @return 题目视图列表（已按 qId 去重，难度、题号升序）
+     */
+    public List<QuestionView> listByKpIdsIncludeSecondary(Long courseId, List<String> kpIds) {
+        if (kpIds == null || kpIds.isEmpty()) {
+            return List.of();
+        }
+        return questionBankMapper.selectByKpIdsIncludeSecondary(courseId, kpIds)
+                .stream().map(this::toView).toList();
+    }
+
+    /**
      * 取某课程全部启用题目，按难度、题号升序；供计划生成选题。
      */
     public List<QuestionView> listByCourse(Long courseId) {
