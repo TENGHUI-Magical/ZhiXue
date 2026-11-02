@@ -55,6 +55,15 @@ $env:DB_PASSWORD='<本地DB密码>'          # 仅用于内容计数，缺失则
 - 报告：`spark-output/qa/<日期>-predemo/predemo-report.json`（`-FullSmoke` 的 API 冒烟报告同目录，强制覆盖，避免复用旧报告造成假绿）。
 - **实跑证据（2026-11-02）**：main `002deac` 构建 jar + 本机 MySQL/Redis/AI 8000，19/19 PASS、0 WARN、0 FAIL；报告 `spark-output/qa/2026-11-02-predemo/predemo-report.json`。同日另一会话正在导入 ch04/ch05 内容，脚本只读计数（kp/qb/ch 随之变化），不设内容阈值门禁。
 
+### 3.2 演示前回归清单（映射参数）
+
+- 验收口径固定为**离线 U60 固定集（N=60）**：top1 60.0%、top3 80.0%、AUTO 精确率 91.3%、人工率 61.7%；
+  **当前 top1 与人工率均未达标**，材料不得写成达标。
+- 每次演示前做一次**在线运行观测**（60 题 × 当前在线语料，必须标 N）：人工率 = `decision != AUTO` 占比。
+- **规则写死**：在线人工率 **>65%** 时，把 `application.yml` 的 `mapping.confirm-floor` 改为 **0.40** 并重启后端；
+  **只改配置，不回滚提交**；在台账记录观测值、N 与改动。
+- 任何对外数字必须带 **“实测日期 + N + 语料口径”** 三要素，缺一即口径违规。
+
 ## 4. 回滚
 
 ```powershell
