@@ -708,6 +708,7 @@ try {
       await pinchCtx.close()
     }
   }
+  await open(mp, '/knowledge-graph')
   await open(mp, '/knowledge-graph?kpId=KP0012')
   await checkNext('移动端/图谱：换行与主动作可见', async () => {
     const drawerText = await mp.locator('.kp-drawer').innerText()
