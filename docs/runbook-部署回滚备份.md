@@ -100,7 +100,20 @@ Get-Content backup\zhixue_20261028.sql -Raw | & $mysql -h 127.0.0.1 -u root --de
 - **中文 dump 必带 `--default-character-set=utf8mb4`**：Windows 客户端默认按本地编码解析，漏掉会报 `ERROR at line 161: Unknown command '\n'`（中文字节里的反斜杠被当成命令）。备份与恢复两侧都建议显式指定。
 - 口令可用 `MYSQL_PWD` 环境变量传入，避免 `-p` 交互与明文出现在命令历史。
 
-## 6. 日志与排障
+## 6. 教师端聚合：何时必须上预聚合
+
+以下触发线按**先到先动**执行；任一触发即启动 `learning_portrait_snapshot` 预聚合切换，不得只靠继续加索引拖延。
+
+| 触发线 | 看到什么就动 | 谁看、看哪里 | 必须动作 |
+| --- | --- | --- | --- |
+| 教师端聚合接口 P95 | 最近 7 天、同一课程、单接口样本 ≥30 次时，`GET /api/portraits/class/{courseId}` 或 `GET /api/teacher/students` 任一接口 **P95 > 2s**；样本不足 30 次时不计算 P95，但单次真实请求 **> 5s** 直接触发 | **后端负责人**每个工作日看真实环境的 APM/网关耗时统计，两个接口分开看；当前未接 APM 时，用教师端浏览器 Network 对同一课程逐接口采集 30 次并计算 P95，结果登记台账，不得拿种子库耗时代替 | 启动预聚合；触发后教师端聚合改读 `learning_portrait_snapshot`，不再直接全量扫描 `practice_record` |
+| `practice_record` 行数 | **≥80 万行**即启动预聚合；**达到 100 万行前必须完成切换**，不得等到接口已经超时再动 | **后端负责人**每周一及每次批量导入后，在主库执行 `SELECT COUNT(*) FROM practice_record;`，把行数与日期登记台账 | 80 万行开始快照写入与回源校验；100 万行前完成教师端读路径切换与回滚演练 |
+
+**实测悬崖（临时库 MySQL 8.0.44，证据见 `spark-output/review/db-audit-2026-11-03.md` §11.4）**：无 `idx_user_agg` 时，教师端 `aggregateByUser` 从 37.2 万行的 **1.31s** 跳到 55.8 万行的 **47.16s**；即 **40—50 万行区间发生断崖式劣化，不是线性变慢**，机制是工作集超过缓冲池后回表随机 IO 雪崩。
+
+因此 `idx_user_agg(user_id, kp_id, q_id, is_correct, error_type, created_at, cost_seconds)` 是**必需品，不是可选优化**：它把必须做快照的时点从约 40 万行推迟到约 100 万行。索引必须以 `user_id` 打头，实测 `q_id` 打头版本优化器不选。若该索引缺失，不得套用 100 万行触发线，应立即补索引并提前启动预聚合。
+
+## 7. 日志与排障
 
 > 当前没有文件日志配置，Java 日志只到 stdout。启动时必须重定向，否则关掉终端即丢。`logs/` 默认不存在，必须先建目录：
 > `New-Item -ItemType Directory -Force logs | Out-Null; java -jar ... > logs\zhixue-YYYYMMDD.log 2>&1`。`logs/` 不进 git。
@@ -116,6 +129,6 @@ Get-Content backup\zhixue_20261028.sql -Raw | & $mysql -h 127.0.0.1 -u root --de
 
 - **2026-10-29 断网 L3 实跑**：AI 8000 关闭时 health `ai=DEGRADED`，`POST /api/diagnosis/explain` 依次返回 `meta→source→degraded(L3, "AI 服务不可用")→delta×4→done`，181ms，日志无 ERROR；日志 9,305 字节 / 9,146 字符，SHA256 `355EF4902A5DA40C1588CFA4541E3C025142C5F9A029E0062F40C3EF09363422`。
 
-## 7. 生产待补（P1）
+## 8. 生产待补（P1）
 
 TLS/HTTPS、Nginx 限流、健康探针内网限制、MySQL 定时备份、日志轮转、监控告警、孤儿图片清理。

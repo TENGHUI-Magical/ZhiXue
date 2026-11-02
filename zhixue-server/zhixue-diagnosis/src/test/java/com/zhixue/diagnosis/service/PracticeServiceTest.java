@@ -24,6 +24,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
@@ -35,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -51,6 +55,8 @@ class PracticeServiceTest {
     private KnowledgePointService knowledgePointService;
     @Mock
     private QuestionBankService questionBankService;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     private PracticeService service;
 
@@ -65,7 +71,13 @@ class PracticeServiceTest {
     @BeforeEach
     void setUp() {
         service = new PracticeService(practiceRecordMapper, recommendationRecordMapper,
-                knowledgePointService, questionBankService);
+                knowledgePointService, questionBankService, transactionTemplate);
+        // 事务模板直通：立即执行回调（真实事务语义由 IT 在 Testcontainers 上验证）
+        lenient().doAnswer(invocation -> {
+            java.util.function.Consumer<?> action = invocation.getArgument(0);
+            action.accept(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
     }
 
     @Test
@@ -85,6 +97,55 @@ class PracticeServiceTest {
             assertTrue(result.isCorrect());
             verify(practiceRecordMapper, never()).insert(any(PracticeRecord.class));
         }
+    }
+
+    /**
+     * 事务包装后的并发幂等路径（单测层）：用真实 TransactionTemplate + mock 事务管理器，
+     * insert 在事务块内抛唯一键冲突 → 回滚后异常浮出 → catch 回查到并发方首次记录 → duplicate=true。
+     * 真实并发行为由 IT concurrentDuplicateSubmitsRecordExactlyOnce 在 Testcontainers 上锁定。
+     */
+    @Test
+    void insertConflictInsideTransactionStillReturnsWinner() {
+        PracticeService realTxService = new PracticeService(practiceRecordMapper,
+                recommendationRecordMapper, knowledgePointService, questionBankService,
+                new TransactionTemplate(org.mockito.Mockito.mock(
+                        org.springframework.transaction.PlatformTransactionManager.class)));
+        PracticeRecord winner = new PracticeRecord();
+        winner.setPracticeId(21L);
+        winner.setQId("Q_0201");
+        winner.setIsCorrect(0);
+        prepare(question("单选", "B", null));
+        // 必须在 prepare 之后 stub：prepare 内部会重置 selectOne 为单值 null
+        when(practiceRecordMapper.selectOne(any())).thenReturn(null).thenReturn(winner);
+        when(practiceRecordMapper.insert(any(PracticeRecord.class)))
+                .thenThrow(new DuplicateKeyException("uk_user_client"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            PracticeResultView result = realTxService.submit(requestWith(false, "A", "token-race"));
+            assertEquals(21L, result.practiceId());
+            assertTrue(result.duplicate());
+            assertFalse(result.isCorrect());
+        }
+    }
+
+    /** 事务块失败（非幂等冲突）时推荐采纳不残留：insert 先于 adoption 更新，整体回滚。 */
+    @Test
+    void adoptionNotTouchedWhenInsertFails() {
+        PracticeService realTxService = new PracticeService(practiceRecordMapper,
+                recommendationRecordMapper, knowledgePointService, questionBankService,
+                new TransactionTemplate(org.mockito.Mockito.mock(
+                        org.springframework.transaction.PlatformTransactionManager.class)));
+        when(practiceRecordMapper.selectOne(any())).thenReturn(null);
+        when(practiceRecordMapper.insert(any(PracticeRecord.class)))
+                .thenThrow(new IllegalStateException("db down"));
+        prepare(question("单选", "B", null));
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThrows(IllegalStateException.class,
+                    () -> realTxService.submit(requestWith(false, "A", "tx-fail")));
+        }
+        verify(recommendationRecordMapper, never()).update(any(), any());
     }
 
     @Test

@@ -19,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -45,15 +46,18 @@ public class PracticeService {
     private final RecommendationRecordMapper recommendationRecordMapper;
     private final KnowledgePointService knowledgePointService;
     private final QuestionBankService questionBankService;
+    private final TransactionTemplate transactionTemplate;
 
     public PracticeService(PracticeRecordMapper practiceRecordMapper,
                            RecommendationRecordMapper recommendationRecordMapper,
                            KnowledgePointService knowledgePointService,
-                           QuestionBankService questionBankService) {
+                           QuestionBankService questionBankService,
+                           TransactionTemplate transactionTemplate) {
         this.practiceRecordMapper = practiceRecordMapper;
         this.recommendationRecordMapper = recommendationRecordMapper;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -124,9 +128,25 @@ public class PracticeService {
         record.setErrorType(errorType);
         record.setCostSeconds(request.costSeconds());
         record.setRecommendationId(request.recommendationId());
+        final RecommendationRecord adopted = recommendation;
         try {
-            practiceRecordMapper.insert(record);
+            // 双写同事务（作答落库 + 推荐采纳回写），任一失败整体回滚。
+            // 用编程式事务而非 @Transactional：DuplicateKeyException 的幂等回查必须发生在
+            // 事务结束之后——方法级注解会在入口建立 REPEATABLE READ 快照，并发方在快照后
+            // 提交的同 token 记录回查不可见，幂等会被破坏（StudentErrorRecordService 同理不包事务）。
+            transactionTemplate.executeWithoutResult(tx -> {
+                practiceRecordMapper.insert(record);
+                if (adopted != null) {
+                    recommendationRecordMapper.update(null,
+                            new LambdaUpdateWrapper<RecommendationRecord>()
+                                    .eq(RecommendationRecord::getRecommendationId,
+                                            adopted.getRecommendationId())
+                                    .eq(RecommendationRecord::getUserId, userId)
+                                    .set(RecommendationRecord::getIsAdopted, 1));
+                }
+            });
         } catch (DuplicateKeyException e) {
+            // 此处事务已回滚结束，回查开新连接，能看到并发方已提交的首次记录
             PracticeRecord winner = findByClientToken(userId, request.clientToken());
             if (winner != null) {
                 return new PracticeResultView(winner.getPracticeId(), true, null,
@@ -135,13 +155,6 @@ public class PracticeService {
             throw e;
         }
 
-        if (recommendation != null) {
-            recommendationRecordMapper.update(null,
-                    new LambdaUpdateWrapper<RecommendationRecord>()
-                            .eq(RecommendationRecord::getRecommendationId, recommendation.getRecommendationId())
-                            .eq(RecommendationRecord::getUserId, userId)
-                            .set(RecommendationRecord::getIsAdopted, 1));
-        }
         PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
         return new PracticeResultView(saved == null ? record.getPracticeId() : saved.getPracticeId(),
                 false, grading.mode(), isCorrect);

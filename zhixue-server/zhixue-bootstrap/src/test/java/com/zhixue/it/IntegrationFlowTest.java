@@ -1055,6 +1055,51 @@ class IntegrationFlowTest {
         assertThat(number(json, "$.data.errorDist.CONCEPT_CONFUSION").intValue()).isEqualTo(3);
     }
 
+    /**
+     * 并发幂等锁（真 Tomcat + 真事务 + 真唯一键）：submit 用 TransactionTemplate 包双写后，
+     * 4 线程同 clientToken 并发提交必须只落一行、恰一个 duplicate=false、其余 duplicate=true。
+     * 证明事务化没有破坏 uk_user_client 的防重与 REPEATABLE READ 下的事务外幂等回查。
+     */
+    @Test
+    void concurrentDuplicateSubmitsRecordExactlyOnce() throws Exception {
+        String token = login();
+        List<String> qIds = courseQids(1);
+        String payload = "{\"qId\":\"" + qIds.get(0) + "\",\"kpId\":\"KP0201\","
+                + "\"isCorrect\":true,\"myAnswer\":\"B\",\"clientToken\":\"ct-race\"}";
+
+        int threads = 4;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch ready = new CountDownLatch(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<HttpResponse<String>>> futures = new ArrayList<>();
+        for (int i = 0; i < threads; i++) {
+            futures.add(pool.submit(() -> {
+                ready.countDown();
+                start.await();
+                return postJson("/api/practices", payload, token);
+            }));
+        }
+        assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+
+        int firstSubmits = 0;
+        for (Future<HttpResponse<String>> future : futures) {
+            HttpResponse<String> resp = future.get(30, TimeUnit.SECONDS);
+            assertThat(resp.statusCode()).isEqualTo(200);
+            assertThat(code(resp)).isZero();
+            if (!Boolean.TRUE.equals(JsonPath.read(body(resp), "$.data.duplicate"))) {
+                firstSubmits++;
+            }
+        }
+        pool.shutdownNow();
+
+        assertThat(firstSubmits).isEqualTo(1);
+        Integer rows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM practice_record WHERE client_token = 'ct-race'",
+                Integer.class);
+        assertThat(rows).isEqualTo(1);
+    }
+
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
         for (int i = 0; i < 100; i++) {
             Integer count = jdbcTemplate.queryForObject(
