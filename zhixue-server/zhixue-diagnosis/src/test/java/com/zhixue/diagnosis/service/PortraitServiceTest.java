@@ -12,7 +12,10 @@ import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ClassPortraitView;
+import com.zhixue.diagnosis.dto.ErrorTypeAgg;
 import com.zhixue.diagnosis.dto.PortraitView;
+import com.zhixue.diagnosis.dto.UserKpAgg;
+import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.LearningPortraitSnapshot;
 import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
@@ -39,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 
@@ -266,19 +271,36 @@ class PortraitServiceTest {
         when(courseService.getActiveById(1L)).thenReturn(course);
         when(questionBankService.listQidsByCourse(1L)).thenReturn(List.of("Q_0201", "Q_0202"));
 
-        PracticeRecord heavy = practice("KP0201", "Q_0201", 0, "CONCEPT_CONFUSION", null);
-        heavy.setUserId(10L);
-        List<PracticeRecord> records = new java.util.ArrayList<>();
-        records.add(heavy);
-        for (int i = 0; i < 9; i++) {
-            PracticeRecord correct = practice("KP0201", "Q_0202", 1, null, null);
-            correct.setUserId(10L);
-            records.add(correct);
-        }
-        PracticeRecord light = practice("KP0201", "Q_0203", 0, "CONCEPT_CONFUSION", null);
-        light.setUserId(11L);
-        records.add(light);
-        when(practiceRecordMapper.selectList(any())).thenReturn(records);
+        UserPracticeAgg s10 = new UserPracticeAgg();
+        s10.setUserId(10L);
+        s10.setPracticeCount(10);
+        s10.setLastActiveAt(LocalDateTime.now(ZONE));
+        UserPracticeAgg s11 = new UserPracticeAgg();
+        s11.setUserId(11L);
+        s11.setPracticeCount(1);
+        s11.setLastActiveAt(LocalDateTime.now(ZONE));
+        when(practiceRecordMapper.aggregateByUser(anyList(), any())).thenReturn(List.of(s10, s11));
+
+        UserKpAgg k10 = new UserKpAgg();
+        k10.setUserId(10L);
+        k10.setKpId("KP0201");
+        k10.setEvents(10);
+        k10.setErrorCount(1);
+        k10.setSeveritySum(1.0);
+        UserKpAgg k11 = new UserKpAgg();
+        k11.setUserId(11L);
+        k11.setKpId("KP0201");
+        k11.setEvents(1);
+        k11.setErrorCount(1);
+        k11.setSeveritySum(1.0);
+        when(practiceRecordMapper.aggregateByUserKp(anyList(), any(), anyDouble(), any()))
+                .thenReturn(List.of(k10, k11));
+        ErrorTypeAgg confusion = new ErrorTypeAgg();
+        confusion.setErrorType("CONCEPT_CONFUSION");
+        confusion.setCnt(2);
+        when(practiceRecordMapper.aggregateErrorTypeByCourse(anyList()))
+                .thenReturn(List.of(confusion));
+
         when(knowledgePointService.findByIds(any()))
                 .thenReturn(Map.of("KP0201", kp("KP0201", "关系模型", "concept")));
 
@@ -289,6 +311,9 @@ class PortraitServiceTest {
             assertEquals(0.45, view.weakestKpTop().get(0).avgMastery());
             assertEquals(2, view.weakestKpTop().get(0).errorCount());
             assertEquals(2, view.studentCount());
+            assertEquals(1.0, view.activeRate());
+            // errorDist 走 SQL 聚合：只统计标注知识点且作答错误的记录
+            assertEquals(2, view.errorDist().get("CONCEPT_CONFUSION").intValue());
         }
     }
 

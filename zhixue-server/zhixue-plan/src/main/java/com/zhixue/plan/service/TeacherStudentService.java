@@ -111,7 +111,7 @@ public class TeacherStudentService {
         Set<Long> userIds = aggregates.stream().map(UserPracticeAgg::getUserId)
                 .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, List<UserKpAgg>> kpByUser = practiceRecordMapper
-                .aggregateByUserKp(qIds, userIds, halfLifeDays).stream()
+                .aggregateByUserKp(qIds, userIds, halfLifeDays, LocalDateTime.now(ZONE)).stream()
                 .filter(item -> item.getUserId() != null)
                 .collect(Collectors.groupingBy(UserKpAgg::getUserId));
         Map<Long, int[]> planProgress = loadPlanProgress(userIds);
@@ -153,7 +153,8 @@ public class TeacherStudentService {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
         UserPracticeAgg aggregate = aggregateList.get(0);
-        List<UserKpAgg> kpAggs = practiceRecordMapper.aggregateByUserKp(qIds, single, halfLifeDays);
+        List<UserKpAgg> kpAggs = practiceRecordMapper.aggregateByUserKp(
+                qIds, single, halfLifeDays, LocalDateTime.now(ZONE));
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(courseKpIds(courseId));
         Map<Long, String> names = userQueryService.findDisplayNames(single);
         Map<Long, int[]> planProgress = loadPlanProgress(Set.of(userId));
@@ -304,10 +305,12 @@ public class TeacherStudentService {
             }
             KnowledgePoint kp = kpById.get(kpId);
             int events = aggregate.getEvents() == null ? 0 : aggregate.getEvents();
+            int errors = aggregate.getErrorCount() == null ? 0 : aggregate.getErrorCount();
             double severitySum = aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum();
             result.add(new TeacherStudentViews.KpMastery(kpId,
-                    kp == null ? null : kp.getName(), round3(masteryCalculator.mastery(events, severitySum)),
-                    events, aggregate.getErrorCount() == null ? 0 : aggregate.getErrorCount()));
+                    kp == null ? null : kp.getName(),
+                    round3(masteryCalculator.mastery(events, severitySum)),
+                    events, errors));
         }
         result.sort(Comparator.comparingDouble(TeacherStudentViews.KpMastery::mastery));
         return result;

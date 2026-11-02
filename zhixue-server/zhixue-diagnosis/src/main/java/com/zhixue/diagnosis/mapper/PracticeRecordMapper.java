@@ -1,6 +1,7 @@
 package com.zhixue.diagnosis.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.zhixue.diagnosis.dto.ErrorTypeAgg;
 import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.PracticeRecord;
@@ -66,8 +67,15 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
 
     /**
      * 按（用户, 知识点）聚合掌握度所需事件数与严重度和（C12）。
-     * severitySum 的权重与时间半衰与 MasteryCalculator.severity/decay 保持一致（docs/05 §2.2），
-     * 半衰期由调用方传入，避免两处常量漂移。返回行数受 学生数 × 知识点数 约束。
+     * <p>
+     * severitySum 的权重与时间半衰与 MasteryCalculator.severity/decay 保持一致（docs/05 §2.2）：
+     * <ul>
+     *   <li>{@code TIMESTAMPDIFF(DAY, created_at, now)} 取“满 24 小时天数”，与
+     *       {@code Duration.between(...).toDays()} 完全一致；不能用 {@code DATEDIFF}（按日历跨日，
+     *       会与 Java 口径差最多 1 天）。</li>
+     *   <li>{@code now} 由调用方按 Asia/Shanghai 传入，不依赖 DB 会话时区（{@code NOW()} 可能是 UTC）。</li>
+     * </ul>
+     * 半衰期同理由调用方传入，避免两处常量漂移。返回行数受 学生数 × 知识点数 约束。
      */
     @Select("""
             <script>
@@ -75,7 +83,7 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                    kp_id AS kpId,
                    COUNT(*) AS events,
                    SUM(CASE WHEN is_correct = 0 THEN
-                         POW(0.5, COALESCE(GREATEST(0, DATEDIFF(NOW(), created_at)), 0) / #{halfLifeDays}) *
+                         POW(0.5, COALESCE(GREATEST(0, TIMESTAMPDIFF(DAY, created_at, #{now})), 0) / #{halfLifeDays}) *
                          CASE error_type
                            WHEN 'CONCEPT_CONFUSION' THEN 1.0
                            WHEN 'METHOD_MISSING' THEN 1.0
@@ -99,7 +107,8 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
             """)
     List<UserKpAgg> aggregateByUserKp(@Param("qIds") List<String> qIds,
                                       @Param("userIds") Collection<Long> userIds,
-                                      @Param("halfLifeDays") double halfLifeDays);
+                                      @Param("halfLifeDays") double halfLifeDays,
+                                      @Param("now") LocalDateTime now);
 
     /** 单学生作答明细计数（C12 详情分页，参数绑定，不拼接 LIMIT）。 */
     @Select("""
@@ -136,4 +145,21 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                            @Param("to") LocalDateTime to,
                                            @Param("limit") int limit,
                                            @Param("offset") int offset);
+
+    /**
+     * 课程维度错因分布（班级画像 errorDist）：SQL GROUP BY error_type，行数受错因类型数约束，
+     * 只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
+     */
+    @Select("""
+            <script>
+            SELECT error_type AS errorType, COUNT(*) AS cnt FROM practice_record
+            WHERE is_correct = 0
+              AND q_id IN
+              <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+              AND kp_id IS NOT NULL AND kp_id &lt;&gt; ''
+              AND error_type IS NOT NULL AND error_type &lt;&gt; ''
+            GROUP BY error_type
+            </script>
+            """)
+    List<ErrorTypeAgg> aggregateErrorTypeByCourse(@Param("qIds") List<String> qIds);
 }

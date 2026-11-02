@@ -136,7 +136,7 @@ class TeacherStudentServiceTest {
         when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
                 agg(2L, 18, 6, 5, 52.4, LocalDateTime.of(2026, 10, 30, 21, 10)),
                 agg(3L, 6, 2, 2, 35.0, LocalDateTime.of(2026, 10, 28, 12, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0))).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 4.0, 4),
                 kp(2L, "KP02", 8, 1.0, 1),
                 kp(3L, "KP01", 6, 2.0, 2)));
@@ -163,7 +163,7 @@ class TeacherStudentServiceTest {
                 agg(3L, 10, 1, 1, 30.0, LocalDateTime.of(2026, 10, 30, 21, 0)),
                 agg(2L, 10, 5, 5, 30.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
         // user2 mastery=0.2；user3 mastery=0.9 → masteryAsc 应把 user2 排在前
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0))).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 8.0, 5),
                 kp(3L, "KP01", 10, 1.0, 1)));
         when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
@@ -185,7 +185,7 @@ class TeacherStudentServiceTest {
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
         when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
                 agg(2L, 4, 2, 2, 45.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0))).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
                 kp(2L, "KP01", 4, 2.0, 2)));
         UserPlanAgg plan = new UserPlanAgg();
         plan.setUserId(2L);
@@ -223,7 +223,7 @@ class TeacherStudentServiceTest {
         when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
         when(practiceRecordMapper.aggregateByUser(eq(qIds), any())).thenReturn(List.of(
                 agg(2L, 10, 3, 2, 40.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
-        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0))).thenReturn(List.of(
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any())).thenReturn(List.of(
                 kp(2L, "KP01", 10, 3.0, 3)));
         when(practiceRecordMapper.countByUserPaged(eq(2L), eq(qIds), any(), any())).thenReturn(1L);
         PracticeRecord record = new PracticeRecord();

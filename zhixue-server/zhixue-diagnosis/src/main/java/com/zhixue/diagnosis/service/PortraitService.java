@@ -11,7 +11,10 @@ import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ClassPortraitView;
+import com.zhixue.diagnosis.dto.ErrorTypeAgg;
 import com.zhixue.diagnosis.dto.PortraitView;
+import com.zhixue.diagnosis.dto.UserKpAgg;
+import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.LearningPortraitSnapshot;
 import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
@@ -20,6 +23,8 @@ import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.LocalDate;
@@ -49,6 +54,7 @@ import java.util.Set;
 public class PortraitService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    private static final Logger log = LoggerFactory.getLogger(PortraitService.class);
     private static final int WEAK_LIMIT = 5;
     private static final String STATUS_CONFIRMED = "CONFIRMED";
 
@@ -60,6 +66,7 @@ public class PortraitService {
     private final QuestionBankService questionBankService;
     private final ObjectMapper objectMapper;
     private final MasteryCalculator masteryCalculator;
+    private final double halfLifeDays;
     private final int minSamples;
 
     public PortraitService(LearningPortraitSnapshotMapper snapshotMapper,
@@ -78,6 +85,7 @@ public class PortraitService {
         this.courseService = courseService;
         this.questionBankService = questionBankService;
         this.objectMapper = objectMapper;
+        this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
         this.masteryCalculator = new MasteryCalculator(halfLifeDays);
         this.minSamples = Math.max(1, minSamples);
     }
@@ -99,8 +107,12 @@ public class PortraitService {
     /**
      * 班级画像（教师）：课程维度实时聚合。
      * 学生集合 = 在该课程题目上有作答记录的学生；活跃率 = 近 7 天有作答 / 学生数。
-     * 薄弱点掌握度按“学生先算、再按人平均”（宏平均），避免高频作答的学生
+     * 薄弱点掌握度按"学生先算、再按人平均"（宏平均），避免高频作答的学生
      * 把班级均值拉偏；这是无 course_student 表时的 MVP 口径。
+     * <p>
+     * 聚合全部下推到 SQL（复用 aggregateByUser / aggregateByUserKp / aggregateErrorTypeByCourse），
+     * 进 JVM 的行数从「课程练习明细（万级）」降到「学生数 × 知识点数（百级）」，
+     * 与 plan 模块 C12 共用同一套半衰严重度口径，避免两处算法漂移。
      */
     public ClassPortraitView classPortrait(Long courseId) {
         StpUtil.checkRole("TEACHER");
@@ -113,62 +125,59 @@ public class PortraitService {
         if (qIds.isEmpty()) {
             return emptyClassPortrait(courseId);
         }
-        List<PracticeRecord> records = practiceRecordMapper.selectList(
-                new LambdaQueryWrapper<PracticeRecord>()
-                        .select(PracticeRecord::getUserId, PracticeRecord::getKpId,
-                                PracticeRecord::getIsCorrect, PracticeRecord::getErrorType,
-                                PracticeRecord::getCreatedAt)
-                        .in(PracticeRecord::getQId, qIds));
-        if (records.isEmpty()) {
+
+        LocalDateTime now = LocalDateTime.now(ZONE);
+        LocalDateTime since = now.minusDays(7);
+
+        int studentCount = 0;
+        int activeCount = 0;
+        for (UserPracticeAgg agg : practiceRecordMapper.aggregateByUser(qIds, null)) {
+            if (agg.getUserId() == null) {
+                continue;
+            }
+            studentCount++;
+            if (agg.getLastActiveAt() != null && !agg.getLastActiveAt().isBefore(since)) {
+                activeCount++;
+            }
+        }
+        if (studentCount == 0) {
             return emptyClassPortrait(courseId);
         }
 
-        LocalDateTime now = LocalDateTime.now(ZONE);
-        Set<Long> students = new HashSet<>();
-        Set<Long> activeStudents = new HashSet<>();
-        LocalDateTime since = now.minusDays(7);
-        Map<String, Map<Long, KpStat>> kpByStudent = new HashMap<>();
+        Map<String, List<UserKpAgg>> kpByStudents = new HashMap<>();
+        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(qIds, null, halfLifeDays, now)) {
+            if (agg.getUserId() == null || isBlank(agg.getKpId())) {
+                continue;
+            }
+            kpByStudents.computeIfAbsent(agg.getKpId(), key -> new ArrayList<>()).add(agg);
+        }
+
         Map<String, Integer> errorDist = new HashMap<>();
-        for (PracticeRecord record : records) {
-            if (record.getUserId() == null) {
-                continue;
-            }
-            students.add(record.getUserId());
-            if (record.getCreatedAt() != null && !record.getCreatedAt().isBefore(since)) {
-                activeStudents.add(record.getUserId());
-            }
-            if (isBlank(record.getKpId())) {
-                continue;
-            }
-            boolean wrong = record.getIsCorrect() != null && record.getIsCorrect() == 0;
-            KpStat stat = kpByStudent
-                    .computeIfAbsent(record.getKpId(), key -> new HashMap<>())
-                    .computeIfAbsent(record.getUserId(), key -> new KpStat());
-            stat.events++;
-            if (wrong) {
-                stat.errors++;
-                stat.severitySum += masteryCalculator.errorWeight(
-                        record.getErrorType(), record.getCreatedAt(), now);
-                mergeErrorType(errorDist, record.getErrorType());
+        for (ErrorTypeAgg agg : practiceRecordMapper.aggregateErrorTypeByCourse(qIds)) {
+            if (!isBlank(agg.getErrorType()) && agg.getCnt() != null) {
+                errorDist.merge(agg.getErrorType(), agg.getCnt(), Integer::sum);
             }
         }
 
-        Map<String, KnowledgePoint> kpMap = knowledgePointService.findByIds(kpByStudent.keySet());
+        Map<String, KnowledgePoint> kpMap = knowledgePointService.findByIds(kpByStudents.keySet());
         List<KpAgg> aggregates = new ArrayList<>();
-        for (Map.Entry<String, Map<Long, KpStat>> entry : kpByStudent.entrySet()) {
+        for (Map.Entry<String, List<UserKpAgg>> entry : kpByStudents.entrySet()) {
             int events = 0;
             int errors = 0;
-            double studentsMastery = 0.0;
-            int studentCount = 0;
-            for (KpStat stat : entry.getValue().values()) {
-                events += stat.events;
-                errors += stat.errors;
-                if (stat.events > 0) {
-                    studentsMastery += masteryCalculator.mastery(stat.events, stat.severitySum);
-                    studentCount++;
+            double masterySum = 0.0;
+            int studentCnt = 0;
+            for (UserKpAgg agg : entry.getValue()) {
+                int ev = agg.getEvents() == null ? 0 : agg.getEvents();
+                int err = agg.getErrorCount() == null ? 0 : agg.getErrorCount();
+                errors += err;
+                events += ev;
+                if (ev > 0) {
+                    masterySum += masteryCalculator.mastery(ev,
+                            agg.getSeveritySum() == null ? 0.0 : agg.getSeveritySum());
+                    studentCnt++;
                 }
             }
-            double macroMastery = studentCount == 0 ? 0.0 : studentsMastery / studentCount;
+            double macroMastery = studentCnt == 0 ? 0.0 : masterySum / studentCnt;
             aggregates.add(new KpAgg(entry.getKey(), events, errors, macroMastery));
         }
 
@@ -183,9 +192,7 @@ public class PortraitService {
                         round3(item.mastery()), item.errors()))
                 .toList();
 
-        int studentCount = students.size();
-        double activeRate = studentCount == 0 ? 0.0
-                : round3(activeStudents.size() / (double) studentCount);
+        double activeRate = round3(activeCount / (double) studentCount);
         return new ClassPortraitView(courseId, studentCount, top, errorDist, activeRate);
     }
 
@@ -300,9 +307,9 @@ public class PortraitService {
     }
 
     private PortraitView fromSnapshot(LearningPortraitSnapshot snapshot) {
-        Map<String, Double> scores = parseNumberMap(snapshot.getDimensionScores());
-        Map<String, Integer> errors = parseIntMap(snapshot.getErrorDist());
-        List<Map<String, Object>> rawWeakest = parseMapList(snapshot.getWeakestKps());
+        Map<String, Double> scores = parseNumberMap(snapshot.getDimensionScores(), "dimensionScores");
+        Map<String, Integer> errors = parseIntMap(snapshot.getErrorDist(), "errorDist");
+        List<Map<String, Object>> rawWeakest = parseMapList(snapshot.getWeakestKps(), "weakestKps");
         List<String> kpIds = rawWeakest.stream()
                 .map(item -> asString(item.get("kpId")))
                 .filter(id -> id != null && !id.isBlank())
@@ -341,7 +348,7 @@ public class PortraitService {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Double> parseNumberMap(String json) {
+    private Map<String, Double> parseNumberMap(String json, String label) {
         if (json == null || json.isBlank()) {
             return Map.of();
         }
@@ -354,13 +361,14 @@ public class PortraitService {
                         ? number.doubleValue() : null);
             }
             return result;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("画像快照字段 {} 解析失败，按空集合降级", label, e);
             return Map.of();
         }
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, Integer> parseIntMap(String json) {
+    private Map<String, Integer> parseIntMap(String json, String label) {
         if (json == null || json.isBlank()) {
             return Map.of();
         }
@@ -373,13 +381,14 @@ public class PortraitService {
                         ? number.intValue() : null);
             }
             return result;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("画像快照字段 {} 解析失败，按空集合降级", label, e);
             return Map.of();
         }
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> parseMapList(String json) {
+    private List<Map<String, Object>> parseMapList(String json, String label) {
         if (json == null || json.isBlank()) {
             return List.of();
         }
@@ -393,7 +402,8 @@ public class PortraitService {
                 }
             }
             return result;
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.warn("画像快照字段 {} 解析失败，按空列表降级", label, e);
             return List.of();
         }
     }
