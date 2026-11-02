@@ -1,5 +1,7 @@
 package com.zhixue.plan.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * 打卡回执（契约 openapi CheckinResponse.data）。
  *
@@ -14,6 +16,10 @@ package com.zhixue.plan.dto;
  * @param duplicate   是否幂等命中
  */
 public record CheckinResult(Long planId, String qId, int doneCount, int planCount,
-                            boolean verified, Boolean isCorrect, String gradingMode,
+                            boolean verified, Boolean isCorrect,
+                            @Schema(allowableValues = {"AUTO", "SELF"}, nullable = true,
+                                    description = "AUTO=客观题服务端判分；SELF=主观题自评；"
+                                            + "answered=false 时为 null")
+                            String gradingMode,
                             Long practiceId, boolean duplicate) {
 }

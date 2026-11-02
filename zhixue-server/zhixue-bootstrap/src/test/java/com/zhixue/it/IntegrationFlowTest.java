@@ -3,6 +3,7 @@ package com.zhixue.it;
 import com.jayway.jsonpath.JsonPath;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.zhixue.diagnosis.service.MasteryCalculator;
 import com.zhixue.diagnosis.service.OcrService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -64,6 +65,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * 真实 MySQL + Redis + Tomcat 的核心链路集成测试。
@@ -884,7 +886,10 @@ class IntegrationFlowTest {
         assertThat(r3.get("displayName")).isEqualTo("欧*锋");
         assertThat(((Number) r3.get("correctRate")).doubleValue()).isEqualTo(1.0);
         assertThat(((Number) r3.get("errorCount")).intValue()).isZero();
-        assertThat(((Number) r3.get("avgMastery")).doubleValue()).isEqualTo(1.0);
+        // Beta 后验（先验 2/2 + 时间衰减）：全对也不会等于 1，用区间锁业务语义而非精确浮点
+        assertThat(((Number) r3.get("avgMastery")).doubleValue())
+                .as("全对学生的掌握度应高于先验 0.5 且低于 1")
+                .isBetween(0.5, 0.9);
 
         assertThat(((Number) r2.get("avgMastery")).doubleValue())
                 .isLessThan(((Number) r1.get("avgMastery")).doubleValue());
@@ -954,6 +959,62 @@ class IntegrationFlowTest {
                 .isEqualTo(40300);
         assertThat(code(getJson("/api/teacher/students/" + userIdOf("it_user4")
                 + "/learning-records?courseId=1", teacher))).isEqualTo(40400);
+    }
+
+    /**
+     * classPortrait 的聚合与半衰在真实 MySQL 上执行：
+     * 单测 mock 掉了 mapper，只有这里能验证 GROUP BY / TIMESTAMPDIFF / CASE 权重 / errorDist。
+     */
+    @Test
+    void classPortraitAggregatesInSqlWithMacroAverageAndHalfLife() throws Exception {
+        List<String> qIds = courseQids(4);
+        assertThat(qIds).hasSize(4);
+        long u1 = userIdOf("it_user");
+        long u2 = userIdOf("it_user2");
+        long u3 = userIdOf("it_user3");
+
+        // KP0201：u1 10 次 1 错、u2 1 次 1 错（均今日）；Beta 后验宏平均，
+        // 期望值由 MasteryCalculator 同源计算，避免把公式数值写死在测试里。
+        for (int i = 0; i < 9; i++) {
+            insertPractice(u1, "cp-u1-ok-" + i, qIds.get(i % qIds.size()), true, 20, 0, null);
+        }
+        insertPractice(u1, "cp-u1-err", qIds.get(0), false, 20, 0, "CONCEPT_CONFUSION");
+        insertPractice(u2, "cp-u2-err", qIds.get(0), false, 20, 0, "CONCEPT_CONFUSION");
+
+        // KP0202：u3 1 错（30 天前，SQL 半衰后严重度 0.5）+ 2 对（今日），验证 SQL 半衰与 Java 口径一致。
+        insertPractice(u3, "cp-u3-err", qIds.get(0), "KP0202", false, 20, 30, "CONCEPT_CONFUSION");
+        insertPractice(u3, "cp-u3-ok-1", qIds.get(1), "KP0202", true, 20, 0, null);
+        insertPractice(u3, "cp-u3-ok-2", qIds.get(2), "KP0202", true, 20, 0, null);
+
+        String teacher = login("it_teacher");
+        HttpResponse<String> response = getJson("/api/portraits/class/1", teacher);
+        assertThat(code(response)).isZero();
+        String json = body(response);
+
+        assertThat(number(json, "$.data.studentCount").intValue()).isEqualTo(3);
+        assertThat(number(json, "$.data.activeRate").doubleValue()).isEqualTo(1.0);
+
+        List<Map<String, Object>> top = JsonPath.read(json, "$.data.weakestKpTop");
+        assertThat(top).hasSize(2);
+        LocalDateTime now = LocalDateTime.now(ZONE);
+        MasteryCalculator calculator = new MasteryCalculator(30);
+        double u1Mastery = calculator.estimate(9, 1.0, now, now).mean();
+        double u2Mastery = calculator.estimate(0, 1.0, now, now).mean();
+        double expectedMacro = (u1Mastery + u2Mastery) / 2;
+        // KP0202：2 次正确（今日）+ 30 天前错误（SQL 半衰后严重度 0.5）
+        double expectedKp0202 = calculator.estimate(2, 0.5, now, now).mean();
+
+        assertThat(top.get(0).get("kpId")).isEqualTo("KP0201");
+        assertThat(((Number) top.get(0).get("avgMastery")).doubleValue())
+                .isCloseTo(expectedMacro, within(0.002));
+        assertThat(((Number) top.get(0).get("errorCount")).intValue()).isEqualTo(2);
+
+        assertThat(top.get(1).get("kpId")).isEqualTo("KP0202");
+        assertThat(((Number) top.get(1).get("avgMastery")).doubleValue())
+                .isCloseTo(expectedKp0202, within(0.002));
+        assertThat(((Number) top.get(1).get("errorCount")).intValue()).isEqualTo(1);
+
+        assertThat(number(json, "$.data.errorDist.CONCEPT_CONFUSION").intValue()).isEqualTo(3);
     }
 
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
@@ -1153,10 +1214,15 @@ class IntegrationFlowTest {
 
     private void insertPractice(long userId, String clientToken, String qId, boolean correct,
                                 int costSeconds, int daysAgo, String errorType) {
+        insertPractice(userId, clientToken, qId, "KP0201", correct, costSeconds, daysAgo, errorType);
+    }
+
+    private void insertPractice(long userId, String clientToken, String qId, String kpId,
+                                boolean correct, int costSeconds, int daysAgo, String errorType) {
         jdbcTemplate.update("INSERT INTO practice_record (user_id, client_token, q_id, kp_id, "
                         + "source, is_correct, my_answer, error_type, cost_seconds, created_at) "
-                        + "VALUES (?, ?, ?, 'KP0201', 'PLAN', ?, 'A', ?, ?, ?)",
-                userId, clientToken, qId, correct ? 1 : 0, errorType, costSeconds,
+                        + "VALUES (?, ?, ?, ?, 'PLAN', ?, 'A', ?, ?, ?)",
+                userId, clientToken, qId, kpId, correct ? 1 : 0, errorType, costSeconds,
                 LocalDateTime.now(ZONE).minusDays(daysAgo));
     }
 
