@@ -4,7 +4,7 @@
       <div>
         <h2>学情画像</h2>
         <p class="sub">
-          基于最近一次画像快照<span v-if="portrait?.statDate">（{{ portrait.statDate }}）</span>汇总练习与已确认错题数据。
+          基于实时聚合的练习与已确认错题数据<span v-if="portrait?.statDate">（截至 {{ portrait.statDate }}）</span>。
         </p>
       </div>
       <div class="head-actions">
@@ -29,7 +29,7 @@
         <el-card class="c12 hero-card" shadow="never">
           <div class="hero-top">
             <div>
-              <div class="hero-eyebrow">掌握概况 · 快照 {{ portrait?.statDate || "—" }}</div>
+              <div class="hero-eyebrow">掌握概况 · 截至 {{ portrait?.statDate || "—" }}</div>
               <h3 class="hero-title">{{ conclusionText }}</h3>
               <p class="hero-note">
                 综合掌握取五维均值；正确率为前端估算（1 - 已确认错题/总练习），非后端口径，不用于结项/答辩；样本充分度按 20 次展示参考，非算法阈值。
@@ -58,7 +58,7 @@
             <span>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</span>
             <span>已确认错误 {{ portrait?.totalError ?? 0 }} 条</span>
             <span>薄弱知识点 {{ weakest.length }} 项</span>
-            <span>快照 {{ portrait?.statDate || "—" }}</span>
+            <span>截至 {{ portrait?.statDate || "—" }}</span>
           </div>
           <el-alert
             v-if="!sampleSufficient"

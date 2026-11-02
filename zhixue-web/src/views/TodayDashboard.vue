@@ -113,7 +113,7 @@
             <div class="metric-card">
               <div class="metric-label">训练样本</div>
               <div class="metric-value">{{ sampleCount }} <small>次</small></div>
-              <p class="metric-hint">画像快照 {{ snapshotDate || "尚未生成" }}</p>
+              <p class="metric-hint">画像数据 {{ snapshotDate || "暂无" }}</p>
               <button type="button" class="metric-link" @click="router.push('/portrait')">查看画像</button>
             </div>
             <div class="metric-card">

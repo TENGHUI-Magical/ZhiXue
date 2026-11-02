@@ -836,7 +836,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 当前学生画像（最新快照） */
+        /** 当前学生画像（实时聚合） */
         get: {
             parameters: {
                 query?: never;

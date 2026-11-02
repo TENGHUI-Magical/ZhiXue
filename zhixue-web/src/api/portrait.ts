@@ -1,4 +1,4 @@
-// 学情画像（契约 GET /api/portraits/me）：无快照时后端返回 data:null。
+// 学情画像（契约 GET /api/portraits/me）：无数据时后端返回 data:null。
 import { api } from "./request";
 
 export interface WeakestKp {
