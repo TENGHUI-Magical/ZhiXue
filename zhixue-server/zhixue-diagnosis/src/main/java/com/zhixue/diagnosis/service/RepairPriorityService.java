@@ -31,7 +31,8 @@ import java.util.Set;
  * <ul>
  *   <li>先修权重：1 跳先修 = 1.0，2 跳 = 0.7，薄弱点本身 = 0.6，
  *       薄弱点直接后继 = 0.5，课程内其他点 = 0.2（保证周计划仍有覆盖）。</li>
- *   <li>遗忘紧迫度：1 - 0.5^(距上次练习天数 / half-life-days)，从未练习记 1.0。</li>
+ *   <li>遗忘紧迫度：1 - 0.5^(距上次<b>正确</b>作答天数 / half-life-days)，从未答对记 1.0。
+ *       刚答错不代表没遗忘：锚点取最后一次正确作答，避免“昨天答错”被误判为不紧迫。</li>
  *   <li>错因可修复性：概念混淆 1.0、方法缺失 0.9、步骤遗漏 0.8、
  *       边界 0.7、计算 0.5、未归类/无错因 0.5。</li>
  *   <li>score = 先修权重 × 紧迫度 × 可修复性。</li>
@@ -78,10 +79,10 @@ public class RepairPriorityService {
         this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
     }
 
-    /** 单个知识点的补漏评分与理由素材。 */
+    /** 单个知识点的补漏评分与理由素材；daysSinceLastCorrect 为距上次正确作答天数，null=从未答对。 */
     public record Priority(String kpId, double score, int prereqDistance, boolean successor,
                            double urgency, double repairability,
-                           String lastErrorType, Integer daysSinceLastPractice) {
+                           String lastErrorType, Integer daysSinceLastCorrect) {
     }
 
     /** 课程排序结果：knowledgePoints 已按补漏优先级降序，priorityByKp 供推荐列表复用。 */
@@ -128,7 +129,7 @@ public class RepairPriorityService {
         Map<String, Priority> priorities = new HashMap<>();
         for (KnowledgePoint kp : kps) {
             KpPracticeSignal signal = signalByKp.get(kp.getKpId());
-            Integer days = daysSincePractice(signal == null ? null : signal.getLastPracticedAt(), now);
+            Integer days = daysSinceCorrect(signal == null ? null : signal.getLastCorrectAt(), now);
             double urgency = days == null ? 1.0 : 1.0 - Math.pow(0.5, days / halfLifeDays);
             String errorType = signal == null ? null : signal.getLastErrorType();
             double repairability = repairability(errorType);
@@ -151,7 +152,7 @@ public class RepairPriorityService {
 
     /**
      * 可解释理由，≤50 字：关系 + 遗忘紧迫度 + 最近错因。
-     * 例：前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误。
+     * 例：前置知识点未掌握 + 距上次答对 38 天 + 概念混淆型错误。
      * 知识点不在课程范围内或没有评分时返回固定模板，保证理由非空。
      */
     public String explain(Priority priority, String fallback) {
@@ -170,12 +171,12 @@ public class RepairPriorityService {
         } else {
             parts.add("常规巩固");
         }
-        if (priority.daysSinceLastPractice() == null) {
-            parts.add("尚未练习");
-        } else if (priority.daysSinceLastPractice() == 0) {
-            parts.add("今日已练习");
+        if (priority.daysSinceLastCorrect() == null) {
+            parts.add("尚未答对");
+        } else if (priority.daysSinceLastCorrect() == 0) {
+            parts.add("今日已答对");
         } else {
-            parts.add("距上次练习 " + priority.daysSinceLastPractice() + " 天");
+            parts.add("距上次答对 " + priority.daysSinceLastCorrect() + " 天");
         }
         if (priority.lastErrorType() != null && !priority.lastErrorType().isBlank()) {
             parts.add(label(priority.lastErrorType()) + "型错误");
@@ -218,11 +219,12 @@ public class RepairPriorityService {
         return ERROR_LABEL.getOrDefault(errorType.trim().toUpperCase(Locale.ROOT), "错因未归类");
     }
 
-    private Integer daysSincePractice(LocalDateTime lastPracticedAt, LocalDateTime now) {
-        if (lastPracticedAt == null || now == null) {
+    /** 距最后一次正确作答的整天数；null 表示从未答对（紧迫度记 1.0，最该补）。 */
+    private Integer daysSinceCorrect(LocalDateTime lastCorrectAt, LocalDateTime now) {
+        if (lastCorrectAt == null || now == null) {
             return null;
         }
-        return (int) Math.max(0, Duration.between(lastPracticedAt, now).toDays());
+        return (int) Math.max(0, Duration.between(lastCorrectAt, now).toDays());
     }
 
     /**

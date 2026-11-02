@@ -167,18 +167,20 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                            @Param("offset") int offset);
 
     /**
-     * 单学生课程内按知识点的补漏信号（PRP 排序）：总次数、错误数、最近练习时间、
+     * 单学生课程内按知识点的补漏信号（PRP 排序）：总次数、错误数、最后一次正确作答时间、
      * 最近一次错误错因。行数受 学生 × 知识点 约束，不拉明细。
      * <p>
      * lastErrorType 用 GROUP_CONCAT 按 practice_id 倒序取首个（GROUP_CONCAT 忽略 NULL，
      * 因此只保留答错记录）；SUBSTRING_INDEX 只取第一段，默认 1024 字节截断只影响尾部。
+     * lastCorrectAt 只取 is_correct=1 的最大时间：遗忘紧迫度按“距上次正确作答”衰减——
+     * 刚答错的知识点若很久没有正确证据，恰恰是最该补的；用最近任意作答会把这类点误判为不紧迫。
      */
     @Select("""
             <script>
             SELECT pr.kp_id AS kpId,
                    COUNT(*) AS totalCount,
                    SUM(CASE WHEN pr.is_correct = 0 THEN 1 ELSE 0 END) AS wrongCount,
-                   MAX(pr.created_at) AS lastPracticedAt,
+                   MAX(CASE WHEN pr.is_correct = 1 THEN pr.created_at END) AS lastCorrectAt,
                    SUBSTRING_INDEX(GROUP_CONCAT(
                          CASE WHEN pr.is_correct = 0 THEN pr.error_type END
                          ORDER BY pr.practice_id DESC SEPARATOR ','), ',', 1) AS lastErrorType

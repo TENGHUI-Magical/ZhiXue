@@ -15,6 +15,8 @@ import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.RecommendationRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
@@ -32,6 +34,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class PracticeService {
+
+    private static final Logger log = LoggerFactory.getLogger(PracticeService.class);
 
     private static final Set<String> SOURCES = Set.of("RECOMMEND", "SELF");
     private static final Set<String> ERROR_TYPES = ErrorTypeClassifier.ALLOWED;
@@ -169,12 +173,18 @@ public class PracticeService {
     /**
      * 推断并归一错因（05 §2.2）：答对返回 null；答错返回五类之一或 UNCLASSIFIED。
      * 客观题按题型/干扰项/难度/首次作答/距上次练习规则推断；主观题采用学生自评。
+     * 无法细分时（题库缺标准答案、主观题未选错因）落 UNCLASSIFIED 并记日志，可从日志看出原因。
      * 供提交练习与计划打卡共用，避免两处口径。
      */
     public String resolveErrorType(long userId, QuestionBank question, String myAnswer,
                                    boolean isCorrect, String selfReported, String kpId) {
         if (isCorrect) {
             return null;
+        }
+        // 客观题缺标准答案时判分已按错误记录（AnswerGrader），错因同样无法细分：这是题库数据问题，
+        // 记 warn 便于内容线定位；主观题未选错因是正常用户行为，不刷告警。
+        if (question.getAnswerText() == null || question.getAnswerText().isBlank()) {
+            log.warn("题目 {} 缺少标准答案，错因无法细分，按 UNCLASSIFIED 落库", question.getQId());
         }
         int priorAttempts = practiceRecordMapper.countByUserAndQid(userId, question.getQId());
         LocalDateTime lastPracticedAt = kpId == null || kpId.isBlank()

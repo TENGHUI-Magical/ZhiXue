@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
@@ -81,7 +82,7 @@ class RepairPriorityServiceTest {
 
         RepairPriorityService.Priority anchor = ranked.priorityByKp().get("KP0201");
         assertThat(anchor.repairability()).isEqualTo(1.0);
-        assertThat(anchor.daysSinceLastPractice()).isEqualTo(38);
+        assertThat(anchor.daysSinceLastCorrect()).isEqualTo(38);
         assertThat(anchor.urgency()).isBetween(0.5, 0.7);
         assertThat(anchor.score()).isBetween(0.3, 0.4);
     }
@@ -119,9 +120,37 @@ class RepairPriorityServiceTest {
                 .priorityByKp().get("KP0101");
 
         assertThat(service.explain(priority, "同知识点再练一道"))
-                .isEqualTo("前置知识点未掌握 + 尚未练习");
+                .isEqualTo("前置知识点未掌握 + 尚未答对");
         assertThat(service.explain(null, "同知识点再练一道"))
                 .isEqualTo("同知识点再练一道");
+    }
+
+    /**
+     * 新口径核心场景：昨天答错、最后一次答对在 40 天前 → 紧迫度必须高。
+     * 手算：urgency = 1 - 0.5^(40/30) = 1 - 0.39685 = 0.60315
+     * （若误用旧口径“距上次练习 1 天”，会得到 1 - 0.5^(1/30) ≈ 0.023，方向完全相反）。
+     * 期望值独立手算写死，不用被测类计算。
+     */
+    @Test
+    void recentErrorWithoutRecentCorrectIsUrgent() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(
+                kp("KP0501", 1), kp("KP0502", 2)));
+        when(practiceRecordMapper.selectKpSignals(anyLong(), anyLong())).thenReturn(List.of(
+                // 昨天答错；最后一次正确作答在 40 天前
+                signal("KP0501", 1, "CONCEPT_CONFUSION", NOW.minusDays(40)),
+                // 对照组：今天刚答对 → 紧迫度 0
+                signal("KP0502", 0, null, NOW)));
+
+        RepairPriorityService.RankedCourse ranked = service.rank(2L, 1L, NOW);
+        RepairPriorityService.Priority stale = ranked.priorityByKp().get("KP0501");
+        RepairPriorityService.Priority fresh = ranked.priorityByKp().get("KP0502");
+
+        assertThat(stale.urgency()).isCloseTo(0.60315, within(1e-4));
+        assertThat(stale.daysSinceLastCorrect()).isEqualTo(40);
+        assertThat(fresh.urgency()).isEqualTo(0.0);
+        // “刚答错且正确证据已遗忘”必须排在“今天答对”之前
+        assertThat(ranked.knowledgePoints()).extracting(KnowledgePoint::getKpId)
+                .startsWith("KP0501");
     }
 
     @Test
@@ -151,13 +180,13 @@ class RepairPriorityServiceTest {
     }
 
     private KpPracticeSignal signal(String kpId, int wrongCount, String errorType,
-                                    LocalDateTime lastPracticedAt) {
+                                    LocalDateTime lastCorrectAt) {
         KpPracticeSignal signal = new KpPracticeSignal();
         signal.setKpId(kpId);
         signal.setTotalCount(wrongCount + 1);
         signal.setWrongCount(wrongCount);
         signal.setLastErrorType(errorType);
-        signal.setLastPracticedAt(lastPracticedAt);
+        signal.setLastCorrectAt(lastCorrectAt);
         return signal;
     }
 }
