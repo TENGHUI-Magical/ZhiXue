@@ -60,6 +60,8 @@ const teacherStudents = { page: 1, size: 20, total: 2, records: [
 const studentLearning = { summary: teacherStudents.records[0], practices: { page: 1, size: 10, total: 1, records: [{ practiceId: 1, qId: 'Q_0301', questionText: '题干', kpId: 'KP0001', kpName: '概念', isCorrect: true, myAnswer: 'B', correctAnswer: 'B', costSeconds: 45, errorType: null, source: 'PLAN', createdAt: '2026-10-30 21:10:00' }] }, errors: [], kpMastery: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6, errorCount: 4 }] }
 const questionDetail = { qId: 'Q_0301', courseId: 1, kpId: 'KP0001', kpName: '概念', questionType: '单选', questionText: '题干', options: [{key:'A',text:'A'},{key:'B',text:'B'},{key:'C',text:'C'},{key:'D',text:'D'}], difficulty: 1 }
 const answer = { qId: 'Q_0301', answerText: 'A', analysisText: '解析' }
+const defaultDueReviews = [{ source: 'DUE_REVIEW', kpId: 'KP0006', kpName: '函数依赖', qId: 'Q_0306', questionText: '题干 6', difficulty: 2, daysSinceLastCorrect: 41, mastery: 0.44, sampleCount: 5, reason: '距上次答对 41 天，已过半衰期 + 概念混淆型错误' }]
+let dueReviewsMock = defaultDueReviews
 
 function reply(method, pathname, role) {
   if (pathname === '/api/auth/login') {
@@ -74,6 +76,7 @@ function reply(method, pathname, role) {
   if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [{ kpId: 'KP0012', name: '连接查询', avgMastery: 0.32, errorCount: 4 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, activeRate: 0.5 }, timestamp: Date.now() }
   if (pathname === '/api/error/records') return { code: 0, data: errorPage, timestamp: Date.now() }
   if (pathname === '/api/plans') return { code: 0, data: plans, timestamp: Date.now() }
+  if (pathname === '/api/plans/due-reviews') return { code: 0, data: dueReviewsMock, timestamp: Date.now() }
   if (pathname === '/api/recommendations') return { code: 0, data: recs, timestamp: Date.now() }
   if (pathname === '/api/teacher/reviews') return { code: 0, data: reviewsPage, timestamp: Date.now() }
   if (pathname === '/api/teacher/students') return { code: 0, data: teacherStudents, timestamp: Date.now() }
@@ -157,6 +160,41 @@ async function checkNext(name, fn, detail = '', timeout = 12000) {
   check(name, ok, ok ? detail : `${detail}${detail ? ' | ' : ''}等待超时 ${timeout}ms`)
 }
 
+function contrastRatio(foreground, background) {
+  const channels = (value) => {
+    const values = value.match(/[\d.]+/g).slice(0, 3).map(Number)
+    return value.startsWith('color(') ? values.map((channel) => channel * 255) : values
+  }
+  const luminance = (value) => {
+    const [r, g, b] = channels(value).map((channel) => {
+      const normalized = channel / 255
+      return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4
+    })
+    return r * 0.2126 + g * 0.7152 + b * 0.0722
+  }
+  const a = luminance(foreground)
+  const b = luminance(background)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+/** 实体主按钮必须同时通过默认与 hover 对比度；渐变无法证明最差端点，按失败处理 */
+async function primaryButtonContrast(page) {
+  const button = page.locator('.el-button--primary:not(.is-plain):not(.is-link):not(.is-text):visible').first()
+  if (!await button.count()) return null
+  const read = async () => button.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { foreground: style.color, background: style.backgroundColor, image: style.backgroundImage }
+  })
+  const ratio = (style) => style.image === 'none' ? contrastRatio(style.foreground, style.background) : 0
+  const normalStyle = await read()
+  const normal = ratio(normalStyle)
+  await button.hover()
+  await sleep(220)
+  const hoverStyle = await read()
+  const hover = ratio(hoverStyle)
+  return { ratio: Math.min(normal, hover), normalStyle, hoverStyle }
+}
+
 async function newContext(browser, role, theme, viewport, options = {}) {
   const { token = true, storedRole = role, hasTouch = false } = options
   const ctx = await browser.newContext({ viewport, locale: 'zh-CN', hasTouch })
@@ -233,9 +271,26 @@ try {
   const page = await studentCtx.newPage()
 
   await open(page, '/today')
-  await checkNext('今日：主结论存在', async () => (await page.locator('.hero-title').count()) === 1)
-  await checkNext('今日：一个主动作', async () => (await page.locator('.hero-actions .el-button--primary').count()) === 1)
-  await checkNext('今日：三张指标卡', async () => (await page.locator('.metric-card').count()) === 3)
+  await checkNext('今日：主结论存在', async () => {
+    const titleCount = await page.locator('.hero-title').count()
+    const reason = await page.locator('.due-card .due-reason').innerText().catch(() => '')
+    const duePrimary = await page.locator('.due-card .el-button--primary').count()
+    return titleCount === 1 && reason.includes('距上次答对 41 天，已过半衰期 + 概念混淆型错误') && duePrimary === 0
+  })
+  await checkNext('今日：一个主动作', async () => {
+    const heroPrimary = await page.locator('.hero-actions .el-button--primary').count()
+    const recommendationPrimary = await page.locator('.rec-card .el-button--primary').count()
+    const visiblePrimary = await page.locator('.el-button--primary:visible').count()
+    return heroPrimary === 1 && recommendationPrimary === 0 && visiblePrimary === 1
+  })
+  dueReviewsMock = []
+  await open(page, '/today')
+  await checkNext('今日：三张指标卡', async () => {
+    const metricCount = await page.locator('.metric-card').count()
+    const emptyText = await page.locator('.due-card .due-empty').innerText().catch(() => '')
+    return metricCount === 3 && emptyText.includes('暂无到期复习')
+  })
+  dueReviewsMock = defaultDueReviews
   check('今日：无横向溢出', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
 
   await open(page, '/error-book')
@@ -262,7 +317,16 @@ try {
 
   await open(page, '/knowledge-graph')
   await checkNext('图谱：缩放控件 3 个', async () => (await page.locator('.graph-controls button').count()) === 3)
-  await checkNext('图谱：节点已渲染', async () => (await page.locator('.graph-node').count()) >= 1)
+  await checkNext('图谱：节点已渲染', async () => {
+    const nodeCount = await page.locator('.graph-node').count()
+    const readableCodes = await page.locator('.graph-node .node-code').evaluateAll((elements) =>
+      elements.filter((element) => {
+        const style = getComputedStyle(element)
+        return style.display !== 'none' && style.visibility !== 'hidden' && !!element.textContent.trim()
+      }).length
+    )
+    return nodeCount >= 1 && readableCodes === nodeCount
+  })
   const before = await page.locator('.graph-viewport').getAttribute('transform')
   await page.locator('.graph-controls button').first().click(); await sleep(400)
   const after = await page.locator('.graph-viewport').getAttribute('transform')
@@ -368,15 +432,32 @@ try {
   await page.locator('.graph-controls button').last().click() // 恢复视图，避免影响后续节点点击
   await sleep(300)
 
-  await page.locator('.graph-node').first().click()
-  await checkNext('图谱：节点打开详情', async () => await page.locator('.kp-drawer').isVisible())
+  const firstNode = page.locator('.graph-node').first()
+  await firstNode.hover()
+  const hoverStroke = await firstNode.locator('.node-circle').evaluate((element) => parseFloat(getComputedStyle(element).strokeWidth))
+  await firstNode.click()
+  await checkNext('图谱：节点打开详情', async () => {
+    const activeStroke = await firstNode.locator('.node-circle').evaluate((element) => parseFloat(getComputedStyle(element).strokeWidth))
+    const selected = await firstNode.evaluate((element) => element.classList.contains('active'))
+    return await page.locator('.kp-drawer').isVisible() && hoverStroke >= 3 && activeStroke >= 3 && selected
+  })
   await checkNext('图谱：邻接边高亮', async () => (await page.locator('.graph-edge.active').count()) >= 1)
   await checkNext('图谱：邻接节点高亮', async () => (await page.locator('.graph-node.adjacent').count()) >= 1)
   await checkNext('图谱：非邻接变暗', async () => (await page.locator('.graph-node.dim').count()) >= 1)
   await page.keyboard.press('Escape'); await sleep(400)
 
   await open(page, '/knowledge-graph?kpId=KP0012')
-  await checkNext('图谱：kpId 深链打开详情', async () => await page.locator('.kp-drawer').isVisible())
+  let practiceClicked = false
+  await checkNext('图谱：kpId 深链打开详情', async () => {
+    if (!practiceClicked) {
+      if (!await page.locator('.kp-drawer').isVisible()) return false
+      const practiceButton = page.locator('.kp-drawer').getByRole('button', { name: '开始练习' })
+      if (!await practiceButton.count()) return false
+      await practiceButton.click()
+      practiceClicked = true
+    }
+    return await page.locator('.practice-drawer.open').isVisible()
+  })
   await page.keyboard.press('Escape'); await sleep(400)
 
   await open(page, '/profile')
@@ -582,8 +663,9 @@ try {
       await open(p, pathname)
       await sleep(300)
       const v = await axeScan(p)
-      a11y.push({ theme, page: name, violations: v })
-      check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
+      const buttonContrast = theme === 'glass-dark' ? await primaryButtonContrast(p) : null
+      a11y.push({ theme, page: name, violations: v, buttonContrast })
+      check(`a11y/${theme}/${name}`, v.length === 0 && (buttonContrast === null || buttonContrast.ratio >= 4.5), JSON.stringify({ violations: v, buttonContrast }))
     }
     await ctx.close()
     const tctx = await newContext(browser, 'TEACHER', theme, { width: 1440, height: 900 })
@@ -592,8 +674,9 @@ try {
       await open(tp2, pathname)
       await sleep(300)
       const v = await axeScan(tp2)
-      a11y.push({ theme, page: name, violations: v })
-      check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
+      const buttonContrast = theme === 'glass-dark' ? await primaryButtonContrast(tp2) : null
+      a11y.push({ theme, page: name, violations: v, buttonContrast })
+      check(`a11y/${theme}/${name}`, v.length === 0 && (buttonContrast === null || buttonContrast.ratio >= 4.5), JSON.stringify({ violations: v, buttonContrast }))
     }
     await tctx.close()
   }

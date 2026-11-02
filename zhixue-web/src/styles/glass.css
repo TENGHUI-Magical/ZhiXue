@@ -337,14 +337,14 @@ html[data-theme="glass-dark"] .theme-trigger:focus-visible {
 html[data-theme="glass"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text),
 html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   border-color: transparent;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-primary) 88%, white), var(--app-primary));
+  background: var(--app-primary-strong);
   color: #fff;
   box-shadow: 0 1px 2px color-mix(in srgb, var(--app-primary) 32%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 html[data-theme="glass"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover,
 html[data-theme="glass-dark"] .el-button--primary:not(.is-plain):not(.is-link):not(.is-text):hover {
-  background: linear-gradient(180deg, var(--app-primary), var(--app-primary-strong));
+  background: color-mix(in srgb, var(--app-primary-strong) 88%, black);
   border-color: transparent;
   box-shadow: 0 5px 16px -6px color-mix(in srgb, var(--app-primary) 55%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.24);
