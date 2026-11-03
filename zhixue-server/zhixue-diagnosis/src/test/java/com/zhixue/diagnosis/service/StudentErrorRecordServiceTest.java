@@ -463,4 +463,33 @@ class StudentErrorRecordServiceTest {
         kp.setName(name);
         return kp;
     }
+
+    /**
+     * 留痕ID 的日期段按上海时区生成，不随 JVM 默认时区漂移：把默认时区拨到 UTC 后，
+     * ID 里的 yyyyMMddHHmmss 仍与上海当前时间同窗（把 {@code now(ZONE)} 改回裸 {@code now()} 即红）。
+     */
+    @Test
+    void logIdStampUsesShanghaiZoneRegardlessOfJvmDefault() throws Exception {
+        java.lang.reflect.Method nextLogId =
+                StudentErrorRecordService.class.getDeclaredMethod("nextLogId");
+        nextLogId.setAccessible(true);
+
+        java.time.LocalDateTime shanghaiNow;
+        String logId;
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
+            shanghaiNow = java.time.LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
+            logId = (String) nextLogId.invoke(service);
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+
+        // EL_{yyMMddHHmmss}_{4位hex}
+        String stamp = logId.substring(3, 15);
+        java.time.LocalDateTime written = java.time.LocalDateTime.parse(stamp,
+                java.time.format.DateTimeFormatter.ofPattern("yyMMddHHmmss"));
+        assertThat(java.time.Duration.between(shanghaiNow, written).abs().getSeconds())
+                .isLessThan(5);
+    }
 }
