@@ -585,8 +585,6 @@ paths:
           content:
             text/csv:
               schema: { type: string, format: binary }
-            application/json:
-              schema: { $ref: '#/components/schemas/EmptyResponse' }
   /api/teacher/reviews/{logPk}:
     post:
       tags: [teacher]
@@ -676,8 +674,6 @@ paths:
           content:
             text/csv:
               schema: { type: string, format: binary }
-            application/json:
-              schema: { $ref: '#/components/schemas/EmptyResponse' }
   /api/teacher/students/{userId}/learning-records:
     get:
       tags: [teacher]
