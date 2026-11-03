@@ -5,15 +5,21 @@ import io.swagger.v3.oas.annotations.media.Schema;
 /**
  * 提交作答响应（契约 openapi PracticeResponse.data）。
  *
- * @param practiceId 作答记录 ID
- * @param duplicate  幂等命中时 true，返回首次结果
+ * @param practiceId  作答记录 ID
+ * @param duplicate   幂等命中时 true，返回首次结果
  * @param gradingMode AUTO=客观题服务端判分；SELF=主观题自评；幂等回放时可为 null
- * @param isCorrect  服务端最终对错；幂等回放时来自首次记录
+ * @param isCorrect   服务端最终对错；幂等回放时来自首次记录
+ * @param costSeconds 服务端计时的作答耗时（秒）；未走 begin 打点、或超过 30 分钟视为无效时为 null。
+ *                    幂等回放时来自首次记录——重复提交不会算成"神速"
  */
 public record PracticeResultView(Long practiceId, boolean duplicate,
                                  @Schema(allowableValues = {"AUTO", "SELF"}, nullable = true,
                                          description = "AUTO=客观题服务端判分；SELF=主观题自评；"
                                                  + "幂等回放时可为 null")
                                  String gradingMode,
-                                 Boolean isCorrect) {
+                                 Boolean isCorrect,
+                                 @Schema(nullable = true,
+                                         description = "服务端计时的作答耗时（秒）；"
+                                                 + "未 begin 打点或超 30 分钟无效时为 null")
+                                 Integer costSeconds) {
 }

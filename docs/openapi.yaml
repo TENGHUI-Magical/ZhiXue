@@ -380,6 +380,22 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PracticeResponse' }
+  /api/practices/start:
+    post:
+      tags: [practice]
+      summary: 开始作答打点（进步证据的服务端计时入口；幂等，首次时刻为准不重置）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PracticeStart'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PracticeStartResponse' }
   /api/portraits/me:
     get:
       tags: [portrait]
@@ -1015,10 +1031,41 @@ components:
           nullable: true
           enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR, UNCLASSIFIED, null]
           description: 主观题自评错因；未选或客观题由服务端推断，无法归类落 UNCLASSIFIED
-        costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
+        costSeconds:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 86400
+          description: 客户端自报耗时（兼容旧客户端保留，服务端忽略）；服务端计时走 startToken 打点
+        startToken:
+          type: [string, "null"]
+          nullable: true
+          maxLength: 64
+          description: begin 打点返回的作答开始令牌；携带时服务端以（提交时刻 - begin 时刻）计时并忽略客户端 costSeconds，未携带时 costSeconds 落 null
         source: { type: string, enum: [RECOMMEND, SELF], default: SELF }
         recommendationId: { type: integer, format: int64, nullable: true, description: 来自推荐时传入，服务端置 is_adopted=1 }
         clientToken: { type: string, maxLength: 64 }
+    PracticeStart:
+      type: object
+      required: [qId, clientToken]
+      properties:
+        qId: { type: string, example: Q_012 }
+        clientToken:
+          type: string
+          maxLength: 64
+          description: 客户端生成的作答令牌；提交作答时原样作为 startToken 携带
+    PracticeStartResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                clientToken: { type: string, description: 原样回显请求令牌 }
+                startedAt:
+                  type: string
+                  description: 服务端记录的首次开始时刻（Asia/Shanghai，格式 yyyy-MM-dd HH:mm:ss）
     PracticeResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
@@ -1037,6 +1084,12 @@ components:
                   type: boolean
                   nullable: true
                   description: 服务端最终对错；幂等回放时来自首次记录
+                costSeconds:
+                  type: [integer, "null"]
+                  nullable: true
+                  minimum: 0
+                  maximum: 1800
+                  description: 服务端计时的作答耗时（秒）；未 begin 打点、或超过 30 分钟视为无效时为 null；幂等回放时来自首次记录
     RecommendationListResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

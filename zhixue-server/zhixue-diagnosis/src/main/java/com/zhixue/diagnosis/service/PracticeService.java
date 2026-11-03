@@ -11,6 +11,8 @@ import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.PracticeCreateRequest;
 import com.zhixue.diagnosis.dto.PracticeResultView;
+import com.zhixue.diagnosis.dto.PracticeStartRequest;
+import com.zhixue.diagnosis.dto.PracticeStartView;
 import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.RecommendationRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
@@ -18,12 +20,14 @@ import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -41,23 +45,91 @@ public class PracticeService {
     private static final Set<String> SOURCES = Set.of("RECOMMEND", "SELF");
     private static final Set<String> ERROR_TYPES = ErrorTypeClassifier.ALLOWED;
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+    /** 服务端计时上限（毫秒）：超过 30 分钟视为挂机，不计入进步证据（截断值仍是假数据） */
+    static final long MAX_COST_MILLIS = 30 * 60 * 1000L;
+    /** begin 打点 Redis 前缀（对齐 zhixue: 命名空间，IT cleanData 可统一清理）；TTL 24h 兜底防泄漏，提交成功后主动删除 */
+    private static final String START_KEY_PREFIX = "zhixue:practice:start:";
+    private static final Duration START_TTL = Duration.ofHours(24);
+    private static final DateTimeFormatter DATE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final PracticeRecordMapper practiceRecordMapper;
     private final RecommendationRecordMapper recommendationRecordMapper;
     private final KnowledgePointService knowledgePointService;
     private final QuestionBankService questionBankService;
     private final TransactionTemplate transactionTemplate;
+    private final StringRedisTemplate redisTemplate;
 
     public PracticeService(PracticeRecordMapper practiceRecordMapper,
                            RecommendationRecordMapper recommendationRecordMapper,
                            KnowledgePointService knowledgePointService,
                            QuestionBankService questionBankService,
-                           TransactionTemplate transactionTemplate) {
+                           TransactionTemplate transactionTemplate,
+                           StringRedisTemplate redisTemplate) {
         this.practiceRecordMapper = practiceRecordMapper;
         this.recommendationRecordMapper = recommendationRecordMapper;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
         this.transactionTemplate = transactionTemplate;
+        this.redisTemplate = redisTemplate;
+    }
+
+    /**
+     * 开始作答打点（进步证据的服务端计时入口，防伪造方案）：
+     * 时间戳全部由服务端时钟产生并存 Redis，客户端只持有令牌——
+     * 伪造令牌无记录（计 null）、重放打点不重置（setIfAbsent 首次为准）、
+     * 拖后提交只会让时长变大（无收益）。剩余信任假设：Redis 与应用同机同时钟（单机部署成立）。
+     * 幂等：同 clientToken 重复打点返回首次开始时刻。
+     */
+    public PracticeStartView begin(PracticeStartRequest request) {
+        long userId = StpUtil.getLoginIdAsLong();
+        String key = START_KEY_PREFIX + userId + ":" + request.clientToken();
+        String now = String.valueOf(System.currentTimeMillis());
+        Boolean first = redisTemplate.opsForValue()
+                .setIfAbsent(key, now, START_TTL);
+        String stored = Boolean.TRUE.equals(first) ? now : redisTemplate.opsForValue().get(key);
+        String startedAt = stored == null ? now : stored;
+        return new PracticeStartView(request.clientToken(),
+                LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(Long.parseLong(startedAt)),
+                        ZONE).format(DATE_TIME));
+    }
+
+    /**
+     * 服务端计时的作答耗时（秒）。纯函数可单测：
+     * 无打点 → null（客户端自报的 costSeconds 不再落库，防伪造）；
+     * 跨天提交按 epoch 差计算（23:59→00:01 = 120 秒，恒为正）；
+     * 超过 30 分钟 → null（挂机无效，不截断——截断值仍是假数据）；
+     * 时钟回拨防御 → 0。
+     */
+    static Integer computeCostSeconds(Long startEpochMillis, long nowEpochMillis) {
+        if (startEpochMillis == null) {
+            return null;
+        }
+        long diff = nowEpochMillis - startEpochMillis;
+        if (diff < 0) {
+            return 0;
+        }
+        if (diff > MAX_COST_MILLIS) {
+            return null;
+        }
+        return (int) (diff / 1000);
+    }
+
+    /** 取 begin 打点时刻并计算耗时；打点令牌无效或 Redis 不可用时返回 null（不阻断提交）。 */
+    private Integer resolveServerCostSeconds(long userId, String startToken) {
+        if (startToken == null || startToken.isBlank()) {
+            return null;
+        }
+        try {
+            String stored = redisTemplate.opsForValue()
+                    .get(START_KEY_PREFIX + userId + ":" + startToken);
+            return stored == null ? null
+                    : computeCostSeconds(Long.parseLong(stored), System.currentTimeMillis());
+        } catch (Exception e) {
+            // Redis 故障不阻断作答提交（降级为无计时），原因可从日志追
+            log.warn("作答计时读取失败，本次 costSeconds 记 null: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -69,7 +141,7 @@ public class PracticeService {
         PracticeRecord existing = findByClientToken(userId, request.clientToken());
         if (existing != null) {
             return new PracticeResultView(existing.getPracticeId(), true, null,
-                    toBoolean(existing.getIsCorrect()));
+                    toBoolean(existing.getIsCorrect()), existing.getCostSeconds());
         }
 
         validateLength(request);
@@ -117,6 +189,9 @@ public class PracticeService {
             }
         }
 
+        // 服务端计时（进步证据）：带 startToken 才有值，客户端自报 costSeconds 不落库（防伪造）
+        Integer serverCost = resolveServerCostSeconds(userId, request.startToken());
+
         PracticeRecord record = new PracticeRecord();
         record.setUserId(userId);
         record.setClientToken(request.clientToken());
@@ -126,7 +201,7 @@ public class PracticeService {
         record.setIsCorrect(isCorrect ? 1 : 0);
         record.setMyAnswer(request.myAnswer());
         record.setErrorType(errorType);
-        record.setCostSeconds(request.costSeconds());
+        record.setCostSeconds(serverCost);
         record.setRecommendationId(request.recommendationId());
         final RecommendationRecord adopted = recommendation;
         try {
@@ -150,14 +225,22 @@ public class PracticeService {
             PracticeRecord winner = findByClientToken(userId, request.clientToken());
             if (winner != null) {
                 return new PracticeResultView(winner.getPracticeId(), true, null,
-                        toBoolean(winner.getIsCorrect()));
+                        toBoolean(winner.getIsCorrect()), winner.getCostSeconds());
             }
             throw e;
+        }
+        // 提交成功后清掉打点（防同令牌二次计时污染；失败不影响主流程，TTL 24h 兜底）
+        if (request.startToken() != null && !request.startToken().isBlank()) {
+            try {
+                redisTemplate.delete(START_KEY_PREFIX + userId + ":" + request.startToken());
+            } catch (Exception e) {
+                log.warn("作答打点清理失败（TTL 兜底）: {}", e.getMessage());
+            }
         }
 
         PracticeRecord saved = practiceRecordMapper.selectById(record.getPracticeId());
         return new PracticeResultView(saved == null ? record.getPracticeId() : saved.getPracticeId(),
-                false, grading.mode(), isCorrect);
+                false, grading.mode(), isCorrect, serverCost);
     }
 
     /** 按 userId + clientToken 查首次作答。 */

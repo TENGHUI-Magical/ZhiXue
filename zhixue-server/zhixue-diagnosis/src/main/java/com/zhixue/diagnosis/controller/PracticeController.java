@@ -3,6 +3,8 @@ package com.zhixue.diagnosis.controller;
 import com.zhixue.common.api.ApiResponse;
 import com.zhixue.diagnosis.dto.PracticeCreateRequest;
 import com.zhixue.diagnosis.dto.PracticeResultView;
+import com.zhixue.diagnosis.dto.PracticeStartRequest;
+import com.zhixue.diagnosis.dto.PracticeStartView;
 import com.zhixue.diagnosis.service.PracticeService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,6 +23,15 @@ public class PracticeController {
 
     public PracticeController(PracticeService practiceService) {
         this.practiceService = practiceService;
+    }
+
+    /**
+     * 开始作答打点（进步证据的服务端计时入口）：首次打开题目时调用，
+     * 返回的 clientToken 在提交作答时作为 startToken 携带。
+     */
+    @PostMapping("/start")
+    public ApiResponse<PracticeStartView> begin(@Valid @RequestBody PracticeStartRequest request) {
+        return ApiResponse.ok(practiceService.begin(request));
     }
 
     @PostMapping

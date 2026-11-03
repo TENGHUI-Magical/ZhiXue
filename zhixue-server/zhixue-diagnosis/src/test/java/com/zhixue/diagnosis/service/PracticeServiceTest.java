@@ -31,10 +31,12 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -57,6 +59,10 @@ class PracticeServiceTest {
     private QuestionBankService questionBankService;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
+    @Mock
+    private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
     private PracticeService service;
 
@@ -71,13 +77,14 @@ class PracticeServiceTest {
     @BeforeEach
     void setUp() {
         service = new PracticeService(practiceRecordMapper, recommendationRecordMapper,
-                knowledgePointService, questionBankService, transactionTemplate);
+                knowledgePointService, questionBankService, transactionTemplate, redisTemplate);
         // 事务模板直通：立即执行回调（真实事务语义由 IT 在 Testcontainers 上验证）
         lenient().doAnswer(invocation -> {
             java.util.function.Consumer<?> action = invocation.getArgument(0);
             action.accept(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
+        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOps);
     }
 
     @Test
@@ -86,6 +93,7 @@ class PracticeServiceTest {
         existing.setPracticeId(7L);
         existing.setQId("Q_0201");
         existing.setIsCorrect(1);
+        existing.setCostSeconds(87);
         when(practiceRecordMapper.selectOne(any())).thenReturn(existing);
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -95,7 +103,113 @@ class PracticeServiceTest {
             assertTrue(result.duplicate());
             assertNull(result.gradingMode());
             assertTrue(result.isCorrect());
+            // 幂等回放返回首次的服务端计时——第二次提交不会算成"神速"
+            assertEquals(87, result.costSeconds());
             verify(practiceRecordMapper, never()).insert(any(PracticeRecord.class));
+        }
+    }
+
+    // ---------- 服务端计时（进步证据，防伪造方案）----------
+    // 边界期望全部手算写死：跨天按 epoch 差恒正；>30 分钟无效；无打点 null；客户端自报值被忽略。
+
+    /** 纯函数边界：跨天 120 秒 / 阈值上下 / 无打点 / 时钟回拨防御。 */
+    @Test
+    void computeCostSecondsHandlesBoundaries() {
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Shanghai");
+        // 跨天：23:59:00 开始 → 00:01:00 提交 = 120 秒（epoch 差与日历无关，恒为正）
+        long crossMidnightStart = java.time.LocalDateTime.of(2026, 11, 2, 23, 59, 0)
+                .atZone(zone).toInstant().toEpochMilli();
+        long crossMidnightEnd = java.time.LocalDateTime.of(2026, 11, 3, 0, 1, 0)
+                .atZone(zone).toInstant().toEpochMilli();
+        assertEquals(Integer.valueOf(120),
+                PracticeService.computeCostSeconds(crossMidnightStart, crossMidnightEnd));
+        // 阈值边界：1800 秒有效、1800 秒 +1ms 无效
+        assertEquals(Integer.valueOf(1800),
+                PracticeService.computeCostSeconds(0L, 1_800_000L));
+        assertNull(PracticeService.computeCostSeconds(0L, 1_800_001L));
+        // 无打点 → null（不采用客户端自报值）
+        assertNull(PracticeService.computeCostSeconds(null, System.currentTimeMillis()));
+        // 时钟回拨防御 → 0，不出负数
+        assertEquals(Integer.valueOf(0),
+                PracticeService.computeCostSeconds(1_000_000L, 999_000L));
+    }
+
+    /** begin 打点幂等：重复打点返回首次开始时刻，不重置计时。 */
+    @Test
+    void beginIsIdempotentByFirstTimestamp() {
+        String firstAt = String.valueOf(System.currentTimeMillis() - 60_000);
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(java.time.Duration.class)))
+                .thenReturn(false);
+        when(valueOps.get(anyString())).thenReturn(firstAt);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            var view = service.begin(new com.zhixue.diagnosis.dto.PracticeStartRequest(
+                    "Q_0201", "begin-token"));
+            assertEquals("begin-token", view.clientToken());
+            assertNotNull(view.startedAt());
+            assertTrue(view.startedAt().matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"));
+        }
+    }
+
+    /** 带 startToken：服务端计时落库并返回；客户端自报 costSeconds=30 被忽略。 */
+    @Test
+    void submitWithStartTokenUsesServerClock() {
+        prepare(question("单选", "B", null));
+        // begin 于 120 秒前（动态构造，不依赖真实时钟）
+        when(valueOps.get(anyString()))
+                .thenReturn(String.valueOf(System.currentTimeMillis() - 120_000));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            PracticeResultView result = service.submit(
+                    requestWithStartToken("token-cs", "begin-token"));
+            assertFalse(result.duplicate());
+            assertNotNull(result.costSeconds());
+            assertTrue(result.costSeconds() >= 119 && result.costSeconds() <= 120,
+                    "服务端计时应为 120 秒左右，实际=" + result.costSeconds());
+        }
+    }
+
+    /** 无 startToken：客户端自报 costSeconds 不落库（防伪造），落 null。 */
+    @Test
+    void submitWithoutStartTokenStoresNullCost() {
+        prepare(question("单选", "B", null));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            PracticeResultView result = service.submit(requestWith(true, "B", "token-nocs"));
+            assertFalse(result.duplicate());
+            assertNull(result.costSeconds());
+        }
+    }
+
+    /** 超过 30 分钟（挂机）→ 无效不计统计：落 null 而非截断（截断值仍是假数据）。 */
+    @Test
+    void submitBeyondThirtyMinutesIsInvalid() {
+        prepare(question("单选", "B", null));
+        when(valueOps.get(anyString()))
+                .thenReturn(String.valueOf(System.currentTimeMillis() - 31 * 60 * 1000L));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            PracticeResultView result = service.submit(
+                    requestWithStartToken("token-idle", "begin-token"));
+            assertNull(result.costSeconds());
+        }
+    }
+
+    /** startToken 无对应打点（伪造令牌）→ null，不阻断提交。 */
+    @Test
+    void submitWithUnknownStartTokenFallsBackToNull() {
+        prepare(question("单选", "B", null));
+        when(valueOps.get(anyString())).thenReturn(null);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            PracticeResultView result = service.submit(
+                    requestWithStartToken("token-fake", "forged-token"));
+            assertNull(result.costSeconds());
         }
     }
 
@@ -109,7 +223,8 @@ class PracticeServiceTest {
         PracticeService realTxService = new PracticeService(practiceRecordMapper,
                 recommendationRecordMapper, knowledgePointService, questionBankService,
                 new TransactionTemplate(org.mockito.Mockito.mock(
-                        org.springframework.transaction.PlatformTransactionManager.class)));
+                        org.springframework.transaction.PlatformTransactionManager.class)),
+                redisTemplate);
         PracticeRecord winner = new PracticeRecord();
         winner.setPracticeId(21L);
         winner.setQId("Q_0201");
@@ -135,7 +250,8 @@ class PracticeServiceTest {
         PracticeService realTxService = new PracticeService(practiceRecordMapper,
                 recommendationRecordMapper, knowledgePointService, questionBankService,
                 new TransactionTemplate(org.mockito.Mockito.mock(
-                        org.springframework.transaction.PlatformTransactionManager.class)));
+                        org.springframework.transaction.PlatformTransactionManager.class)),
+                redisTemplate);
         when(practiceRecordMapper.selectOne(any())).thenReturn(null);
         when(practiceRecordMapper.insert(any(PracticeRecord.class)))
                 .thenThrow(new IllegalStateException("db down"));
@@ -327,17 +443,23 @@ class PracticeServiceTest {
 
     private PracticeCreateRequest request(String source, Long recommendationId, String token) {
         return new PracticeCreateRequest("Q_0201", "KP0201", true, null, null,
-                30, source, recommendationId, token);
+                30, null, source, recommendationId, token);
     }
 
     private PracticeCreateRequest requestWith(Boolean isCorrect, String myAnswer, String token) {
         return requestWith(isCorrect, myAnswer, token, null);
     }
 
+    /** 带 begin 打点令牌的请求：客户端自报 costSeconds=30（应被服务端忽略）。 */
+    private PracticeCreateRequest requestWithStartToken(String token, String startToken) {
+        return new PracticeCreateRequest("Q_0201", "KP0201", true, null, null,
+                30, startToken, "SELF", null, token);
+    }
+
     private PracticeCreateRequest requestWith(Boolean isCorrect, String myAnswer, String token,
                                               String errorType) {
         return new PracticeCreateRequest("Q_0201", "KP0201", isCorrect, myAnswer, errorType,
-                30, "SELF", null, token);
+                30, null, "SELF", null, token);
     }
 
     private QuestionBank question(String type, String answer) {
