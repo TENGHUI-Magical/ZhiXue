@@ -945,7 +945,7 @@ try {
   }
   ocrConfidence = 0.95
   let explainReviewOk = true
-  for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
+  for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解：讲解准确，可继续练习'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
     await open(page, `/diagnosis?explainId=${explainId}`)
     const status = page.locator('.explain-detail .review-status')
     if (result === null ? await status.count() !== 0 : (await status.innerText().catch(() => '')) !== expected) {
