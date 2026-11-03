@@ -3,10 +3,15 @@
 -- 依据：spark-output/review/db-audit-2026-11-03.md「实测」章节
 --   临时库 zhixue_audit_tmp（MySQL 8.0.44）实测：
 --   - idx_user_q：答错热路径 countByUserAndQid 3.27ms → 0.30ms（约 11 倍）
---   - idx_user_agg：教师端三聚合覆盖索引，18.6 万行 Q1 0.55→0.23s、Q2 0.74→0.41s；
---     55.8 万行 Q1 47.16→0.66s（约 71 倍）、Q2 12.65→1.18s（约 11 倍）
---   - 原设计的 q_id 前缀版本（idx_course_agg）优化器不选用，已废弃；
---     必须保持 user_id 前缀（为 GROUP BY user_id[,kp_id] 提供有序输入）
+--   - idx_user_agg 终局复核（zhixue_user_agg_verify，20 万合成行）：
+--     仅 Q1 aggregateByUser 实测受益，P95 731.124→355.608ms；Q2/Q3 未选用该索引，
+--     不得引用早期临时库数字宣称“三聚合全面提速”。
+--   - 写入代价约 +23%（P95 +23.60%、P50 +26.13%、均值 +22.14%）；
+--     额外磁盘 17.27MiB/20 万行。189 行演示规模无一致可测收益，演示库不建 idx_user_agg。
+--   - idx_user_agg 仅当两条同时满足才可建：practice_record >222,776 行，
+--     且 Q1 P95/(Q1+Q2+Q3 P95)>40.72%。N=200,000×2,000/(731.124+910.574+153.827)，
+--     X=731.124/(731.124+910.574+153.827)；执行前另查写入 SLO 与磁盘余量（runbook §6.1）。
+--   - 必须保持 user_id 前缀（为 GROUP BY user_id[,kp_id] 提供有序输入）
 --   - student_error_record(kp_id,log_id) 实测无收益（log_id 是主键，EXISTS 本就走主键），不建
 --   - ai_generation_log 评阅索引升级为可选项（当前 1 万行规模无差异，见文件末）
 --
