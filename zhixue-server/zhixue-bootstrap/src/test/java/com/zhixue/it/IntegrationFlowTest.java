@@ -800,7 +800,8 @@ class IntegrationFlowTest {
         assertThat(((Number) practice.get("is_correct")).intValue()).isZero();
         assertThat(practice.get("source")).isEqualTo("PLAN");
         assertThat(practice.get("my_answer")).isEqualTo("B");
-        assertThat(((Number) practice.get("cost_seconds")).intValue()).isEqualTo(30);
+        // 计划打卡契约不含 startToken：客户端自报 30 秒不可信，V2.2.9 起一律落 NULL
+        assertThat(practice.get("cost_seconds")).isNull();
 
         // 同 token 重放：返回首次结果，不双写、完成数不重复递增
         HttpResponse<String> replay = postJson("/api/plans/" + planId + "/checkin", payload, token);
@@ -852,6 +853,62 @@ class IntegrationFlowTest {
         // 已完成题再次“仅记录”：40900
         assertThat(code(postJson("/api/plans/" + planId + "/checkin", recordOnly, token)))
                 .isEqualTo(40900);
+    }
+
+    /**
+     * 计划打卡 costSeconds 口径（V2.2.9，PR 前的字段语义变更）：
+     * 打卡契约不含 startToken，客户端自报耗时不可信，PLAN 记录恒落 NULL；
+     * 班级导出“平均耗时（秒）”只统计有耗时的记录（AVG 忽略 NULL），不被 123 污染。
+     * 备注：历史 practice_record 不回溯，旧 PLAN 行/未带 startToken 的旧记录仍可能含客户端自报值。
+     */
+    @Test
+    void planCheckinStoresNullCostAndKeepsExportClean() throws Exception {
+        String token = login();
+        String clientToken = "plan-cost-null-ct";
+        long planId = 0L;
+        try {
+            HttpResponse<String> generated = generatePlan(token);
+            assertThat(code(generated)).isZero();
+            List<Map<String, Object>> days = JsonPath.read(body(generated), "$.data");
+            planId = ((Number) days.get(0).get("planId")).longValue();
+            List<Map<String, Object>> items = castList(days.get(0).get("items"));
+            String qId = String.valueOf(items.get(0).get("qId"));
+
+            // 请求体显式带 costSeconds=123，验证服务端忽略客户端自报值
+            String payload = """
+                    {"qId":"%s","clientToken":"%s","answered":true,"myAnswer":"A",
+                     "isCorrect":true,"costSeconds":123}
+                    """.formatted(qId, clientToken);
+            HttpResponse<String> checkin = postJson("/api/plans/" + planId + "/checkin", payload, token);
+            assertThat(code(checkin)).isZero();
+            assertThat((Boolean) JsonPath.read(body(checkin), "$.data.duplicate")).isFalse();
+            assertThat((Boolean) JsonPath.read(body(checkin), "$.data.verified")).isTrue();
+
+            // a) 打卡成功；b) 落库 cost_seconds 为 NULL（queryForObject 对 NULL 列返回 null）
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT cost_seconds FROM practice_record WHERE client_token = ?",
+                    Integer.class, clientToken)).isNull();
+
+            // c) 班级导出：该生仅此一条 PLAN 记录，平均耗时（第 5 列）为空，且不含 123
+            String teacher = login("it_teacher");
+            String csv = body(getJson("/api/teacher/students/export?courseId=1", teacher));
+            assertThat(csv).doesNotContain(",123,");
+            List<String> dataRows = csv.lines().skip(1).filter(row -> !row.isBlank()).toList();
+            assertThat(dataRows).hasSize(1);
+            assertThat(dataRows.get(0).split(",", -1)[4])
+                    .as("PLAN 打卡恒无耗时，导出平均耗时应为空")
+                    .isEmpty();
+            // 与直接 AVG(cost_seconds) 一致：PLAN 行 NULL 被 AVG 忽略，结果仍为 NULL
+            assertThat(jdbcTemplate.queryForObject(
+                    "SELECT AVG(cost_seconds) FROM practice_record WHERE user_id = ?",
+                    Double.class, userIdOf("it_user"))).isNull();
+        } finally {
+            jdbcTemplate.update("DELETE FROM practice_record WHERE client_token = ?", clientToken);
+            if (planId > 0L) {
+                jdbcTemplate.update("DELETE FROM study_plan_item WHERE plan_id = ?", planId);
+                jdbcTemplate.update("DELETE FROM study_plan WHERE plan_id = ?", planId);
+            }
+        }
     }
 
     // ==================== C3 评阅：证据 / 筛选 / PASS / RETURN / 权限 ====================

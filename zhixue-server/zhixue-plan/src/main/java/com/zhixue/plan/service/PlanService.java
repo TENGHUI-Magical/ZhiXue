@@ -285,7 +285,9 @@ public class PlanService {
                     request.myAnswer(), grading.correct(), request.errorType(), item.getKpId());
             completion = practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
                     request.clientToken(), request.myAnswer(), grading.correct(),
-                    request.costSeconds(), errorType);
+                    // 计划打卡契约不含 startToken（无服务端计时），客户端自报耗时不可信，一律落 null；
+                    // 打卡成功、幂等、判分与 errorType 推断不受影响，字段保留仅为兼容旧客户端。
+                    null, errorType);
         }
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())
