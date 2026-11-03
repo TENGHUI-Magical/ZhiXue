@@ -24,7 +24,10 @@ from app.services.compliance import compliance_check
 logger = logging.getLogger(__name__)
 
 # Prompt 模板版本：随 _prompt() 结构变更递增，落 ai_generation_log.prompt_version（Git 可回溯）
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
+PROMPT_TARGET_TOKENS = 3000
+PROMPT_HARD_LIMIT_TOKENS = 4000
+MAX_OUTPUT_TOKENS = 700
 
 # SSE 响应头：禁用代理缓冲，保持逐帧下发
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
@@ -35,49 +38,139 @@ def _sse(event: str, payload: dict) -> str:
 
 
 def _first(text: str | None, limit: int) -> str:
-    clean = (text or "").replace("\n", "；").strip()
+    clean = (text or "").replace("\r", "").replace("\n", "；").strip()
     return clean[:limit]
+
+
+def _misconceptions(text: str | None, limit: int) -> list[str]:
+    """同时兼容真实换行与种子数据中的字面 \\n，最多返回指定条数。"""
+    items = re.split(r"(?:\r?\n|\\n)", text or "")
+    return [item.strip() for item in items if item.strip()][:limit]
+
+
+def _prompt_tokens(messages: list[dict]) -> int:
+    """无新增 tokenizer 依赖的保守预算：每字符按 1 token，另计每条消息 8 token。"""
+    return sum(len(message["content"]) + 8 for message in messages)
+
+
+def _retrieval_lines(req: RagExplainRequest, hits: list | None) -> list[str]:
+    lines: list[str] = []
+    budget = 800
+    concept = (req.conceptText or "").strip()
+    for hit in (hits or [])[:2]:
+        content = (hit.chunk.content or "").strip()
+        if not content or content in concept:
+            continue
+        content = content[:min(400, budget)]
+        if not content:
+            break
+        lines.append(f"[{hit.chunk.kp_id}] {content}")
+        budget -= len(content)
+        if budget <= 0:
+            break
+    return lines
+
+
+def _trim_tail(text: str, excess: int) -> str:
+    return text[:max(0, len(text) - excess)].rstrip()
 
 
 def _prompt(req: RagExplainRequest, hits: list | None = None) -> list[dict]:
     system = (
-        "你是数据库原理课程的助教。只做思路点拨，不直接替学生写作业答案。"
-        "必须依据给定概念切片讲解，不得编造教材页码或引用。"
-        "用中文分 3—4 段，每段不超过 120 字。"
+        "你是数据库原理课程的助教。只做思路点拨，不给最终答案或完整解题过程。"
+        "必须依据给定教材证据讲解，不得编造教材页码或引用。"
+        "有具体作答时才分析该作答；未提供具体作答时不得虚构学生步骤。"
     )
-    context = ""
-    if hits:
-        # 只把检索命中的切片注入 Prompt；阈值已在检索层过滤，避免无关内容污染讲解
-        parts = []
-        budget = 1200
-        for hit in hits[:5]:
-            content = hit.chunk.content[:300]
-            if budget - len(content) <= 0:
+    question = _first(req.questionText, 1000) or "（只讲概念）"
+    my_answer = _first(req.myAnswer, 300) or "未提供具体作答"
+    concept = _first(req.conceptText, 600)
+    mistakes = [_first(item, 125) for item in _misconceptions(req.misconception, 2)]
+    prereq = req.prereqWeakness if req.prereqWeakness and req.prereqWeakness.sampleCount >= 3 else None
+    prereq_concept = _first(prereq.conceptText, 200) if prereq else ""
+    retrieval = _retrieval_lines(req, hits)
+
+    def build() -> list[dict]:
+        parts = [
+            "[当前问题]",
+            f"知识点：{req.kpName}（{req.kpId}）",
+            f"错因标签：{req.errorType or '未提供'}",
+            f"作答次数：第 {req.attemptCount} 次作答，其中第 {req.wrongCount} 次答错",
+            "[学生证据]",
+            f"题干：{question}",
+            f"最近作答：{my_answer}",
+            "[教材证据]",
+            f"教材页码：{req.textbookPage or '未提供'}",
+            f"概念切片：{concept or '未提供'}",
+        ]
+        if mistakes:
+            parts.extend(["常见误区：", *[f"- {item}" for item in mistakes]])
+        else:
+            parts.append("常见误区：未提供")
+        if prereq:
+            parts.extend([
+                "[先修弱项]",
+                f"先修知识点：{prereq.kpName}（{prereq.kpId}）",
+                f"掌握度：{prereq.mastery:.3f}；样本数：{prereq.sampleCount}",
+            ])
+            if prereq_concept:
+                parts.append(f"概念提示：{prereq_concept}")
+        if retrieval:
+            parts.extend(["[检索切片]", *retrieval])
+        parts.extend([
+            "[输出格式]",
+            "【错因定位】不超过 3 句，只分析这一步为什么错。",
+            "【完整讲解】不超过 3 段，每段不超过 120 字。",
+            "【自查】只提出 1 个能动手验证的问题。",
+        ])
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "\n".join(parts)},
+        ]
+
+    messages = build()
+    # 保留优先级：学生作答 > 作答次数 > 先修弱项 > 检索切片。
+    # 实际裁撤反向进行：检索 → 先修概念 → 当前概念尾部 → 误区 → 题干尾部；
+    # 仅 4000 硬上限仍无法满足时才最后裁学生作答，正常字段上限下不会走到该分支。
+    for limit, allow_answer_trim in (
+            (PROMPT_TARGET_TOKENS, False), (PROMPT_HARD_LIMIT_TOKENS, True)):
+        while _prompt_tokens(messages) > limit:
+            excess = _prompt_tokens(messages) - limit
+            if retrieval:
+                retrieval.pop()
+            elif prereq_concept:
+                prereq_concept = ""
+            elif concept:
+                concept = _trim_tail(concept, excess)
+            elif mistakes:
+                mistakes.pop()
+            elif question != "（只讲概念）" and question:
+                question = _trim_tail(question, excess)
+            elif allow_answer_trim and my_answer != "未提供具体作答" and my_answer:
+                my_answer = _trim_tail(my_answer, excess)
+            else:
                 break
-            parts.append(f"[{hit.chunk.kp_id}] {content}")
-            budget -= len(content)
-        if parts:
-            context = "\n检索切片：\n" + "\n".join(parts)
-    user = (
-        f"知识点：{req.kpName}（{req.kpId}）\n"
-        f"教材页码：{req.textbookPage or '未提供'}\n"
-        f"概念切片：{req.conceptText}\n"
-        f"常见误区：{req.misconception or '未提供'}\n"
-        f"错因标签：{req.errorType or '未提供'}\n"
-        f"学生题干：{req.questionText or '（只讲概念）'}"
-        f"{context}\n"
-        "请指出这道题考什么、学生最可能错在哪、下一步怎么自查。"
-    )
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+            messages = build()
+    return messages
+
+
+def _request_payload(model: str, messages: list[dict], include_usage: bool) -> dict:
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "temperature": 0.3,
+        "max_tokens": MAX_OUTPUT_TOKENS,
+    }
+    if include_usage:
+        payload["stream_options"] = {"include_usage": True}
+    return payload
 
 
 async def _stream_openai(url: str, key: str, model: str, messages: list[dict],
                          usage: dict, include_usage: bool = False) -> AsyncIterator[str]:
     """OpenAI 兼容流式调用（DeepSeek / GLM 共用）。异常由调用方降级。"""
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-    payload = {"model": model, "messages": messages, "stream": True, "temperature": 0.3}
-    if include_usage:
-        payload["stream_options"] = {"include_usage": True}
+    payload = _request_payload(model, messages, include_usage)
     timeout = httpx.Timeout(connect=3.0, read=float(settings.llm_timeout_seconds), write=10.0, pool=3.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
@@ -204,18 +297,17 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
 
 
 def _template_chunks(req: RagExplainRequest) -> list[str]:
-    """L3 本地模板：只用已核对过的概念切片与误区，逐段给出思路。"""
+    """L3 学习卡：只给知识点定位、页码、最多三条误区与练习入口。"""
     name = req.kpName or req.kpId
-    concept = _first(req.conceptText, 160)
-    mistake = _first(req.misconception, 90)
-    question = _first(req.questionText, 70)
     page = req.textbookPage or "页码待确认"
-    return [
-        f"这道题对应知识点「{name}」。先抓定义：{concept}",
-        f"常见误区：{mistake}" if mistake else "这个知识点暂时没有登记常见误区，请对照概念逐条自查。",
-        f"回到题目：{question}" if question else "先用自己的话复述概念，再找一个反例检验边界条件。",
-        f"自查顺序：定义 → 适用条件 → 反例。来源：《数据库系统概论（第6版）》{page}。",
-    ]
+    mistakes = [_first(item, 90) for item in _misconceptions(req.misconception, 3)]
+    parts = ["【学习卡】", f"【知识点】{name}；教材{page}", "【常见误区】"]
+    if mistakes:
+        parts.extend(f"{index}. {item}" for index, item in enumerate(mistakes, start=1))
+    else:
+        parts.append("暂未登记常见误区，请对照教材概念自查。")
+    parts.append("【练习提示】请完成下方同类练习，检验自己是否真正掌握。")
+    return ["\n".join(parts)]
 
 
 async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:

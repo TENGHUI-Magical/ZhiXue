@@ -46,28 +46,22 @@ class ExplainCacheServiceTest {
     }
 
     @Test
-    void keyMatchesSha256OfContractFields() throws Exception {
+    void keyMatchesPromptVersionAndCanonicalContextHash() throws Exception {
+        String context = "{\"kpId\":\"KP0201\",\"myAnswer\":\"A\"}";
         String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest("KP0201CONCEPT_CONFUSION求闭包".getBytes(StandardCharsets.UTF_8)));
+                .digest(context.getBytes(StandardCharsets.UTF_8)));
 
-        assertThat(service.key("KP0201", "CONCEPT_CONFUSION", "求闭包"))
-                .isEqualTo("zhixue:explain:cache:" + expected);
+        assertThat(service.key("v2", context))
+                .isEqualTo("zhixue:explain:cache:v2:" + expected);
     }
 
     @Test
-    void conceptTextChangesCacheKeyAndFollowsContractHash() throws Exception {
-        var keyMethod = ExplainCacheService.class.getMethod(
-                "key", String.class, String.class, String.class, String.class);
-        String keyA = (String) keyMethod.invoke(service, "KP0201", "CONCEPT_CONFUSION", "求闭包", "概念A");
-        String keyB = (String) keyMethod.invoke(service, "KP0201", "CONCEPT_CONFUSION", "求闭包", "概念B");
+    void differentAnswerOrPromptVersionProducesDifferentKey() {
+        String contextA = "{\"kpId\":\"KP0201\",\"errorType\":\"CONCEPT_CONFUSION\",\"myAnswer\":\"A\"}";
+        String contextB = "{\"kpId\":\"KP0201\",\"errorType\":\"CONCEPT_CONFUSION\",\"myAnswer\":\"B\"}";
 
-        String conceptHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest("概念A".getBytes(StandardCharsets.UTF_8)));
-        String raw = "KP0201CONCEPT_CONFUSION求闭包|concept:" + conceptHash;
-        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(raw.getBytes(StandardCharsets.UTF_8)));
-        assertThat(keyA).isEqualTo("zhixue:explain:cache:" + expected);
-        assertThat(keyB).isNotEqualTo(keyA);
+        assertThat(service.key("v2", contextB)).isNotEqualTo(service.key("v2", contextA));
+        assertThat(service.key("v3", contextA)).isNotEqualTo(service.key("v2", contextA));
     }
 
     @Test

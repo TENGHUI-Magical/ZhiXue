@@ -161,7 +161,37 @@
           </template>
 
           <el-skeleton v-if="explaining && !explainText" :rows="4" animated class="skeleton" />
-          <div v-else-if="explainText" class="explain-text">{{ explainText }}</div>
+          <div v-else-if="explainText" class="explain-output">
+            <div v-if="learningCard" class="learning-card" data-testid="learning-card">
+              <h3>学习卡</h3>
+              <p class="learning-card-kp" data-testid="learning-card-kp">
+                {{ learningCard.kpName }} · 教材{{ learningCard.textbookPage }}
+              </p>
+              <h4>常见误区</h4>
+              <ul v-if="learningCard.misconceptions.length" data-testid="learning-card-misconceptions">
+                <li v-for="item in learningCard.misconceptions" :key="item">{{ item }}</li>
+              </ul>
+              <p v-else>暂未登记常见误区，请对照教材概念自查。</p>
+              <p class="learning-card-practice" data-testid="learning-card-practice">
+                {{ learningCard.practiceHint }}
+              </p>
+            </div>
+            <div v-else-if="explainSections" class="explain-sections" data-testid="explain-sections">
+              <section class="error-location" data-testid="error-location">
+                <h3>错因定位</h3>
+                <p>{{ explainSections.errorLocation }}</p>
+              </section>
+              <section data-testid="full-explanation">
+                <h3>完整讲解</h3>
+                <p>{{ explainSections.explanation }}</p>
+              </section>
+              <section class="self-check" data-testid="self-check">
+                <h3>自查问题</h3>
+                <p>{{ explainSections.selfCheck }}</p>
+              </section>
+            </div>
+            <div v-else class="explain-text">{{ explainText }}</div>
+          </div>
           <ReviewStatus v-if="explainText" :result="reviewResult" :comment="reviewComment" />
           <div v-else class="explain-empty">
             <p class="empty-title">确认知识点后可生成讲解</p>
@@ -265,9 +295,12 @@ import {
   getRecommendations,
   mapKnowledgePoint,
   newClientToken,
+  parseStructuredExplanation,
   streamExplain,
   uploadOcrImage,
   type ErrorRecord,
+  type ExplainSections,
+  type LearningCard,
   type MapResult,
   type Recommendation,
   type SourceRef
@@ -321,6 +354,8 @@ const decisionType = computed(() => {
 
 const explaining = ref(false);
 const explainText = ref("");
+const explainSections = ref<ExplainSections | null>(null);
+const learningCard = ref<LearningCard | null>(null);
 const sources = ref<SourceRef[]>([]);
 const degraded = ref(false);
 const degradeLevel = ref("");
@@ -457,9 +492,11 @@ const loadLinkedQuestions = async () => {
   }
 };
 watch(selectedKpId, loadLinkedQuestions);
-const degradeLabel = computed(() =>
-  degradeLevel.value ? `降级 ${degradeLevel.value}` : "已降级"
-);
+const degradeLabel = computed(() => {
+  if (learningCard.value || degradeLevel.value === "L3") return "学习卡";
+  if (degradeLevel.value === "L2") return "备用讲解";
+  return "辅助讲解";
+});
 
 let recSeq = 0;
 let explainQuerySeq = 0;
@@ -468,6 +505,8 @@ const resetExplainState = () => {
   explainQuerySeq += 1;
   recommendLoading.value = false;
   explainText.value = "";
+  explainSections.value = null;
+  learningCard.value = null;
   sources.value = [];
   degraded.value = false;
   degradeLevel.value = "";
@@ -528,6 +567,9 @@ const loadExplainDetail = async (id: string) => {
     if (seq !== explainQuerySeq) return;
     if (!data) throw new Error("讲解记录不存在");
     explainText.value = data.content || "";
+    const structured = parseStructuredExplanation(explainText.value);
+    explainSections.value = structured.sections ?? null;
+    learningCard.value = structured.learningCard ?? null;
     sources.value = data.sources ?? [];
     degraded.value = !!data.degraded;
     degradeLevel.value = data.degradeLevel ?? "";
@@ -588,13 +630,17 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
       degraded.value = true;
       degradeLevel.value = String(payload.level ?? "");
       break;
-    case "done":
+    case "done": {
       doneSeen = true;
       explainId.value = String(payload.explainId ?? explainId.value);
       latencyMs.value = Number(payload.latencyMs ?? 0);
+      const structured = parseStructuredExplanation(explainText.value);
+      explainSections.value = (payload.sections as ExplainSections | undefined) ?? structured.sections ?? null;
+      learningCard.value = (payload.learningCard as LearningCard | undefined) ?? structured.learningCard ?? null;
       void loadRecommend();
       void loadReviewState(explainId.value);
       break;
+    }
     case "error":
       // 契约 §2：60004 展示学术诚信提示，不展示讲解正文
       if (Number(payload.code) === 60004) {
@@ -920,6 +966,47 @@ onBeforeUnmount(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   min-height: 80px;
+}
+.explain-output {
+  margin-top: 12px;
+}
+.explain-sections {
+  display: grid;
+  gap: var(--app-space-3, 12px);
+}
+.explain-sections section,
+.learning-card {
+  padding: var(--app-space-3, 12px) var(--app-space-4, 16px);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md, 12px);
+  background: var(--app-surface-soft);
+}
+.explain-sections .error-location {
+  border-left: 3px solid var(--app-primary);
+}
+.explain-sections h3,
+.learning-card h3,
+.learning-card h4 {
+  margin: 0 0 6px;
+  font-size: var(--app-fs-sm);
+}
+.explain-sections p,
+.learning-card p,
+.learning-card li {
+  margin: 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.learning-card-kp {
+  color: var(--app-text-muted);
+}
+.learning-card h4 {
+  margin-top: var(--app-space-3, 12px);
+}
+.learning-card-practice {
+  margin-top: var(--app-space-3, 12px) !important;
+  color: var(--app-primary);
 }
 .explain-empty {
   margin-top: 10px;

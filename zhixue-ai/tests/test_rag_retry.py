@@ -54,6 +54,56 @@ def _collect(payload: dict | None = None) -> list[tuple[str, dict]]:
     return _parse(asyncio.run(run()))
 
 
+def test_three_sections_are_generated_by_one_model_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+    calls = {"count": 0}
+    expected = (
+        "【错因定位】\n你把候选码误当成了主码。\n"
+        "【完整讲解】\n先检查候选码是否仍满足最小性。\n"
+        "【自查】\n去掉任一属性后，它还能唯一确定元组吗？"
+    )
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        calls["count"] += 1
+        yield expected
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+
+    events = _collect()
+    content = "".join(data["content"] for name, data in events if name == "chunk")
+    done = [data for name, data in events if name == "done"][-1]
+
+    assert calls["count"] == 1
+    assert content == expected
+    assert done["promptVersion"] == "v2"
+
+
+def test_l3_emits_only_learning_card_with_at_most_three_misconceptions(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    events = _collect({**PAYLOAD, "misconception": "误区一\\n误区二\n误区三\n误区四"})
+    content = "".join(data["content"] for name, data in events if name == "chunk")
+
+    assert content == (
+        "【学习卡】\n"
+        "【知识点】关系模型；教材P34\n"
+        "【常见误区】\n"
+        "1. 误区一\n"
+        "2. 误区二\n"
+        "3. 误区三\n"
+        "【练习提示】请完成下方同类练习，检验自己是否真正掌握。"
+    )
+    assert "概念原文" not in content
+    assert "关系模型用二维表表示实体与实体间的联系" not in content
+    assert "关系模型的三要素是什么" not in content
+    assert "降级" not in content
+    assert "模板" not in content
+    assert "LLM" not in content
+
+
 def test_l1_retries_once_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
     calls = {"count": 0}
