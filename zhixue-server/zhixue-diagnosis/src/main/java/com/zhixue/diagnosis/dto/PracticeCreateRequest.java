@@ -31,6 +31,10 @@ public record PracticeCreateRequest(
         @Min(value = 0, message = "costSeconds 不能为负")
         @Max(value = 86400, message = "costSeconds 不能超过 86400") Integer costSeconds,
 
+        @Schema(nullable = true, description = "begin 打点返回的作答开始令牌；携带时服务端以"
+                + "（提交时刻 - begin 时刻）计时并忽略客户端 costSeconds；未携带时 costSeconds 落 null")
+        @Size(max = 64, message = "startToken 最长 64 字") String startToken,
+
         @Schema(allowableValues = {"RECOMMEND", "SELF"}, defaultValue = "SELF")
         String source,
 

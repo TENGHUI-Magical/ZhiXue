@@ -1284,6 +1284,60 @@ class IntegrationFlowTest {
         assertThat(code(getJson("/api/plans/due-reviews?courseId=999", token))).isEqualTo(40400);
     }
 
+    /**
+     * 练后进步证据的服务端计时（真 Redis：begin 打点 → 提交换算，05 §2.3 口径）：
+     * 客户端自报 costSeconds 被忽略（防伪造），响应与落库均为服务端区间值；
+     * 同 clientToken 幂等重放返回首次耗时（第二次提交不会算成“神速”）；
+     * 未打点提交 costSeconds 为 null；提交成功后打点键被清理（防同令牌二次计时）。
+     */
+    @Test
+    void serverSideCostSecondsFlow() throws Exception {
+        String token = login();
+        List<String> qIds = courseQids(2);
+        long userId = userIdOf("it_user");
+
+        // begin 打点：返回令牌与首次开始时刻
+        HttpResponse<String> start = postJson("/api/practices/start",
+                "{\"qId\":\"%s\",\"clientToken\":\"cost-tk-1\"}".formatted(qIds.get(0)), token);
+        assertThat(code(start)).isZero();
+        assertThat((String) JsonPath.read(body(start), "$.data.clientToken")).isEqualTo("cost-tk-1");
+        assertThat((String) JsonPath.read(body(start), "$.data.startedAt")).isNotBlank();
+
+        Thread.sleep(1200);   // 让服务端耗时有 1 秒以上的可断言区间
+
+        // 提交带 startToken 且谎报 costSeconds=999：服务端计时必须覆盖客户端自报
+        String payload = "{\"qId\":\"%s\",\"kpId\":\"KP0201\",\"isCorrect\":true,\"myAnswer\":\"B\","
+                + "\"costSeconds\":999,\"startToken\":\"cost-tk-1\",\"clientToken\":\"cost-ct-1\"}"
+                .formatted(qIds.get(0));
+        HttpResponse<String> first = postJson("/api/practices", payload, token);
+        assertThat(code(first)).isZero();
+        assertThat((Boolean) JsonPath.read(body(first), "$.data.duplicate")).isFalse();
+        int serverCost = number(body(first), "$.data.costSeconds").intValue();
+        assertThat(serverCost).isBetween(1, 30);
+
+        // 落库一致 + 打点键已清理
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT cost_seconds FROM practice_record WHERE client_token = 'cost-ct-1'",
+                Integer.class)).isEqualTo(serverCost);
+        assertThat(redisTemplate.hasKey("zhixue:practice:start:" + userId + ":cost-tk-1")).isFalse();
+
+        // 幂等重放：返回首次耗时，不会变成第二次提交的 0/1 秒
+        HttpResponse<String> replay = postJson("/api/practices", payload, token);
+        assertThat(code(replay)).isZero();
+        assertThat((Boolean) JsonPath.read(body(replay), "$.data.duplicate")).isTrue();
+        assertThat(number(body(replay), "$.data.costSeconds").intValue()).isEqualTo(serverCost);
+
+        // 未 begin 打点：costSeconds 为 null（进步证据缺证据时诚实留空，不用客户端自报顶替）
+        HttpResponse<String> noStart = postJson("/api/practices",
+                "{\"qId\":\"%s\",\"kpId\":\"KP0201\",\"isCorrect\":true,\"myAnswer\":\"B\","
+                        + "\"costSeconds\":999,\"clientToken\":\"cost-ct-2\"}".formatted(qIds.get(1)), token);
+        assertThat(code(noStart)).isZero();
+        assertThat((Object) JsonPath.read(body(noStart), "$.data.costSeconds")).isNull();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT cost_seconds FROM practice_record WHERE client_token = 'cost-ct-2'",
+                Integer.class)).isNull();
+    }
+
     private void awaitExplainLog(String explainId, long userId) throws InterruptedException {
         for (int i = 0; i < 100; i++) {
             Integer count = jdbcTemplate.queryForObject(
