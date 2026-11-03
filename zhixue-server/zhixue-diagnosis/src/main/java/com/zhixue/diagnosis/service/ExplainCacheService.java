@@ -14,7 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * 讲解结果缓存（契约 V2 §6）：key = sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天。
+ * 讲解结果缓存（契约 V2 §6）：key = promptVersion + contextHash，TTL 7 天。
  * <p>
  * 只缓存 L1 正常完成、未拦截、有正文的结果；Redis 不可用时跳过缓存直调模型，绝不返回 500。
  */
@@ -37,23 +37,15 @@ public class ExplainCacheService {
     }
 
     /**
-     * 计算契约缓存 key：sha256(kpId + errorType + correctedText)。
+     * 计算契约缓存 key。canonicalContext 由调用方以固定字段顺序序列化，
+     * 必须覆盖题干、知识点内容、最近作答、作答次数与先修弱项。
      *
-     * @param kpId         知识点编号
-     * @param errorType    五类错因之一
-     * @param questionText 学生题干（契约 correctedText）
+     * @param promptVersion   Prompt 版本，隔离旧版讲解
+     * @param canonicalContext 规范化完整上下文 JSON
      * @return Redis 键
      */
-    public String key(String kpId, String errorType, String questionText) {
-        String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText);
-        return KEY_PREFIX + sha256(raw);
-    }
-
-    /** 概念原文参与版本计算：concept_text 改变后，旧 key 不再命中。 */
-    public String key(String kpId, String errorType, String questionText, String conceptText) {
-        String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText)
-                + "|concept:" + sha256(nullToEmpty(conceptText));
-        return KEY_PREFIX + sha256(raw);
+    public String key(String promptVersion, String canonicalContext) {
+        return KEY_PREFIX + nullToEmpty(promptVersion) + ":" + sha256(nullToEmpty(canonicalContext));
     }
 
     /**

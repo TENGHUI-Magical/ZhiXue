@@ -9,6 +9,7 @@
     "build": "vue-tsc --noEmit && vite build && node perf/bench/bundle-budget.mjs",
     "perf:bundle": "node perf/bench/bundle-budget.mjs",
     "e2e": "node e2e/verify.mjs",
+    "e2e:explain": "node e2e/explain-v2.mjs",
     "preview": "vite preview",
     "gen:types": "openapi-typescript ../docs/openapi.yaml -o src/api/types.generated.ts",
     "e2e:real": "node e2e/real/api-smoke.mjs",

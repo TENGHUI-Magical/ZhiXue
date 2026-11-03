@@ -28,6 +28,24 @@ export interface SourceRef {
   title?: string | null;
 }
 
+export interface ExplainSections {
+  errorLocation: string;
+  explanation: string;
+  selfCheck: string;
+}
+
+export interface LearningCard {
+  kpName: string;
+  textbookPage: string;
+  misconceptions: string[];
+  practiceHint: string;
+}
+
+export interface StructuredExplanation {
+  sections?: ExplainSections;
+  learningCard?: LearningCard;
+}
+
 export interface Recommendation {
   recommendationId?: number | null;
   qId: string;
@@ -182,6 +200,43 @@ export const parseSseFrame = (frame: string, onFrame: (event: string, payload: R
     return;
   }
   onFrame(event, payload);
+};
+
+/** 刷新恢复只有 content 时，用与后端一致的固定标记还原结构；不完整正文保持旧展示。 */
+export const parseStructuredExplanation = (content: string): StructuredExplanation => {
+  const text = content.trim();
+  if (text.startsWith("【学习卡】")) {
+    const kpLine = text.match(/【知识点】([^\n]+)/)?.[1] ?? "";
+    const separator = kpLine.lastIndexOf("；教材");
+    if (separator <= 0) return {};
+    const misconceptionBlock = text.match(/【常见误区】\s*([\s\S]*?)\s*【练习提示】/)?.[1] ?? "";
+    const misconceptions = misconceptionBlock
+      .split("\n")
+      .map(line => line.replace(/^\s*\d+\.\s*/, "").trim())
+      .filter(Boolean)
+      .slice(0, 3);
+    const practiceHint = text.match(/【练习提示】([^\n]+)/)?.[1].trim() ?? "";
+    if (!practiceHint) return {};
+    return {
+      learningCard: {
+        kpName: kpLine.slice(0, separator),
+        textbookPage: kpLine.slice(separator + 3),
+        misconceptions,
+        practiceHint
+      }
+    };
+  }
+  const match = text.match(
+    /^【错因定位】\s*([\s\S]*?)\s*【完整讲解】\s*([\s\S]*?)\s*【自查】\s*([\s\S]+)$/
+  );
+  if (!match || match.slice(1).some(part => !part.trim())) return {};
+  return {
+    sections: {
+      errorLocation: match[1].trim(),
+      explanation: match[2].trim(),
+      selfCheck: match[3].trim()
+    }
+  };
 };
 
 export const getExplain = (explainId: string) =>
