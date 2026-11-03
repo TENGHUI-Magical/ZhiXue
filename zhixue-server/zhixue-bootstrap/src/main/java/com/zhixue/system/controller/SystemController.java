@@ -4,6 +4,7 @@ import com.zhixue.common.api.ApiResponse;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -43,6 +44,7 @@ public class SystemController {
     private volatile Health cachedHealth;
     private volatile long cachedAtNanos;
 
+    @Autowired
     public SystemController(JdbcTemplate jdbcTemplate,
                             RedisConnectionFactory redisConnectionFactory,
                             AiClientProperties aiClientProperties) {
