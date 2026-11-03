@@ -113,11 +113,11 @@ class DueReviewServiceTest {
         assertThat(first.daysSinceLastCorrect()).isEqualTo(40);
         assertThat(first.mastery()).isEqualTo(0.462);
         assertThat(first.sampleCount()).isEqualTo(2);
-        assertThat(first.reason()).isEqualTo("距上次答对 40 天，已过半衰期 + 概念混淆型错误");
+        assertThat(first.reason()).isEqualTo("距上次答对 40 天，早该复习了，把两个概念记混了");
         DueReviewItem second = items.get(1);
         assertThat(second.qId()).isEqualTo("Q02");
         assertThat(second.mastery()).isEqualTo(0.575);
-        assertThat(second.reason()).isEqualTo("距上次答对 45 天，已过半衰期，防遗忘复习");
+        assertThat(second.reason()).isEqualTo("距上次答对 45 天，早该复习了，该回来练一遍");
     }
 
     /** 选题：最近答错的题优先重做；只对过的知识点重做最近答对的题，不用未练题。 */

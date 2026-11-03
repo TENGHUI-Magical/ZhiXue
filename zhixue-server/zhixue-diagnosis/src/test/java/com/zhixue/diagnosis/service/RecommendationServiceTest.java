@@ -113,7 +113,7 @@ class RecommendationServiceTest {
         }
 
         assertThat(result).hasSize(1);
-        assertThat(result.get(0).reason()).isEqualTo("题量不足，先练这些");
+        assertThat(result.get(0).reason()).isEqualTo("这章题不多，先练这几道");
     }
 
     @Test
@@ -174,7 +174,7 @@ class RecommendationServiceTest {
                         "KP0201", priority("KP0201", 0.4, 0),
                         "KP0202", priority("KP0202", 0.2, -1))));
         when(repairPriorityService.explain(any(), any()))
-                .thenReturn("前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误");
+                .thenReturn("这道题要用到它，已 38 天没答对，把两个概念记混了");
 
         List<Recommendation> result;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -186,7 +186,7 @@ class RecommendationServiceTest {
         assertThat(result).extracting(Recommendation::qId)
                 .containsExactly("Q_0200", "Q_0201", "Q_0202");
         assertThat(result.get(0).reason())
-                .isEqualTo("前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误");
+                .isEqualTo("这道题要用到它，已 38 天没答对，把两个概念记混了");
     }
 
     /** 05 §3.7：top1Reason 只在补漏重排后的第一条非空，其余条为 null（前端据此渲染“最优先”标记）。 */
@@ -207,9 +207,9 @@ class RecommendationServiceTest {
                 Map.of("KP0200", priority("KP0200", 0.9, 1),
                         "KP0201", priority("KP0201", 0.4, 0),
                         "KP0202", priority("KP0202", 0.2, -1))));
-        when(repairPriorityService.explain(any(), any())).thenReturn("前置知识点未掌握 + 距上次练习 38 天");
+        when(repairPriorityService.explain(any(), any())).thenReturn("这道题要用到它，已 38 天没答对");
         when(repairPriorityService.firstReason(eq("关系模型"), any(), any()))
-                .thenReturn("先补关系模型：它是当前错题知识点的直接先修，综合补漏优先级最高");
+                .thenReturn("先练关系模型：这道题要用到它，先练它见效最快");
 
         List<Recommendation> result;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -220,7 +220,7 @@ class RecommendationServiceTest {
         assertThat(result).extracting(Recommendation::qId)
                 .containsExactly("Q_0200", "Q_0201", "Q_0202");
         assertThat(result.get(0).top1Reason())
-                .isEqualTo("先补关系模型：它是当前错题知识点的直接先修，综合补漏优先级最高");
+                .isEqualTo("先练关系模型：这道题要用到它，先练它见效最快");
         assertThat(result.get(1).top1Reason()).isNull();
         assertThat(result.get(2).top1Reason()).isNull();
     }

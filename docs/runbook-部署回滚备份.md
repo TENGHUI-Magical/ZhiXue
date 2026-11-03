@@ -27,6 +27,14 @@ npm run build
 
 产物：`zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar`、`zhixue-web/dist/`。
 
+> **铁则：演示与试用环境必须完整反应堆构建**（上面的 `clean package`，或
+> `mvn -B -ntp install -DskipTests`）；**禁止 `-pl <module>` 单模块起服务**。
+> 原因：`-pl` 起动用的是本地仓库的旧依赖 jar，跨模块新增的内部类（如
+> `ReviewItemView$SourceRef`）在旧 jar 里不存在，运行时抛 `NoClassDefFoundError`
+> 却经全局异常处理器**伪装成业务错误码 50000**，从接口侧几乎无法排查
+> （2026-11-03 走查环境实证；完整构建后同一代码立刻 `code=0`）。
+> `scripts/precheck-demo.ps1` 的"教师评阅"项专门探测这类失败并给出该提示。
+
 ## 3. 部署（单机）
 
 1. **备份**：见 §5，先备份 MySQL 与 `zhixue-ai/data/vector_index`。

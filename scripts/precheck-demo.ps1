@@ -1,5 +1,6 @@
 # 智学领航 · 答辩现场自检（一条命令确认全部就绪）
-# 覆盖：MySQL、主库计数、演示账号登录、后端健康（db/redis/ai）、前端 5173、RAG 索引、到期队列、今日计划、AI 真实链路。
+# 覆盖：MySQL、主库计数、演示账号登录、后端健康（db/redis/ai）、教师评阅接口（防旧 jar 伪装 50000）、
+#       前端 5173、RAG 索引、到期队列、今日计划、AI 真实链路。
 # 输出：每项 ✅/⚠️/❌ + 一句修复提示；有 ❌ 时退出码 1。
 # 用法：
 #   $env:DB_PASSWORD = '<本机 root 口令>'
@@ -21,6 +22,7 @@ param(
     [string]$IndexDir = (Join-Path $PSScriptRoot '..\zhixue-ai\data\vector_index'),
     [string]$DemoUsername = 'demo_stu01',
     [string]$DemoPassword = 'Demo@2026',
+    [string]$DemoTeacherUsername = 'demo_teacher01',
     [switch]$SkipAiLive
 )
 
@@ -153,6 +155,35 @@ if ($token) {
 } else {
     Add-Result 'SKIP' '到期队列' '未登录，跳过' '先修“演示登录”'
     Add-Result 'SKIP' '今日计划' '未登录，跳过' '先修“演示登录”'
+}
+
+# ---------- 4b. 教师评阅接口（防"旧 jar 伪装成 50000"） ----------
+# 走查环境实证：运行时 jar 未做完整反应堆构建时，ReviewItemView$SourceRef 报
+# NoClassDefFoundError，但经全局异常处理器后以业务错误码 50000 出现，极难排查。
+# 本项区分三种失败：后端没起（catch）/ 类加载失败（message 含类加载异常）/ 其他业务错误。
+if ($health) {
+    try {
+        $tLogin = Invoke-RestMethod -Uri "$BackendBase/api/auth/login" -Method Post -ContentType 'application/json' `
+            -Body (@{ username = $DemoTeacherUsername; password = $DemoPassword } | ConvertTo-Json -Compress) -TimeoutSec 10
+        if ($tLogin.code -ne 0) { throw "教师登录 code=$($tLogin.code) $($tLogin.message)" }
+        $tHeaders = @{ satoken = $tLogin.data.token }
+        $reviews = Invoke-RestMethod -Uri "$BackendBase/api/teacher/reviews?page=1&size=20&status=ALL" -Headers $tHeaders -TimeoutSec 10
+        $msg = "$($reviews.code) $($reviews.message)"
+        if ($reviews.code -eq 0 -and $reviews.data.total -gt 0) {
+            Add-Result 'OK' '教师评阅' "code=0，total=$($reviews.data.total)"
+        } elseif ($msg -match 'NoClassDefFound|ClassNotFound|LinkageError') {
+            Add-Result 'FAIL' '教师评阅' "类加载失败：$msg" '后端运行时 jar 是旧的：先停服务，执行 mvn -B -ntp install -DskipTests（完整反应堆构建）再启动；禁止 -pl 单模块起服务'
+        } elseif ($reviews.code -eq 0) {
+            Add-Result 'FAIL' '教师评阅' 'code=0 但 total=0（演示库无评阅数据）' '按 docs/13 恢复演示库（重导 seed-demo-all.sql 或跑 seed-demo.ps1）'
+        } else {
+            Add-Result 'FAIL' '教师评阅' $msg '很可能是未做完整反应堆构建（旧 jar 缺类伪装成 50000）：mvn -B -ntp install -DskipTests 后重启；后端日志搜 NoClassDefFoundError 可确认'
+        }
+    }
+    catch {
+        Add-Result 'FAIL' '教师评阅' (Format-ApiError $_) '先确认后端已起（后端健康项）；若已起仍失败，后端日志搜 NoClassDefFoundError → mvn -B -ntp install -DskipTests 完整构建后重启，勿用 -pl 单模块启动'
+    }
+} else {
+    Add-Result 'SKIP' '教师评阅' '后端未就绪，跳过' '先修“后端健康”'
 }
 
 # ---------- 5. 前端 5173 ----------

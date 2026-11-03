@@ -1274,10 +1274,10 @@ class IntegrationFlowTest {
         assertThat(((Number) first.get("mastery")).doubleValue()).isGreaterThan(0.4).isLessThan(0.55);
         assertThat(((Number) first.get("sampleCount")).intValue()).isEqualTo(2);
         assertThat((String) first.get("reason"))
-                .contains("距上次答对 40 天").contains("概念混淆");
+                .contains("距上次答对 40 天").contains("记混");
         Map<String, Object> second = items.get(1);
         assertThat(second.get("qId")).isEqualTo(qIds.get(1));
-        assertThat((String) second.get("reason")).contains("距上次答对 45 天").contains("防遗忘复习");
+        assertThat((String) second.get("reason")).contains("距上次答对 45 天").contains("该回来练一遍");
 
         // 鉴权与课程校验：未登录 40100，课程不存在 40400
         assertThat(code(getJson("/api/plans/due-reviews?courseId=1", null))).isEqualTo(40100);

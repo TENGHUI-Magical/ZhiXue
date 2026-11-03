@@ -53,8 +53,8 @@ public class DueReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(DueReviewService.class);
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
-    /** 理由上限与 recommendation.reason VARCHAR(50) / openapi maxLength 对齐 */
-    private static final int MAX_REASON_LENGTH = 50;
+    /** 理由上限（学生语言硬约束 ≤45 字，openapi maxLength 对齐） */
+    private static final int MAX_REASON_LENGTH = 45;
     /** 今日到期队列上限：与画像薄弱点 WEAK_LIMIT 一致的日消化量 */
     private static final int DUE_LIMIT = 5;
     /** 掌握度聚合窗口外（无证据）的先验值，与 Beta(2,2) 均值一致 */
@@ -237,19 +237,18 @@ public class DueReviewService {
     }
 
     /**
-     * 可解释理由（≤50 字，模板拼接禁止自由发挥）：
-     * 时间段（到期依据）+ 错因段（答错过）或防遗忘说明（只对过）。
+     * 可解释理由（学生语言，≤45 字，模板拼接禁止自由发挥；禁用内部术语见 05 §3.8）：
+     * 时间段（该回来复习了）+ 错因话术（答错过）。
      */
     private String reason(DueCandidate candidate) {
         StringBuilder builder = new StringBuilder("距上次答对 ")
-                .append(candidate.days()).append(" 天，已过半衰期");
+                .append(candidate.days()).append(" 天，早该复习了");
         if (candidate.wrongCount() > 0 && candidate.lastErrorType() != null
                 && !candidate.lastErrorType().isBlank()) {
-            builder.append(" + ")
-                    .append(RepairPriorityService.errorLabel(candidate.lastErrorType()))
-                    .append("型错误");
+            builder.append("，")
+                    .append(RepairPriorityService.errorStudentPhrase(candidate.lastErrorType()));
         } else if (candidate.wrongCount() == 0) {
-            builder.append("，防遗忘复习");
+            builder.append("，该回来练一遍");
         }
         String reason = builder.toString();
         return reason.length() <= MAX_REASON_LENGTH ? reason
