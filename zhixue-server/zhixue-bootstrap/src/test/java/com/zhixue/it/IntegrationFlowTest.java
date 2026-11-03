@@ -1101,6 +1101,47 @@ class IntegrationFlowTest {
     }
 
     /**
+     * 大批量导出不丢行（分块回查证明）：1200 条留痕各有独立错题（跨 3 个 500 块），
+     * 导出必须 1200 行全在、证据列经分块回查仍能拼上——锁定 toViews 分块不丢数据，
+     * 同时覆盖“数千行级导出可用”（真实学期规模的放大版）。
+     */
+    @Test
+    void reviewExportHandlesLargeBatchWithChunkedErrorLookup() throws Exception {
+        String teacher = login("it_teacher");
+        long student = userIdOf("it_user");
+        String qId = courseQids(1).get(0);
+        int n = 1200;
+
+        List<Object[]> errorArgs = new ArrayList<>(n);
+        List<Object[]> logArgs = new ArrayList<>(n);
+        for (int i = 1; i <= n; i++) {
+            errorArgs.add(new Object[]{"PERF_IT_EL_" + i, student, "perf-it-ct-" + i,
+                    qId, "KP0201", "CONFIRMED", "CONCEPT_CONFUSION", "批量题干" + i});
+            logArgs.add(new Object[]{"PERF_IT_EX_" + i, "PERF_IT_TR_" + i, student,
+                    "PERF_IT_EL_" + i, "RAG", "deepseek-chat", "批量讲解正文"});
+        }
+        jdbcTemplate.batchUpdate("INSERT INTO student_error_record (log_id, user_id, client_token, "
+                + "q_id, kp_id, status, error_type, corrected_text) VALUES (?,?,?,?,?,?,?,?)", errorArgs);
+        jdbcTemplate.batchUpdate("INSERT INTO ai_generation_log (explain_id, trace_id, user_id, "
+                + "log_id, scene, model, content_text) VALUES (?,?,?,?,?,?,?)", logArgs);
+        try {
+            HttpResponse<String> export = getJson("/api/teacher/reviews/export?status=ALL", teacher);
+            assertThat(export.statusCode()).isEqualTo(200);
+            String csv = body(export);
+            long exported = csv.lines().filter(line -> line.contains("PERF_IT_EX_")).count();
+            assertThat(exported).isEqualTo(n);
+            // 分块回查命中：随机抽查首/中/末三块的行都带题干证据（不是空列）
+            assertThat(csv).contains("PERF_IT_EX_1,")
+                    .contains("批量题干1")
+                    .contains("批量题干600")
+                    .contains("批量题干1200");
+        } finally {
+            jdbcTemplate.update("DELETE FROM ai_generation_log WHERE explain_id LIKE 'PERF_IT_EX_%'");
+            jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id LIKE 'PERF_IT_EL_%'");
+        }
+    }
+
+    /**
      * CSV 导出内容（P0 立项三条要求之二、之三）：BOM + 中文表头、完整筛选结果
      * 而非当前分页（size=1 列表只回 1 条但导出 3 行）、姓名脱敏（不出原始名）、
      * 评阅留痕带结论/评分/评语且与队列筛选同口径。
