@@ -42,7 +42,7 @@ import java.util.stream.Collectors;
  * 待评阅口径：scene=RAG 且 reviewed_at IS NULL；重复评阅 40900，非教师 40300，
  * 提交评阅超出登录教师可管理课程范围 40300（读写同口径 scopedCourseIds）。
  *
- * <p>2026-10-31 C3：队列补评阅证据（题干/题型/选项/参考答案/解析/学生笔记/等待时长），
+ * <p>队列补评阅证据（题干/题型/选项/参考答案/解析/学生笔记/等待时长），
  * 支持 status / kpId / from / to 筛选。</p>
  */
 @Service
