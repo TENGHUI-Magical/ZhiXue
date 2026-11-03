@@ -275,7 +275,19 @@ async function axeScan(page) {
       })
       return result.violations
         .filter(v => ['serious', 'critical'].includes(v.impact))
-        .map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+        .map(v => ({
+          id: v.id,
+          impact: v.impact,
+          nodes: v.nodes.length,
+          details: v.id === 'color-contrast' ? v.nodes.map(n => ({
+            target: n.target,
+            html: n.html,
+            failureSummary: n.failureSummary,
+            any: n.any,
+            all: n.all,
+            none: n.none
+          })) : undefined
+        }))
     } catch (e) {
       lastError = e
       // 页面被 reload 后重新等待内容挂载，避免扫到空白页
