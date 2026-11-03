@@ -171,7 +171,7 @@
         </el-button>
         <p class="kp-text">{{ detail.conceptText || "暂无概念切片" }}</p>
         <p v-if="detail.misconception" class="kp-text muted">
-          <strong>常见误区：</strong>{{ detail.misconception }}
+          <strong>常见误区：</strong>{{ misconceptionText }}
         </p>
       </template>
     </el-drawer>
@@ -214,6 +214,10 @@ const drawerVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref("");
 const detail = ref<KnowledgePointDetail | null>(null);
+// 旧库可能保存字面 \n，新库保存真换行；统一后由 pre-wrap 渲染。
+const misconceptionText = computed(() =>
+  (detail.value?.misconception ?? "").replace(/\\r\\n|\\n|\\r/g, "\n")
+);
 const practiceVisible = ref(false);
 const practiceLoading = ref(false);
 const practiceQId = ref("");

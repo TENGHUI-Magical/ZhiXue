@@ -558,6 +558,25 @@ try {
   })
   await page.keyboard.press('Escape'); await sleep(400)
 
+  const originalMisconception = kpDetail.misconception
+  for (const [name, value] of [
+    ['真换行', '第一段误区\n第二段误区'],
+    ['字面反斜杠 n', '第一段误区\\n第二段误区']
+  ]) {
+    kpDetail.misconception = value
+    await open(page, '/knowledge-graph?kpId=KP0012')
+    const misconception = page.locator('.kp-drawer .kp-text.muted')
+    await misconception.waitFor({ timeout: 10000 })
+    const rendered = await misconception.innerText()
+    check(
+      `图谱：常见误区兼容${name}`,
+      rendered.includes('第一段误区\n第二段误区') && !rendered.includes('\\n'),
+      JSON.stringify({ input: value, rendered })
+    )
+    await page.keyboard.press('Escape'); await sleep(300)
+  }
+  kpDetail.misconception = originalMisconception
+
   await open(page, '/profile')
   await checkNext('个人中心：快捷入口', async () => (await page.locator('.quick-links .el-button').count()) >= 3)
 
