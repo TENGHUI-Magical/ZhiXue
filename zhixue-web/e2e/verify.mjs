@@ -451,6 +451,8 @@ try {
     if (message.type() === 'error') runtimeLogs.push(`console: ${message.text()}`)
   })
 
+  // 首次进入懒加载诊断路由可能触发 Vite 整页 reload；先让路由与依赖就绪，再开始业务动线。
+  await open(page, '/diagnosis')
   await open(page, '/today')
   await checkNext('今日：主结论存在', async () => {
     const titleCount = await page.locator('.hero-title').count()
