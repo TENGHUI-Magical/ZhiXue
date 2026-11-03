@@ -1102,14 +1102,18 @@ class IntegrationFlowTest {
 
     /**
      * 大批量导出不丢行（分块回查证明）：1200 条留痕各有独立错题（跨 3 个 500 块），
-     * 导出必须 1200 行全在、证据列经分块回查仍能拼上——锁定 toViews 分块不丢数据，
-     * 同时覆盖“数千行级导出可用”（真实学期规模的放大版）。
+     * 导出必须 1200 行全在，且**每一行**的证据列（知识点/错因）都经分块回查拼上——
+     * 若分块只查了前几块，第 501 行起证据列会空，计数即对不上。
+     * 题干断言取题库当前值（不写死种子文本，本地演示库与 CI 种子通用）。
      */
     @Test
     void reviewExportHandlesLargeBatchWithChunkedErrorLookup() throws Exception {
         String teacher = login("it_teacher");
         long student = userIdOf("it_user");
         String qId = courseQids(1).get(0);
+        String questionText = jdbcTemplate.queryForObject(
+                "SELECT question_text FROM question_bank WHERE q_id = ?", String.class, qId);
+        assertThat(questionText).isNotBlank();
         int n = 1200;
 
         List<Object[]> errorArgs = new ArrayList<>(n);
@@ -1130,11 +1134,13 @@ class IntegrationFlowTest {
             String csv = body(export);
             long exported = csv.lines().filter(line -> line.contains("PERF_IT_EX_")).count();
             assertThat(exported).isEqualTo(n);
-            // 分块回查命中：随机抽查首/中/末三块的行都带题干证据（不是空列）
-            assertThat(csv).contains("PERF_IT_EX_1,")
-                    .contains("批量题干1")
-                    .contains("批量题干600")
-                    .contains("批量题干1200");
+            // 每一行都带证据列（知识点+错因）：分块回查跨 3 块全部命中，无一行因回查缺失而空列
+            long withEvidence = csv.lines()
+                    .filter(line -> line.contains("PERF_IT_EX_") && line.contains(",KP0201,概念混淆,"))
+                    .count();
+            assertThat(withEvidence).isEqualTo(n);
+            // 题干列取题库当前值（§7.2 第 3 条口径）
+            assertThat(csv).contains(questionText);
         } finally {
             jdbcTemplate.update("DELETE FROM ai_generation_log WHERE explain_id LIKE 'PERF_IT_EX_%'");
             jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id LIKE 'PERF_IT_EL_%'");
