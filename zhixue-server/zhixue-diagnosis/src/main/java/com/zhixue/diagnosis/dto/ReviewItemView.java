@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * 教师评阅队列项（契约 openapi ReviewItem）。
  *
- * <p>2026-10-31 C3：补评阅证据——题干/题型/选项/参考答案/解析/学生笔记/等待时长/评阅状态。
+ * <p>补评阅证据——题干/题型/选项/参考答案/解析/学生笔记/等待时长/评阅状态。
  * 说明：当前数据模型没有单独的“学生原答”字段，故不虚构；学生侧证据以学生笔记与错因呈现。</p>
  */
 public record ReviewItemView(Long logPk, String explainId, String userName, String kpId,

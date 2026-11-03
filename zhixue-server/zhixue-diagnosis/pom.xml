@@ -45,7 +45,7 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
-        <!-- 讲解限流（42900）与结果缓存（sha1 + 7 天 TTL）：仅用 StringRedisTemplate -->
+        <!-- 讲解限流（42900）与结果缓存（sha256 + 7 天 TTL）：仅用 StringRedisTemplate -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
