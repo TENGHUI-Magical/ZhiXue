@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.2.5
+  version: 2.2.6
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -1058,6 +1058,11 @@ components:
         difficulty: { type: integer, minimum: 1, maximum: 3 }
         isAdopted: { type: boolean }
         questionText: { type: string }
+        top1Reason:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: "“为什么排第一”一句话（05 §3.7，三因子确定性生成）：仅补漏重排后的第一条非空，题量不足的兜底场景与其余条为 null"
     PortraitResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

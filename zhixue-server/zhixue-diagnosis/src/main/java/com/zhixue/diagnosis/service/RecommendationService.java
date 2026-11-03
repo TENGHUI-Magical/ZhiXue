@@ -140,7 +140,7 @@ public class RecommendationService {
                 Recommendation item = result.get(i);
                 result.set(i, new Recommendation(item.recommendationId(), item.qId(),
                         item.layer(), REASON_INSUFFICIENT, item.difficulty(), item.isAdopted(),
-                        item.questionText()));
+                        item.questionText(), null));
             }
         }
 
@@ -189,7 +189,7 @@ public class RecommendationService {
         }
         picked.add(question.qId());
         result.add(new Recommendation(null, question.qId(), layer, reason,
-                question.difficulty(), false, question.questionText()));
+                question.difficulty(), false, question.questionText(), null));
     }
 
     /** 题号 → 主知识点：用于把题目映射到补漏评分（题池已加载，不再回查题库）。 */
@@ -209,6 +209,8 @@ public class RecommendationService {
     /**
      * 05 §3.7：按补漏评分重排推荐列表，并用同一评分生成可解释理由。
      * 评分相同按层序、题号兜底，保证同一输入多次调用顺序稳定；题库为空时直接返回。
+     * 重排后第一条额外带 top1Reason（“为什么排第一”叙事句，三因子确定性生成，05 §3.7），
+     * 其余条为 null——前端据此只给第一条渲染“最优先”标记。
      */
     private void applyRepairPriority(List<Recommendation> result, Map<String, String> kpByQid,
                                      RepairPriorityService.RankedCourse ranked) {
@@ -216,6 +218,10 @@ public class RecommendationService {
             return;
         }
         Map<String, RepairPriorityService.Priority> priorities = ranked.priorityByKp();
+        Map<String, String> kpNames = new HashMap<>();
+        for (KnowledgePoint kp : ranked.knowledgePoints()) {
+            kpNames.put(kp.getKpId(), kp.getName() == null ? kp.getKpId() : kp.getName());
+        }
         result.sort(Comparator
                 .comparingDouble((Recommendation item) ->
                         score(priorities, kpByQid.get(item.qId())))
@@ -225,9 +231,13 @@ public class RecommendationService {
         for (int i = 0; i < result.size(); i++) {
             Recommendation item = result.get(i);
             RepairPriorityService.Priority priority = priorities.get(kpByQid.get(item.qId()));
+            String top1Reason = i == 0
+                    ? repairPriorityService.firstReason(kpNames.get(kpByQid.get(item.qId())),
+                            priority, item.reason())
+                    : null;
             result.set(i, new Recommendation(item.recommendationId(), item.qId(), item.layer(),
                     repairPriorityService.explain(priority, item.reason()), item.difficulty(),
-                    item.isAdopted(), item.questionText()));
+                    item.isAdopted(), item.questionText(), top1Reason));
         }
     }
 
@@ -330,7 +340,8 @@ public class RecommendationService {
             }
             boolean adopted = row.getIsAdopted() != null && row.getIsAdopted() == 1;
             persisted.add(new Recommendation(row.getRecommendationId(), item.qId(), item.layer(),
-                    item.reason(), item.difficulty(), adopted, item.questionText()));
+                    item.reason(), item.difficulty(), adopted, item.questionText(),
+                    item.top1Reason()));
         }
         return persisted;
     }

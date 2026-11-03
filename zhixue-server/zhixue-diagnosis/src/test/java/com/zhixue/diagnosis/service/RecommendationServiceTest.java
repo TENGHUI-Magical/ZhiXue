@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -188,9 +189,45 @@ class RecommendationServiceTest {
                 .isEqualTo("前置知识点未掌握 + 距上次练习 38 天 + 概念混淆型错误");
     }
 
+    /** 05 §3.7：top1Reason 只在补漏重排后的第一条非空，其余条为 null（前端据此渲染“最优先”标记）。 */
+    @Test
+    void top1ReasonOnlyPresentOnFirstAfterRerank() {
+        when(questionBankService.listByKp(1L, "KP0201"))
+                .thenReturn(List.of(question("Q_0201", 1)));
+        when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of("KP0200"));
+        when(knowledgePointService.successors("KP0201")).thenReturn(List.of("KP0202"));
+        when(questionBankService.listByKpIdsIncludeSecondary(anyLong(), anyList()))
+                .thenReturn(List.of(question("Q_0200", 1, "KP0200"),
+                        question("Q_0202", 1, "KP0202")));
+        KnowledgePoint firstKp = new KnowledgePoint();
+        firstKp.setKpId("KP0200");
+        firstKp.setName("关系模型");
+        when(repairPriorityService.rank(2L, 1L)).thenReturn(new RepairPriorityService.RankedCourse(
+                List.of(firstKp),
+                Map.of("KP0200", priority("KP0200", 0.9, 1),
+                        "KP0201", priority("KP0201", 0.4, 0),
+                        "KP0202", priority("KP0202", 0.2, -1))));
+        when(repairPriorityService.explain(any(), any())).thenReturn("前置知识点未掌握 + 距上次练习 38 天");
+        when(repairPriorityService.firstReason(eq("关系模型"), any(), any()))
+                .thenReturn("先补关系模型：它是当前错题知识点的直接先修，综合补漏优先级最高");
+
+        List<Recommendation> result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = service.recommend(null, "KP0201", 1L);
+        }
+
+        assertThat(result).extracting(Recommendation::qId)
+                .containsExactly("Q_0200", "Q_0201", "Q_0202");
+        assertThat(result.get(0).top1Reason())
+                .isEqualTo("先补关系模型：它是当前错题知识点的直接先修，综合补漏优先级最高");
+        assertThat(result.get(1).top1Reason()).isNull();
+        assertThat(result.get(2).top1Reason()).isNull();
+    }
+
     private RepairPriorityService.Priority priority(String kpId, double score, int distance) {
         return new RepairPriorityService.Priority(kpId, score, distance, distance < 0,
-                1.0, 1.0, "CONCEPT_CONFUSION", 38);
+                1.0, 1.0, "CONCEPT_CONFUSION", 38, null);
     }
 
     private QuestionView question(String qId, int difficulty) {
