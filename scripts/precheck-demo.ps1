@@ -62,12 +62,14 @@ SELECT
  (SELECT COUNT(*) FROM knowledge_point),
  (SELECT COUNT(*) FROM question_bank),
  (SELECT COUNT(*) FROM knowledge_prereq),
- (SELECT COUNT(*) FROM sys_user);
+ (SELECT COUNT(*) FROM sys_user),
+ (SELECT COUNT(*) FROM ai_generation_log WHERE review_result='RETURN' AND NULLIF(TRIM(teacher_comment),'') IS NOT NULL);
 "@ 2>&1
         if ($LASTEXITCODE -ne 0) { throw ($row -join ' ') }
         $c = @($row -split "`t")
         $chapters = [int]$c[0]; $kps = [int]$c[1]; $questions = [int]$c[2]
         $edges = [int]$c[3]; $users = [int]$c[4]
+        $returnWithComment = [int]$c[5]
         $detail = "$chapters 章 / $kps 点 / $questions 题 / $edges 边"
         if ($chapters -ge 8 -and $kps -ge 80 -and $questions -ge 200 -and $edges -ge 80) {
             Add-Result 'OK' '主库计数' $detail
@@ -88,6 +90,11 @@ SELECT
             } else {
                 Add-Result 'FAIL' '题数一致' "库内 $questions ≠ CSV $csvQuestionCount" '重跑 build-seed-all.ps1 后用单一路径 seed-demo.ps1 重建'
             }
+        }
+        if ($returnWithComment -ge 1) {
+            Add-Result 'OK' 'RETURN 评阅' "$returnWithComment 条带评语 RETURN"
+        } else {
+            Add-Result 'FAIL' 'RETURN 评阅' '0 条带评语 RETURN（期望 ≥1）' '检查 seed-demo-all.sql 的 review_result/teacher_comment，重跑 seed-demo.ps1'
         }
         if ($users -ge 13) {
             Add-Result 'OK' '演示账号' "$users 个账号"
