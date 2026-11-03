@@ -340,6 +340,38 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   return ctx
 }
 
+/** 图谱文字只统计首屏内真实可见的 SVG 标签；碰撞按屏幕包围盒相交面积判定 */
+async function graphLabelAudit(page) {
+  return page.evaluate(() => {
+    const labels = Array.from(document.querySelectorAll('.node-label, .chapter-label')).map((element) => {
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return {
+        text: element.textContent.trim(),
+        left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        visible: style.display !== 'none' && style.visibility !== 'hidden'
+          && rect.width > 0 && rect.height > 0
+          && rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth
+      }
+    }).filter(label => label.visible && label.text)
+    let overlapPairs = 0
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++) {
+        const width = Math.min(labels[i].right, labels[j].right) - Math.max(labels[i].left, labels[j].left)
+        const height = Math.min(labels[i].bottom, labels[j].bottom) - Math.max(labels[i].top, labels[j].top)
+        if (width > 1 && height > 1) overlapPairs++
+      }
+    }
+    return {
+      sourceKnowledgePoints: document.querySelectorAll('.node-tag').length,
+      renderedKnowledgeNodes: document.querySelectorAll('.graph-node').length,
+      renderedChapterNodes: document.querySelectorAll('.chapter-node').length,
+      visibleLabels: labels.length,
+      overlapPairs
+    }
+  })
+}
+
 /** 移动端触控与横向溢出审计；返回越界元素样本 */
 async function mobileAudit(page) {
   return page.evaluate(() => {
@@ -347,8 +379,8 @@ async function mobileAudit(page) {
     let small = 0
     const sample = []
     for (const el of els) {
-      // 图谱 SVG 节点随画布缩放，无法稳定达到 44px；由下方含 role=button 的清单提供等价目标
-      if (el.matches('.el-select__input, .graph-node')) continue
+      // 图谱 SVG 知识点/章节节点随画布缩放，无法稳定达到 44px；由章下拉与下方清单提供等价目标
+      if (el.matches('.el-select__input, .graph-node, .chapter-node')) continue
       const r = el.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) continue
       if (r.width < 44 || r.height < 44) {
@@ -673,6 +705,52 @@ try {
   )
   await page.keyboard.press('Escape'); await sleep(300)
   checkinIsCorrect = true
+
+  // 81 点独立数据上下文：验证默认章节簇可读性，不改变后续既有图谱用例的数据与断言
+  const denseCounts = [10, 10, 10, 11, 9, 11, 10, 10]
+  const denseNodes = denseCounts.flatMap((count, chapterIndex) =>
+    Array.from({ length: count }, (_, nodeIndex) => ({
+      id: `KP${String(chapterIndex + 1).padStart(2, '0')}${String(nodeIndex + 1).padStart(2, '0')}`,
+      name: `第${chapterIndex + 1}章知识点${nodeIndex + 1}（完整名称）`,
+      chapterId: chapterIndex + 1
+    }))
+  )
+  const denseEdges = denseNodes.slice(1).map((node, index) => ({ source: denseNodes[index].id, target: node.id, relation: 'PREREQ' }))
+  const denseChapters = denseCounts.map((_, index) => ({ chapterId: index + 1, chapterNo: index + 1, title: `教材第${index + 1}章` }))
+  const denseCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
+  await denseCtx.route('**/api/courses/1/knowledge-graph', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ code: 0, data: { nodes: denseNodes, edges: denseEdges }, timestamp: Date.now() })
+  }))
+  await denseCtx.route('**/api/courses/1/chapters', route => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ code: 0, data: denseChapters, timestamp: Date.now() })
+  }))
+  const densePage = await denseCtx.newPage()
+  await open(densePage, '/knowledge-graph')
+  const graphOverview = await graphLabelAudit(densePage)
+  check('图谱总览：1440x900 首屏名称≥20且重叠≤2',
+    graphOverview.visibleLabels >= 20 && graphOverview.overlapPairs <= 2, JSON.stringify(graphOverview))
+  check('图谱总览：81点默认按8章聚合',
+    graphOverview.sourceKnowledgePoints === 81 && graphOverview.renderedChapterNodes === 8
+      && graphOverview.renderedKnowledgeNodes <= 24, JSON.stringify(graphOverview))
+  const firstChapter = densePage.locator('.chapter-node').first()
+  if (await firstChapter.count()) {
+    await firstChapter.click(); await sleep(400)
+    const chapterAudit = await graphLabelAudit(densePage)
+    check('图谱章节：点击展开全部10点且名称无碰撞',
+      chapterAudit.renderedKnowledgeNodes === 10 && chapterAudit.visibleLabels >= 10
+        && chapterAudit.overlapPairs <= 2, JSON.stringify(chapterAudit))
+    await densePage.getByRole('button', { name: '返回全课程' }).click(); await sleep(400)
+    const restoredAudit = await graphLabelAudit(densePage)
+    check('图谱章节：返回全课程恢复8章总览',
+      restoredAudit.renderedChapterNodes === 8 && restoredAudit.renderedKnowledgeNodes <= 24
+        && restoredAudit.visibleLabels >= 20, JSON.stringify(restoredAudit))
+  } else {
+    check('图谱章节：点击展开全部10点且名称无碰撞', false, '未找到章节节点')
+    check('图谱章节：返回全课程恢复8章总览', false, '未找到章节节点')
+  }
+  await denseCtx.close()
 
   await open(page, '/knowledge-graph')
   await checkNext('图谱：缩放控件 3 个', async () => (await page.locator('.graph-controls button').count()) === 3)
@@ -1145,6 +1223,8 @@ try {
     check(`移动端/${name}：无横向溢出`, !info.overflow)
     check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
     if (name === 'knowledge-graph') {
+      check('移动端/图谱：390宽 scrollWidth 恒为390',
+        await mp.evaluate(() => innerWidth === 390 && document.documentElement.scrollWidth === 390))
       const tagHeights = await mp.evaluate(() =>
         Array.from(document.querySelectorAll('.node-tag')).map((el) => Math.round(el.getBoundingClientRect().height))
       )
