@@ -193,6 +193,14 @@ html[data-theme="glass-dark"] {
   --el-mask-color: rgba(11, 18, 32, 0.55);
 }
 
+/* el-alert type="error" / ElMessage.error 用的是 --el-color-error 家族（不是 danger），此前未映射，
+   默认 #f56c6c on #fef0f0 仅 2.61:1。用 html[data-theme] 提高特异性，压过 Element Plus 后注入的 :root；
+   浅底改为 danger 8% 混 surface，随主题解析。 */
+html[data-theme] {
+  --el-color-error: var(--app-danger);
+  --el-color-error-light-9: color-mix(in srgb, var(--app-danger) 8%, var(--app-surface));
+}
+
 html,
 body,
 #app {
