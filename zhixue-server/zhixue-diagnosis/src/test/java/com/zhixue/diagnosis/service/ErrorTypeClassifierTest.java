@@ -46,6 +46,13 @@ class ErrorTypeClassifierTest {
                 null, 0, 45)).isEqualTo(ErrorTypeClassifier.CONCEPT_CONFUSION);
     }
 
+    /** 自审补：无历史练习（daysSince=null）的部分对按“近期”处理 → 步骤遗漏，不落概念混淆。 */
+    @Test
+    void multiChoicePartialWithoutHistoryIsStepOmission() {
+        assertThat(ErrorTypeClassifier.classify(question("多选", "ABC", 2), "AC", false,
+                null, 0, null)).isEqualTo(ErrorTypeClassifier.STEP_OMISSION);
+    }
+
     @Test
     void multiChoiceDistractorIsConceptConfusion() {
         assertThat(ErrorTypeClassifier.classify(question("多选", "ABC", 2), "ABD", false,

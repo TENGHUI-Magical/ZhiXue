@@ -23,6 +23,21 @@ class MasteryCalculatorTest {
         assertTrue(estimate.high() - estimate.low() > 0.7);
     }
 
+    /**
+     * 自审补：防御分支——null 时间按最新证据处理（衰减 1.0）、未知/空错因严重度取中位 0.8、
+     * 负权重（脏数据）clamp 到 0 回到先验。这些分支此前无测试锁定。
+     */
+    @Test
+    void defensiveInputsAreClampedToSafeDefaults() {
+        assertEquals(1.0, calculator.decay(null, T0), 1e-12);
+        assertEquals(1.0, calculator.decay(T0, null), 1e-12);
+        assertEquals(0.8, MasteryCalculator.severity(null), 1e-12);
+        assertEquals(0.8, MasteryCalculator.severity(""), 1e-12);
+        assertEquals(0.8, MasteryCalculator.severity("NOT_A_TYPE"), 1e-12);
+        MasteryCalculator.Estimate clamped = calculator.estimate(-1.0, -2.0);
+        assertEquals(0.5, clamped.mean(), 1e-9);
+    }
+
     @Test
     void decayIsHalfAtHalfLifeAndContinuousPerDay() {
         assertEquals(0.5, calculator.decay(T0, T0.plusDays(30)), 1e-12);
