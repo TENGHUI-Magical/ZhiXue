@@ -52,6 +52,12 @@ const router = createRouter({
       meta: { title: '课程知识图谱', roles: ['STUDENT'] }
     },
     {
+      path: '/practice',
+      name: 'practice',
+      component: () => import('../views/PracticeFinder.vue'),
+      meta: { title: '找题练习', roles: ['STUDENT'] }
+    },
+    {
       path: '/profile',
       name: 'profile',
       component: () => import('../views/ProfileView.vue'),

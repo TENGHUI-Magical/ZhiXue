@@ -74,7 +74,7 @@ const answer = { qId: 'Q_0301', answerText: 'A', analysisText: '解析' }
 const defaultDueReviews = [{ source: 'DUE_REVIEW', kpId: 'KP0006', kpName: '函数依赖', qId: 'Q_0306', questionText: '题干 6', difficulty: 2, daysSinceLastCorrect: 41, mastery: 0.44, sampleCount: 5, reason: '距上次答对 41 天，已过半衰期 + 概念混淆型错误' }]
 let dueReviewsMock = defaultDueReviews
 
-function reply(method, pathname, role) {
+function reply(method, pathname, role, search = '') {
   if (pathname === '/api/auth/login') {
     return { code: 0, data: { token: 'mock-login', userId: role === 'TEACHER' ? 1 : 2, username: role === 'TEACHER' ? 'T001' : '2023034743010', role }, timestamp: Date.now() }
   }
@@ -113,10 +113,17 @@ function reply(method, pathname, role) {
   if (/^\/api\/teacher\/students\/\d+\/learning-records$/.test(pathname)) return { code: 0, data: studentLearning, timestamp: Date.now() }
   if (/^\/api\/questions\/[^/]+\/answer$/.test(pathname)) return { code: 0, data: answer, timestamp: Date.now() }
   if (/^\/api\/questions\/[^/]+$/.test(pathname)) return { code: 0, data: questionDetail, timestamp: Date.now() }
+  if (pathname === '/api/questions') {
+    const kpId = new URLSearchParams(search).get('kpId') || ''
+    return { code: 0, data: [
+      { qId: `Q_MOCK_${kpId}_1`, primaryKpId: kpId, questionType: '单选', questionText: `【mock】${kpId} 基础题题干`, difficulty: 1 },
+      { qId: `Q_MOCK_${kpId}_2`, primaryKpId: kpId, questionType: '单选', questionText: `【mock】${kpId} 进阶题题干`, difficulty: 2 }
+    ], timestamp: Date.now() }
+  }
   return { code: 0, data: null, timestamp: Date.now() }
 }
 
-const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/error-book'],['portrait','/portrait'],['plan','/plan'],['knowledge-graph','/knowledge-graph'],['profile','/profile']]
+const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/error-book'],['portrait','/portrait'],['plan','/plan'],['knowledge-graph','/knowledge-graph'],['practice','/practice'],['profile','/profile']]
 const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teacher/class']]
 
 // ---------------- 启动与断言 ----------------
@@ -236,7 +243,7 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
     if (u.pathname.startsWith('/api/')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role)) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role, u.search)) })
     } else {
       await route.continue()
     }
@@ -578,6 +585,34 @@ try {
     (await page.locator('.graph-note').innerText()).includes('已筛选第 1 章'),
     (await page.locator('.graph-note').innerText()).slice(0, 120))
 
+  // ---------- 找题练习 ----------
+  await open(page, '/practice')
+  await checkNext('找题：搜索命中知识点', async () => {
+    await page.locator('.finder-input input').fill('连接')
+    await sleep(400)
+    const first = page.locator('.kp-result').first()
+    return (await page.locator('.kp-result').count()) >= 1 && (await first.innerText()).includes('连接查询')
+  })
+  await checkNext('找题：结果含题量与难度', async () => {
+    const text = await page.locator('.kp-result').first().innerText()
+    return text.includes('题量 2') && text.includes('难度 1—2')
+  })
+  await checkNext('找题：点题打开练习抽屉', async () => {
+    await page.locator('.kp-result').first().click()
+    await sleep(300)
+    if (!await page.locator('.question-row').count()) return false
+    await page.locator('.question-row').first().click()
+    await sleep(300)
+    return await page.locator('.practice-drawer.open').isVisible()
+  })
+  await page.keyboard.press('Escape'); await sleep(400)
+  await checkNext('找题：空结果给换词建议', async () => {
+    await page.locator('.finder-input input').fill('不存在的知识点zzz')
+    await sleep(400)
+    return (await page.locator('.finder-empty').count()) === 1
+      && (await page.locator('.finder-empty').innerText()).includes('换个词试试')
+  })
+
   await open(page, '/profile')
   await checkNext('个人中心：快捷入口', async () => (await page.locator('.quick-links .el-button').count()) >= 3)
 
@@ -747,6 +782,7 @@ try {
     portrait: '.baseline-row',
     plan: '.day-card',
     'knowledge-graph': '.graph-node',
+    practice: '.finder-card',
     profile: '.quick-links'
   }
   for (const [name, pathname] of STUDENT) {
