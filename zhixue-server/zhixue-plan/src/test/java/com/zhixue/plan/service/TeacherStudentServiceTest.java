@@ -17,6 +17,7 @@ import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
+import com.zhixue.diagnosis.service.MasteryAggregationService;
 import com.zhixue.plan.dto.TeacherStudentViews;
 import com.zhixue.plan.dto.UserPlanAgg;
 import com.zhixue.plan.mapper.StudyPlanMapper;
@@ -76,7 +77,9 @@ class TeacherStudentServiceTest {
     void setUp() {
         service = new TeacherStudentService(courseService, questionBankService,
                 knowledgePointService, practiceRecordMapper, errorRecordMapper,
-                studyPlanMapper, userQueryService, 30, 3, 180);
+                studyPlanMapper, userQueryService,
+                new MasteryAggregationService(practiceRecordMapper, errorRecordMapper, 30, 180),
+                3, 180);
     }
 
     @Test

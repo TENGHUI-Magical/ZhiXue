@@ -16,10 +16,8 @@ import com.zhixue.diagnosis.dto.PortraitView;
 import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.LearningPortraitSnapshot;
-import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.LearningPortraitSnapshotMapper;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
-import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -55,40 +53,34 @@ public class PortraitService {
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final Logger log = LoggerFactory.getLogger(PortraitService.class);
     private static final int WEAK_LIMIT = 5;
-    private static final String STATUS_CONFIRMED = "CONFIRMED";
 
     private final LearningPortraitSnapshotMapper snapshotMapper;
     private final PracticeRecordMapper practiceRecordMapper;
-    private final StudentErrorRecordMapper errorRecordMapper;
+    private final MasteryAggregationService masteryAggregationService;
     private final KnowledgePointService knowledgePointService;
     private final CourseService courseService;
     private final QuestionBankService questionBankService;
     private final ObjectMapper objectMapper;
-    private final MasteryCalculator masteryCalculator;
-    private final double halfLifeDays;
     private final int minSamples;
     /** 聚合时间窗（天）：跨学年历史不实时算，等快照写入方接入（me() 已优先读快照） */
     private final int aggregateWindowDays;
 
     public PortraitService(LearningPortraitSnapshotMapper snapshotMapper,
                            PracticeRecordMapper practiceRecordMapper,
-                           StudentErrorRecordMapper errorRecordMapper,
+                           MasteryAggregationService masteryAggregationService,
                            KnowledgePointService knowledgePointService,
                            CourseService courseService,
                            QuestionBankService questionBankService,
                            ObjectMapper objectMapper,
-                           @Value("${mastery.half-life-days:30}") double halfLifeDays,
                            @Value("${mastery.min-samples:3}") int minSamples,
                            @Value("${mastery.aggregate-window-days:180}") int aggregateWindowDays) {
         this.snapshotMapper = snapshotMapper;
         this.practiceRecordMapper = practiceRecordMapper;
-        this.errorRecordMapper = errorRecordMapper;
+        this.masteryAggregationService = masteryAggregationService;
         this.knowledgePointService = knowledgePointService;
         this.courseService = courseService;
         this.questionBankService = questionBankService;
         this.objectMapper = objectMapper;
-        this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
-        this.masteryCalculator = new MasteryCalculator(halfLifeDays);
         this.minSamples = Math.max(1, minSamples);
         // 窗口至少盖住 6 个半衰期（默认 180 天 = 30 天半衰 × 6），窗口外证据衰减后权重 <1.6%
         this.aggregateWindowDays = Math.max(1, aggregateWindowDays);
@@ -140,13 +132,13 @@ public class PortraitService {
 
         int studentCount = 0;
         int activeCount = 0;
-        Map<Long, LocalDateTime> lastActiveByUser = new HashMap<>();
+        Set<Long> userIds = new HashSet<>();
         for (UserPracticeAgg agg : practiceRecordMapper.aggregateByUser(qIds, null, aggregateSince)) {
             if (agg.getUserId() == null) {
                 continue;
             }
             studentCount++;
-            lastActiveByUser.put(agg.getUserId(), agg.getLastActiveAt());
+            userIds.add(agg.getUserId());
             if (agg.getLastActiveAt() != null && !agg.getLastActiveAt().isBefore(since)) {
                 activeCount++;
             }
@@ -155,13 +147,17 @@ public class PortraitService {
             return emptyClassPortrait(courseId);
         }
 
-        Map<String, List<UserKpAgg>> kpByStudents = new HashMap<>();
-        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(qIds, null, halfLifeDays, now,
-                aggregateSince)) {
-            if (agg.getUserId() == null || isBlank(agg.getKpId())) {
-                continue;
+        // 与教师端/学生端同源：practice_record + CONFIRMED 上传错题、同日同题去重，统一由聚合服务计算
+        List<KnowledgePoint> courseKps = courseService.listActiveKnowledgePoints(courseId);
+        List<String> kpIds = courseKps.stream().map(KnowledgePoint::getKpId)
+                .filter(Objects::nonNull).toList();
+        MasteryAggregationService.CourseMastery courseMastery = masteryAggregationService
+                .courseMastery(qIds, kpIds, userIds, now, aggregateSince);
+        Map<String, List<MasteryAggregationService.KpMastery>> kpByStudents = new HashMap<>();
+        for (List<MasteryAggregationService.KpMastery> kpsOfUser : courseMastery.byUser().values()) {
+            for (MasteryAggregationService.KpMastery kp : kpsOfUser) {
+                kpByStudents.computeIfAbsent(kp.kpId(), key -> new ArrayList<>()).add(kp);
             }
-            kpByStudents.computeIfAbsent(agg.getKpId(), key -> new ArrayList<>()).add(agg);
         }
 
         Map<String, Integer> errorDist = new HashMap<>();
@@ -170,33 +166,33 @@ public class PortraitService {
                 errorDist.merge(agg.getErrorType(), agg.getCnt(), Integer::sum);
             }
         }
+        for (Map.Entry<String, Integer> entry : courseMastery.uploadedErrorDist().entrySet()) {
+            errorDist.merge(entry.getKey(), entry.getValue(), Integer::sum);
+        }
 
         Map<String, KnowledgePoint> kpMap = knowledgePointService.findByIds(kpByStudents.keySet());
         List<KpAgg> aggregates = new ArrayList<>();
-        for (Map.Entry<String, List<UserKpAgg>> entry : kpByStudents.entrySet()) {
-            int events = 0;
+        for (Map.Entry<String, List<MasteryAggregationService.KpMastery>> entry : kpByStudents.entrySet()) {
             int errors = 0;
             double masterySum = 0.0;
             int studentCnt = 0;
-            for (UserKpAgg agg : entry.getValue()) {
-                int ev = agg.getEvents() == null ? 0 : agg.getEvents();
-                int err = agg.getErrorCount() == null ? 0 : agg.getErrorCount();
-                errors += err;
-                events += ev;
-                if (ev > 0) {
-                    // 与教师端同一 SQL 口径：successWeight 按每条正确事件的时间衰减求和
-                    masterySum += masteryCalculator.mastery(
-                            agg.getSuccessWeight() == null ? 0.0 : agg.getSuccessWeight(),
-                            agg.getSeveritySum() == null ? 0.0 : agg.getSeveritySum());
-                    studentCnt++;
+            for (MasteryAggregationService.KpMastery kp : entry.getValue()) {
+                // 班级薄弱点分母按单学生样本量 N_k >= minSamples，而不是全班总事件数
+                if (kp.events() < minSamples) {
+                    continue;
                 }
+                errors += kp.errorCount();
+                masterySum += kp.mastery();
+                studentCnt++;
             }
-            double macroMastery = studentCnt == 0 ? 0.0 : masterySum / studentCnt;
-            aggregates.add(new KpAgg(entry.getKey(), events, errors, macroMastery));
+            if (studentCnt == 0) {
+                continue;
+            }
+            aggregates.add(new KpAgg(entry.getKey(), errors, masterySum / studentCnt));
         }
 
         List<ClassPortraitView.WeakestKpTop> top = aggregates.stream()
-                .filter(item -> item.errors() > 0 && item.events() >= minSamples)
+                .filter(item -> item.errors() > 0)
                 .sorted(Comparator.comparingDouble(KpAgg::mastery)
                         .thenComparing(Comparator.comparingInt(KpAgg::errors).reversed())
                         .thenComparing(KpAgg::kpId))
@@ -220,7 +216,7 @@ public class PortraitService {
      * 时间窗：窗口外历史走快照（me() 快照优先已就位），实时路径只算窗口内。
      */
     private PortraitView transientPortrait(long userId) {
-        LocalDateTime now = LocalDateTime.now(ZONE);
+        LocalDateTime now = masteryAggregationService.now();
         LocalDateTime aggregateSince = now.minusDays(aggregateWindowDays);
 
         Map<String, Integer> errorDist = new HashMap<>();
@@ -242,32 +238,32 @@ public class PortraitService {
             }
         }
 
-        // per-kp 聚合（练习 + 无练习覆盖的 CONFIRMED 错题补事件），与到期复习共用同一口径
-        KpAggregatePass pass = aggregateUserKps(userId, now, aggregateSince);
-        Map<String, UserKpAgg> kpStats = pass.kpStats();
-        for (Map.Entry<String, Integer> entry : pass.uploadedErrorDist().entrySet()) {
+        // 唯一聚合入口：practice_record + CONFIRMED 上传错题、同日同题去重
+        MasteryAggregationService.StudentMastery student =
+                masteryAggregationService.studentMastery(userId, now, aggregateSince);
+        Map<String, MasteryAggregationService.KpMastery> kpStats = new LinkedHashMap<>();
+        for (MasteryAggregationService.KpMastery kp : student.kps()) {
+            kpStats.put(kp.kpId(), kp);
+        }
+        for (Map.Entry<String, Integer> entry : student.uploadedErrorDist().entrySet()) {
             errorDist.merge(entry.getKey(), entry.getValue(), Integer::sum);
         }
-        totalEvents += pass.uploadedEvents();
-        totalError += pass.uploadedErrors();
+        totalEvents += student.uploadedEvents();
+        totalError += student.uploadedErrors();
         if (kpStats.isEmpty()) {
             return null;
         }
 
         Map<String, KnowledgePoint> kpMap = knowledgePointService.findByIds(kpStats.keySet());
         Map<String, double[]> dimStats = new LinkedHashMap<>();
-        for (Map.Entry<String, UserKpAgg> entry : kpStats.entrySet()) {
-            KnowledgePoint kp = kpMap.get(entry.getKey());
+        for (MasteryAggregationService.KpMastery stat : kpStats.values()) {
+            KnowledgePoint kp = kpMap.get(stat.kpId());
             if (kp == null || isBlank(kp.getDimensionKey())) {
                 continue;
             }
-            UserKpAgg stat = entry.getValue();
-            double mastery = masteryCalculator.mastery(
-                    stat.getSuccessWeight() == null ? 0.0 : stat.getSuccessWeight(),
-                    stat.getSeveritySum() == null ? 0.0 : stat.getSeveritySum());
             double[] dim = dimStats.computeIfAbsent(kp.getDimensionKey(), key -> new double[2]);
-            dim[0] += stat.getEvents() * mastery; // 按样本量加权（docs/05 §2.4）
-            dim[1] += stat.getEvents();
+            dim[0] += stat.events() * stat.mastery(); // 按样本量加权（docs/05 §2.4）
+            dim[1] += stat.events();
         }
 
         List<String> dimensionKeys = configuredDimensionKeys();
@@ -280,21 +276,11 @@ public class PortraitService {
             scores.put(key, dim == null || dim[1] == 0 ? null : round3(dim[0] / dim[1]));
         }
 
-        List<PortraitView.WeakestKp> weakest = kpStats.entrySet().stream()
-                .filter(entry -> entry.getValue().getEvents() != null
-                        && entry.getValue().getEvents() >= minSamples
-                        && entry.getValue().getErrorCount() != null
-                        && entry.getValue().getErrorCount() > 0)
-                .map(entry -> {
-                    UserKpAgg stat = entry.getValue();
-                    return new PortraitView.WeakestKp(
-                            entry.getKey(),
-                            kpName(kpMap, entry.getKey()),
-                            round3(masteryCalculator.mastery(
-                                    stat.getSuccessWeight() == null ? 0.0 : stat.getSuccessWeight(),
-                                    stat.getSeveritySum() == null ? 0.0 : stat.getSeveritySum())),
-                            stat.getEvents());
-                })
+        List<PortraitView.WeakestKp> weakest = kpStats.values().stream()
+                .filter(stat -> stat.events() >= minSamples && stat.errorCount() > 0)
+                .map(stat -> new PortraitView.WeakestKp(
+                        stat.kpId(), kpName(kpMap, stat.kpId()), round3(stat.mastery()),
+                        stat.events()))
                 .sorted(Comparator.comparingDouble(PortraitView.WeakestKp::mastery)
                         .thenComparing(PortraitView.WeakestKp::kpId))
                 .limit(WEAK_LIMIT)
@@ -305,76 +291,24 @@ public class PortraitService {
     }
 
     /**
-     * 单学生 per-kp 聚合（含无练习覆盖的 CONFIRMED 错题补事件），供画像与到期复习共用：
-     * 学生在同一页面看到的画像掌握度与到期复习排序里的掌握度必须同源，不能两处口径。
-     * 掌握度由调用方用同一 halfLifeDays 构造的 {@link MasteryCalculator#mastery} 计算。
+     * 单学生 per-kp 聚合，供画像与到期复习共用：学生在同一页面看到的画像掌握度与
+     * 到期复习排序里的掌握度必须同源，不能两处口径。实际计算全部收敛在
+     * {@link MasteryAggregationService}。
      */
     public Map<String, UserKpAgg> userKpAggregates(long userId) {
-        LocalDateTime now = LocalDateTime.now(ZONE);
-        return aggregateUserKps(userId, now, now.minusDays(aggregateWindowDays)).kpStats();
-    }
-
-    /** 一次聚合 pass：per-kp 权重 + 错题补事件对总量/错因分布的增量，避免提取后重复查询。 */
-    private KpAggregatePass aggregateUserKps(long userId, LocalDateTime now,
-                                            LocalDateTime aggregateSince) {
-        Map<String, UserKpAgg> kpStats = new HashMap<>();
-        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(null, List.of(userId),
-                halfLifeDays, now, aggregateSince)) {
-            if (!isBlank(agg.getKpId())) {
-                kpStats.put(agg.getKpId(), agg);
-            }
+        Map<String, UserKpAgg> result = new LinkedHashMap<>();
+        for (MasteryAggregationService.KpMastery kp
+                : masteryAggregationService.studentMastery(userId).kps()) {
+            UserKpAgg agg = new UserKpAgg();
+            agg.setUserId(userId);
+            agg.setKpId(kp.kpId());
+            agg.setEvents(kp.events());
+            agg.setErrorCount(kp.errorCount());
+            agg.setSuccessWeight(kp.successWeight());
+            agg.setSeveritySum(kp.severitySum());
+            result.put(kp.kpId(), agg);
         }
-
-        // CONFIRMED 错题补事件：qId 已有练习记录的跳过（DISTINCT 投影，不拉明细）
-        List<StudentErrorRecord> uploadedErrorRecords = errorRecordMapper.selectList(
-                new LambdaQueryWrapper<StudentErrorRecord>()
-                        .eq(StudentErrorRecord::getUserId, userId)
-                        .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
-                        .ge(StudentErrorRecord::getCreatedAt, aggregateSince)
-                        .select(StudentErrorRecord::getQId, StudentErrorRecord::getKpId,
-                                StudentErrorRecord::getErrorType,
-                                StudentErrorRecord::getConfirmedAt,
-                                StudentErrorRecord::getCreatedAt));
-        Set<String> practicedQids = new HashSet<>(
-                practiceRecordMapper.selectDistinctQidsByUser(userId));
-        int uploadedEvents = 0;
-        int uploadedErrors = 0;
-        Map<String, Integer> uploadedErrorDist = new HashMap<>();
-        for (StudentErrorRecord error : uploadedErrorRecords) {
-            if (isBlank(error.getKpId())) {
-                continue;
-            }
-            if (!isBlank(error.getQId()) && practicedQids.contains(error.getQId())) {
-                continue; // 同一次错误已由练习记录计入，避免重复
-            }
-            LocalDateTime at = error.getConfirmedAt() != null
-                    ? error.getConfirmedAt() : error.getCreatedAt();
-            UserKpAgg stat = kpStats.computeIfAbsent(error.getKpId(), key -> {
-                UserKpAgg created = new UserKpAgg();
-                created.setUserId(userId);
-                created.setKpId(key);
-                created.setEvents(0);
-                created.setSuccessWeight(0.0);
-                created.setSeveritySum(0.0);
-                created.setErrorCount(0);
-                return created;
-            });
-            stat.setEvents((stat.getEvents() == null ? 0 : stat.getEvents()) + 1);
-            stat.setErrorCount((stat.getErrorCount() == null ? 0 : stat.getErrorCount()) + 1);
-            stat.setSeveritySum((stat.getSeveritySum() == null ? 0.0 : stat.getSeveritySum())
-                    + masteryCalculator.errorWeight(error.getErrorType(), at, now));
-            uploadedEvents++;
-            uploadedErrors++;
-            if (!isBlank(error.getErrorType())) {
-                uploadedErrorDist.merge(error.getErrorType(), 1, Integer::sum);
-            }
-        }
-        return new KpAggregatePass(kpStats, uploadedEvents, uploadedErrors, uploadedErrorDist);
-    }
-
-    /** per-kp 聚合 pass 结果：kpStats 供画像/到期复习，uploaded* 为错题补事件的增量。 */
-    private record KpAggregatePass(Map<String, UserKpAgg> kpStats, int uploadedEvents,
-                                   int uploadedErrors, Map<String, Integer> uploadedErrorDist) {
+        return result;
     }
 
     /**
@@ -513,7 +447,7 @@ public class PortraitService {
         return value instanceof Number number ? number.intValue() : null;
     }
 
-    /** 班级维度聚合结果。 */
-    private record KpAgg(String kpId, int events, int errors, double mastery) {
+    /** 班级维度聚合结果（仅统计单学生样本量达标的学生）。 */
+    private record KpAgg(String kpId, int errors, double mastery) {
     }
 }

@@ -83,9 +83,11 @@ class PortraitServiceTest {
     }
 
     private PortraitService newService(int minSamples) {
-        return new PortraitService(snapshotMapper, practiceRecordMapper, errorRecordMapper,
+        // 唯一聚合入口用真实实现 + mock mapper，保证测试走的就是生产聚合链路
+        return new PortraitService(snapshotMapper, practiceRecordMapper,
+                new MasteryAggregationService(practiceRecordMapper, errorRecordMapper, 30, 180),
                 knowledgePointService, courseService, questionBankService,
-                new ObjectMapper(), 30, minSamples, 180);
+                new ObjectMapper(), minSamples, 180);
     }
 
     /**
@@ -139,6 +141,8 @@ class PortraitServiceTest {
         record.setStatus("CONFIRMED");
         record.setErrorType(errorType);
         record.setConfirmedAt(at);
+        // 生产数据 created_at 必非空；同为空时聚合会跳过该条（无法做自然日去重）
+        record.setCreatedAt(at != null ? at : LocalDateTime.now(ZONE));
         return record;
     }
 
@@ -344,13 +348,61 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             ClassPortraitView view = service.classPortrait(1L);
-            // 学生 10：Beta(2+9, 2+1)≈0.786；学生 11：Beta(2, 2+1)≈0.4；宏平均≈0.593
-            assertEquals(0.593, view.weakestKpTop().get(0).avgMastery());
-            assertEquals(2, view.weakestKpTop().get(0).errorCount());
+            // 分母是单学生样本量：学生 10（10 次）计入，Beta(2+9, 2+1)≈0.786；
+            // 学生 11（1 次 < 3）不计入宏平均与错题数
+            assertEquals(0.786, view.weakestKpTop().get(0).avgMastery());
+            assertEquals(1, view.weakestKpTop().get(0).errorCount());
             assertEquals(2, view.studentCount());
             assertEquals(1.0, view.activeRate());
             // errorDist 走 SQL 聚合：只统计标注知识点且作答错误的记录
             assertEquals(2, view.errorDist().get("CONCEPT_CONFUSION").intValue());
+        }
+    }
+
+    /**
+     * 边界（docs/05 §2.4）：班级薄弱点分母是单学生 N_k >= min-samples，不是全班总事件数。
+     * 3 个学生各答 1 次（全班共 3 次）不满足任一学生 N_k>=3 → 不应进入薄弱点。
+     * 旧实现按全班总事件 3 次放行，会把“没练过”的抽样噪声当成班级漏洞。
+     */
+    @Test
+    void classWeakPointRequiresPerStudentSampleNotClassTotal() {
+        Course course = new Course();
+        course.setCourseId(1L);
+        course.setTeacherId(2L);
+        when(courseService.getActiveById(1L)).thenReturn(course);
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(List.of("Q_0201"));
+
+        List<UserPracticeAgg> totals = new java.util.ArrayList<>();
+        List<UserKpAgg> kpAggs = new java.util.ArrayList<>();
+        for (long userId : List.of(10L, 11L, 12L)) {
+            UserPracticeAgg total = new UserPracticeAgg();
+            total.setUserId(userId);
+            total.setPracticeCount(1);
+            total.setLastActiveAt(LocalDateTime.now(ZONE));
+            totals.add(total);
+
+            UserKpAgg agg = new UserKpAgg();
+            agg.setUserId(userId);
+            agg.setKpId("KP0201");
+            agg.setEvents(1);
+            agg.setErrorCount(1);
+            agg.setSuccessWeight(0.0);
+            agg.setSeveritySum(1.0);
+            kpAggs.add(agg);
+        }
+        when(practiceRecordMapper.aggregateByUser(anyList(), any(), any())).thenReturn(totals);
+        when(practiceRecordMapper.aggregateByUserKp(anyList(), any(), anyDouble(), any(), any()))
+                .thenReturn(kpAggs);
+        when(practiceRecordMapper.aggregateErrorType(anyList(), any(), any()))
+                .thenReturn(List.of(errorAgg("CONCEPT_CONFUSION", 3)));
+        when(knowledgePointService.findByIds(any()))
+                .thenReturn(Map.of("KP0201", kp("KP0201", "关系模型", "concept")));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            ClassPortraitView view = service.classPortrait(1L);
+            assertEquals(3, view.studentCount());
+            assertEquals(0, view.weakestKpTop().size());
         }
     }
 
