@@ -14,6 +14,7 @@ param(
     [string]$User = 'root',
     [string]$Password = $env:DB_PASSWORD,
     [string]$Database = 'zhixue',
+    [string]$ContentRoot = (Join-Path $PSScriptRoot '..\..\spark-output\content'),
     [string]$OutFile = ''
 )
 
@@ -113,6 +114,21 @@ ORDER BY c.chapter_no;
         }
     }
 
+    $csvQuestionCount = $null
+    $csvFiles = @(Get-ChildItem -Path $ContentRoot -Directory -Filter 'ch*' -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ChildItem $_.FullName -Filter '*questions.csv' -File -ErrorAction SilentlyContinue })
+    if ($csvFiles.Count -gt 0) {
+        $csvQuestionCount = 0
+        foreach ($file in $csvFiles) {
+            $csvQuestionCount += @(Import-Csv $file.FullName).Count
+        }
+    }
+    if ($contentNote -like '内容层与当前库一致*' -and $csvQuestionCount -eq $summary['questions']) {
+        $contentNote = "主库 $Database 的 COUNT 与 CSV、合并种子三方一致：$($summary['kps']) 点 / $($summary['questions']) 题 / $($summary['edges']) 边。"
+    } elseif ($null -ne $csvQuestionCount) {
+        $contentNote = "$contentNote CSV=$csvQuestionCount，主库=$($summary['questions'])；三方不一致时以重建后的库为准。"
+    }
+
     $totalKp = ($chapters | Measure-Object Kps -Sum).Sum
     $totalQ = ($chapters | Measure-Object Questions -Sum).Sum
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
@@ -165,6 +181,9 @@ ORDER BY c.chapter_no;
         Write-Host ("内容层：{0} 点 / {1} 题 / {2} 边；{3}" -f $contentKp, $contentQ, $contentEdges, $contentNote)
     } else {
         Write-Host $contentNote
+    }
+    if ($null -ne $csvQuestionCount) {
+        Write-Host "CSV：$csvQuestionCount 题"
     }
 }
 finally {
