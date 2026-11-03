@@ -82,6 +82,11 @@ function reply(method, pathname, role) {
   if (pathname === '/api/auth/me') return { code: 0, data: { userId: role === 'TEACHER' ? 1 : 2, username: 'u', realName: role === 'TEACHER' ? '王老师' : '朱同学', role }, timestamp: Date.now() }
   if (pathname === '/api/courses') return { code: 0, data: courses, timestamp: Date.now() }
   if (/^\/api\/courses\/\d+\/knowledge-graph$/.test(pathname)) return { code: 0, data: { nodes, edges }, timestamp: Date.now() }
+  // 章节主键与教材章号故意逆序错位（3→第1章、2→第2章），用于回归“显示章号==教材章号”且选项按教材章号排序
+  if (/^\/api\/courses\/\d+\/chapters$/.test(pathname)) return { code: 0, data: [
+    { chapterId: 3, chapterNo: 1, title: '绪论' },
+    { chapterId: 2, chapterNo: 2, title: '关系模型' }
+  ], timestamp: Date.now() }
   if (pathname.startsWith('/api/course/kp/')) return { code: 0, data: kpDetail, timestamp: Date.now() }
   if (pathname === '/api/portraits/me') return { code: 0, data: portrait, timestamp: Date.now() }
   if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [
@@ -557,6 +562,21 @@ try {
     return await page.locator('.practice-drawer.open').isVisible()
   })
   await page.keyboard.press('Escape'); await sleep(400)
+
+  // 回归：章节下拉与筛选说明必须显示教材章号（mock 中 chapterId 2→第1章、3→第2章）
+  await open(page, '/knowledge-graph')
+  const chapterSelect = page.locator('.el-select').filter({ has: page.locator('input[aria-label="按章节筛选知识点"]') })
+  await chapterSelect.click(); await sleep(300)
+  const chapterOptionTexts = await page.locator('.el-select-dropdown__item:visible').allTextContents()
+  check('图谱：章节选项章号等于教材章号（两章）',
+    chapterOptionTexts.length >= 2
+      && chapterOptionTexts[0].startsWith('第 1 章 · 绪论')
+      && chapterOptionTexts[1].startsWith('第 2 章 · 关系模型'),
+    JSON.stringify(chapterOptionTexts))
+  await page.locator('.el-select-dropdown__item:visible').first().click(); await sleep(400)
+  check('图谱：筛选说明使用教材章号',
+    (await page.locator('.graph-note').innerText()).includes('已筛选第 1 章'),
+    (await page.locator('.graph-note').innerText()).slice(0, 120))
 
   await open(page, '/profile')
   await checkNext('个人中心：快捷入口', async () => (await page.locator('.quick-links .el-button').count()) >= 3)

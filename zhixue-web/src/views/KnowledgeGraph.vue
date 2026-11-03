@@ -17,7 +17,7 @@
           <el-option
             v-for="chapter in chapterOptions"
             :key="chapter"
-            :label="`第 ${chapter} 章`"
+            :label="chapterLabel(chapter)"
             :value="chapter"
           />
         </el-select>
@@ -133,7 +133,7 @@
           <el-empty description="本章暂无知识点" :image-size="64" />
         </div>
         <div class="graph-note">
-          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选第 {{ chapterFilter }} 章）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
+          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选{{ chapterNoLabel(chapterFilter) }}）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
           <a class="mobile-list-jump" href="#kp-list">节点太小？按清单浏览</a>
         </div>
       </el-card>
@@ -196,7 +196,9 @@ import { DEFAULT_COURSE_ID, getRecommendations } from "../api/diagnosis";
 import {
   getKnowledgeGraph,
   getKnowledgePoint,
+  listChapters,
   listCourses,
+  type Chapter,
   type GraphEdge,
   type GraphNode,
   type KnowledgePointDetail
@@ -227,6 +229,17 @@ const ty = ref(0);
 const activeId = ref("");
 const dragging = ref(false);
 
+const chapters = ref<Chapter[]>([]);
+
+/** chapterId 是 course_chapter 主键，展示章号必须用教材章号 chapterNo（契约 chapters 接口）。 */
+const chapterMeta = computed(() => {
+  const map = new Map<number, Chapter>();
+  for (const chapter of chapters.value) {
+    if (typeof chapter.chapterId === "number") map.set(chapter.chapterId, chapter);
+  }
+  return map;
+});
+
 const chapterOptions = computed(() =>
   Array.from(
     new Set(
@@ -234,8 +247,23 @@ const chapterOptions = computed(() =>
         .map((node) => node.chapterId)
         .filter((id): id is number => typeof id === "number")
     )
-  ).sort((a, b) => a - b)
+  ).sort((a, b) => {
+    const noA = chapterMeta.value.get(a)?.chapterNo;
+    const noB = chapterMeta.value.get(b)?.chapterNo;
+    return (noA ?? a) - (noB ?? b);
+  })
 );
+
+const chapterLabel = (chapterId: number) => {
+  const meta = chapterMeta.value.get(chapterId);
+  if (meta?.chapterNo == null) return `第 ${chapterId} 章`;
+  return meta.title ? `第 ${meta.chapterNo} 章 · ${meta.title}` : `第 ${meta.chapterNo} 章`;
+};
+
+const chapterNoLabel = (chapterId: number) => {
+  const meta = chapterMeta.value.get(chapterId);
+  return meta?.chapterNo != null ? `第 ${meta.chapterNo} 章` : `第 ${chapterId} 章`;
+};
 
 const visibleNodes = computed(() =>
   chapterFilter.value == null
@@ -481,7 +509,11 @@ const load = async () => {
       getPortrait().catch(() => null)
     ]);
     const courseId = courses[0]?.courseId ?? 1;
-    const data = await getKnowledgeGraph(courseId);
+    const [data, chapterList] = await Promise.all([
+      getKnowledgeGraph(courseId),
+      listChapters(courseId).catch(() => [] as Chapter[])
+    ]);
+    chapters.value = chapterList;
     nodes.value = data.nodes ?? [];
     edges.value = data.edges ?? [];
     weakIds.value = new Set(

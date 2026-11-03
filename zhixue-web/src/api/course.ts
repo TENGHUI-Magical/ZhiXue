@@ -31,6 +31,12 @@ export interface KnowledgeGraph {
   edges?: GraphEdge[];
 }
 
+export interface Chapter {
+  chapterId?: number;
+  chapterNo?: number;
+  title?: string;
+}
+
 export interface KnowledgePointDetail {
   kpId?: string;
   courseId?: number;
@@ -58,6 +64,9 @@ export const listCourses = () => api.get<Course[]>("/api/courses");
 
 export const getKnowledgeGraph = (courseId: number) =>
   api.get<KnowledgeGraph>(`/api/courses/${courseId}/knowledge-graph`);
+
+export const listChapters = (courseId: number) =>
+  api.get<Chapter[]>(`/api/courses/${courseId}/chapters`);
 
 export const getKnowledgePoint = (kpId: string) =>
   api.get<KnowledgePointDetail>(`/api/course/kp/${encodeURIComponent(kpId)}`);
