@@ -91,7 +91,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-report
-          path: zhixue-web/e2e-artifacts/e2e-report.json
+          path: zhixue-web/e2e-artifacts/
           if-no-files-found: warn
 
   ai:
