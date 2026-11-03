@@ -84,7 +84,13 @@ function reply(method, pathname, role) {
   if (/^\/api\/courses\/\d+\/knowledge-graph$/.test(pathname)) return { code: 0, data: { nodes, edges }, timestamp: Date.now() }
   if (pathname.startsWith('/api/course/kp/')) return { code: 0, data: kpDetail, timestamp: Date.now() }
   if (pathname === '/api/portraits/me') return { code: 0, data: portrait, timestamp: Date.now() }
-  if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [{ kpId: 'KP0012', name: '连接查询', avgMastery: 0.32, errorCount: 4 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, activeRate: 0.5 }, timestamp: Date.now() }
+  if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [
+    { kpId: 'KP0012', name: '连接查询', avgMastery: 0.32, errorCount: 4 },
+    { kpId: 'KP0006', name: '函数依赖', avgMastery: 0.41, errorCount: 3 },
+    { kpId: 'KP0003', name: '关系完整性', avgMastery: 0.46, errorCount: 2 },
+    { kpId: 'KP0201', name: '关系模型', avgMastery: 0.52, errorCount: 2 },
+    { kpId: 'KP0303', name: '事务并发', avgMastery: 0.58, errorCount: 1 }
+  ], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3, STEP_OMISSION: 2, CALCULATION_ERROR: 1, BOUNDARY_ERROR: 1 }, activeRate: 0.5 }, timestamp: Date.now() }
   if (pathname === '/api/error/records') return { code: 0, data: errorPage, timestamp: Date.now() }
   if (/^\/api\/error\/records\/[^/]+$/.test(pathname)) {
     const logId = decodeURIComponent(pathname.split('/').pop())
@@ -597,6 +603,30 @@ try {
   const tpage = await teacherCtx.newPage()
   await open(tpage, '/teacher')
   await checkNext('教学概览：四张指标卡', async () => (await tpage.locator('.stat-card').count()) >= 4)
+  await tpage.locator('.error-row').nth(4).waitFor({ timeout: 10000 })
+  const teacherOverviewLayout = await tpage.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.error-row'))
+    const last = rows.at(-1)?.getBoundingClientRect()
+    return {
+      statCards: document.querySelectorAll('.stat-card').length,
+      errorRows: rows.length,
+      allErrorRowsVisible: rows.every((row) => {
+        const style = getComputedStyle(row)
+        return style.display !== 'none' && style.visibility !== 'hidden' && row.getBoundingClientRect().height > 0
+      }),
+      lastErrorBottom: last ? Math.ceil(last.bottom) : null,
+      viewportHeight: window.innerHeight
+    }
+  })
+  check(
+    '教学概览：900px 保留四卡与全部错因',
+    teacherOverviewLayout.statCards === 4
+      && teacherOverviewLayout.errorRows === 5
+      && teacherOverviewLayout.allErrorRowsVisible
+      && teacherOverviewLayout.lastErrorBottom !== null
+      && teacherOverviewLayout.lastErrorBottom <= 900,
+    JSON.stringify(teacherOverviewLayout)
+  )
   await open(tpage, '/teacher/reviews')
   await checkNext('评阅：队列已渲染', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await tpage.getByRole('button', { name: '评阅' }).nth(1).click()

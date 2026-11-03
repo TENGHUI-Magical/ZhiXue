@@ -430,6 +430,40 @@ onMounted(load);
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
+/* 矮桌面视口只压缩留白，指标说明与全部错因保持可见。 */
+@media (min-width: 1025px) and (max-height: 900px) {
+  .page-head {
+    margin-bottom: 8px;
+  }
+  .overview-brief {
+    margin-bottom: 8px;
+  }
+  .overview-brief :deep(.el-card__body) {
+    padding: 16px 20px;
+  }
+  .brief-title {
+    margin: 4px 0;
+  }
+  .stat-row {
+    margin-top: 12px;
+    padding-top: 8px;
+  }
+  .section-card {
+    margin-bottom: 8px;
+  }
+  .section-card :deep(.el-card__header) {
+    padding: 12px 16px;
+  }
+  .section-card :deep(.el-card__body) {
+    padding: 16px;
+  }
+  .kp-list {
+    gap: 8px;
+  }
+  .error-bars {
+    gap: 6px;
+  }
+}
 @media (max-width: 1024px) {
   .stat-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
