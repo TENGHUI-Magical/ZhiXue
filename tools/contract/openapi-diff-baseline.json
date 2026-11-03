@@ -1,36 +1,10 @@
 {
   "_comment": "Baseline for official openapi-diff. Known incompatibilities that are NOT treated as regressions. New diffs NOT listed here should be treated as potential regressions.",
   "baselineOf": "docs/openapi.yaml",
-  "capturedAt": "2026-10-28",
-  "baselineVersion": "2.1.0",
-  "captureCommit": "dfa0d5b",
-  "missingEndpoints": [
-    {
-      "method": "post",
-      "path": "/api/teacher/knowledge-points",
-      "reason": "功能缺口；P5 新建知识点"
-    },
-    {
-      "method": "put",
-      "path": "/api/teacher/knowledge-points/{kpId}",
-      "reason": "功能缺口；P5 更新知识点"
-    },
-    {
-      "method": "get",
-      "path": "/api/teacher/questions",
-      "reason": "功能缺口；P5 题库列表"
-    },
-    {
-      "method": "post",
-      "path": "/api/teacher/questions",
-      "reason": "功能缺口；P5 新建题目"
-    },
-    {
-      "method": "post",
-      "path": "/api/teacher/questions/import",
-      "reason": "功能缺口；P5 Excel 导入"
-    }
-  ],
+  "capturedAt": "2026-11-03",
+  "baselineVersion": "2.2.9",
+  "captureCommit": "f0a7fa5",
+  "missingEndpoints": [],
   "knownChanged": [
     {
       "category": "content-type",
