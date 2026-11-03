@@ -108,4 +108,35 @@ export const api = {
   }
 }
 
+/**
+ * CSV 文件下载（教师端导出）：后端业务错误仍 HTTP 200 + JSON envelope，
+ * 需按 content-type 分流——JSON 说明是业务错误（读 code 抛 ApiError），
+ * text/csv 才触发浏览器保存（后端已带 BOM，Excel 中文不乱码）。
+ */
+export async function downloadCsv(url: string, params: object, filename: string): Promise<void> {
+  const res = await request.get(url, { params, responseType: 'blob' })
+  const contentType = String(res.headers?.['content-type'] || '')
+  if (contentType.includes('application/json')) {
+    const text = await (res.data as Blob).text()
+    try {
+      const body = JSON.parse(text) as ApiResponse
+      if (body.code === 40100) {
+        redirectToLogin(body.message || '登录已过期，请重新登录')
+      } else {
+        ElMessage.error(body.message || '导出失败')
+      }
+      throw new ApiError(body.code, body.message || '导出失败')
+    } catch (e) {
+      if (e instanceof ApiError) throw e
+      throw new ApiError(-1, '导出失败')
+    }
+  }
+  const blob = new Blob([res.data as Blob])
+  const link = document.createElement('a')
+  link.href = URL.createObjectURL(blob)
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
 export default request

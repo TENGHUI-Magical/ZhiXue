@@ -1005,6 +1005,83 @@ class IntegrationFlowTest {
         return logPk;
     }
 
+    /**
+     * CSV 导出越权（P0 立项三条要求之一）：学生调两个导出端点必须 40300，
+     * 非课程教师调班级学情导出必须 40300，未登录 40100——证明导出不泄漏学生数据。
+     */
+    @Test
+    void csvExportRejectsStudentsAndOutsiderTeachers() throws Exception {
+        String studentToken = login();
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", studentToken)))
+                .isEqualTo(40300);
+        assertThat(code(getJson("/api/teacher/reviews/export", studentToken)))
+                .isEqualTo(40300);
+
+        String otherTeacher = login("it_teacher2");
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", otherTeacher)))
+                .isEqualTo(40300);
+
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", null))).isEqualTo(40100);
+        assertThat(code(getJson("/api/teacher/reviews/export", null))).isEqualTo(40100);
+    }
+
+    /**
+     * CSV 导出内容（P0 立项三条要求之二、之三）：BOM + 中文表头、完整筛选结果
+     * 而非当前分页（size=1 列表只回 1 条但导出 3 行）、姓名脱敏（不出原始名）、
+     * 评阅留痕带结论/评分/评语且与队列筛选同口径。
+     */
+    @Test
+    void csvExportsContainFullResultWithBomAndMasking() throws Exception {
+        seedC12Students();
+        String teacher = login("it_teacher");
+
+        // 班级学情：分页 size=1 只有 1 行，导出必须 3 行（u1/u2/u3）
+        HttpResponse<String> listResp = getJson(
+                "/api/teacher/students?courseId=1&page=1&size=1", teacher);
+        assertThat((Integer) JsonPath.read(body(listResp), "$.data.total")).isEqualTo(3);
+        assertThat((List<?>) JsonPath.read(body(listResp), "$.data.records")).hasSize(1);
+
+        HttpResponse<String> export = getJson("/api/teacher/students/export?courseId=1", teacher);
+        assertThat(export.statusCode()).isEqualTo(200);
+        assertThat(export.headers().firstValue("Content-Type").orElse(""))
+                .contains("text/csv");
+        assertThat(export.headers().firstValue("Content-Disposition").orElse(""))
+                .contains("attachment").contains("class-learning-1-");
+        String csv = body(export);
+        assertThat(csv.charAt(0)).isEqualTo('\uFEFF');
+        assertThat(csv).startsWith("\uFEFF学生ID,姓名（脱敏）,练习次数,正确率,");
+        assertThat(csv).contains("集**试").contains("张*").contains("欧*锋");
+        assertThat(csv).doesNotContain("集成测试").doesNotContain("欧阳锋");
+        long dataRows = csv.lines().count() - 1;
+        assertThat(dataRows).isEqualTo(3);
+
+        // 评阅留痕：一条已评阅记录 → 导出含脱敏姓名与结论/评分/评语
+        String studentToken = login();
+        String logId = createAndConfirm(studentToken, "csv-review");
+        String sse = body(explain(studentToken, logId));
+        assertThat(sse).contains("event:done");
+        String explainId = explainIdFromSse(sse);
+        awaitExplainLog(explainId, userIdOf("it_user"));
+        long logPk = logPkByExplainId(explainId);
+        assertThat(code(postJson("/api/teacher/reviews/" + logPk,
+                "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}", teacher))).isZero();
+
+        HttpResponse<String> reviewExport = getJson(
+                "/api/teacher/reviews/export?status=REVIEWED", teacher);
+        assertThat(reviewExport.statusCode()).isEqualTo(200);
+        assertThat(reviewExport.headers().firstValue("Content-Disposition").orElse(""))
+                .contains("review-log-");
+        String reviewCsv = body(reviewExport);
+        assertThat(reviewCsv.charAt(0)).isEqualTo('\uFEFF');
+        assertThat(reviewCsv).startsWith("\uFEFF留痕ID,讲解ID,学生（脱敏）,");
+        assertThat(reviewCsv).contains("集**试").doesNotContain("集成测试");
+        assertThat(reviewCsv).contains("概念混淆").contains(",通过,5,讲解清晰,");
+        // 待评阅口径：未评阅的记录不出现在 REVIEWED 导出里
+        HttpResponse<String> pendingExport = getJson(
+                "/api/teacher/reviews/export?status=PENDING", teacher);
+        assertThat(body(pendingExport)).doesNotContain("," + logPk + ",");
+    }
+
     // ==================== C12 教师下钻：聚合 / 脱敏 / 全局排序 / 权限 ====================
 
     @Test

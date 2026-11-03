@@ -12,6 +12,7 @@
           <el-option label="全部" value="ALL" />
         </el-select>
         <el-button :loading="loading" @click="load">刷新队列</el-button>
+        <el-button :loading="exporting" @click="onExport">导出留痕</el-button>
       </div>
     </div>
 
@@ -218,7 +219,7 @@ import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
 import { getExplain } from "../api/diagnosis";
-import { listReviews, submitReview, type ReviewItem } from "../api/review";
+import { exportReviewLog, listReviews, submitReview, type ReviewItem } from "../api/review";
 import { ApiError } from "../api/request";
 
 const records = ref<ReviewItem[]>([]);
@@ -228,6 +229,20 @@ const size = ref(10);
 const statusFilter = ref<"PENDING" | "REVIEWED" | "ALL">("PENDING");
 const loading = ref(false);
 const error = ref("");
+const exporting = ref(false);
+
+/** 导出评阅留痕 CSV（与当前状态筛选同口径，完整结果） */
+const onExport = async () => {
+  exporting.value = true;
+  try {
+    await exportReviewLog({ status: statusFilter.value });
+    ElMessage.success("已导出评阅留痕 CSV");
+  } catch {
+    // downloadCsv 已按业务 code 提示，这里只需止住未处理拒绝
+  } finally {
+    exporting.value = false;
+  }
+};
 const drawerVisible = ref(false);
 const selected = ref<ReviewItem | null>(null);
 const score = ref<number | null>(null);

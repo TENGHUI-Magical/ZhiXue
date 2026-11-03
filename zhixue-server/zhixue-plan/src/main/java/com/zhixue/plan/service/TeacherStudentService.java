@@ -17,6 +17,8 @@ import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import com.zhixue.diagnosis.service.MasteryCalculator;
+import com.zhixue.common.util.CsvWriter;
+import com.zhixue.common.util.NameMasker;
 import com.zhixue.plan.dto.TeacherStudentViews;
 import com.zhixue.plan.dto.UserPlanAgg;
 import com.zhixue.plan.mapper.StudyPlanMapper;
@@ -103,20 +105,64 @@ public class TeacherStudentService {
     public TeacherStudentViews.Page page(long courseId, int page, int size, String sort) {
         StpUtil.checkRole("TEACHER");
         validatePage(page, size);
+        String sortKey = normalizeSort(sort);
+        List<TeacherStudentViews.StudentItem> items = aggregateAll(courseId, sortKey);
+        long total = items.size();
+        int fromIndex = Math.min(items.size(), (page - 1) * size);
+        int toIndex = Math.min(items.size(), fromIndex + size);
+        return new TeacherStudentViews.Page(page, size, total,
+                new ArrayList<>(items.subList(fromIndex, toIndex)));
+    }
+
+    /**
+     * 班级学情 CSV 导出（学期材料）：与列表同一聚合与排序，导出完整筛选结果而非当前分页。
+     * 权限与列表一致：TEACHER + 课程归属；姓名脱敏同口径。
+     */
+    public byte[] exportCsv(long courseId, String sort) {
+        StpUtil.checkRole("TEACHER");
+        String sortKey = normalizeSort(sort);
+        List<TeacherStudentViews.StudentItem> items = aggregateAll(courseId, sortKey);
+        List<List<String>> rows = new ArrayList<>(items.size());
+        for (TeacherStudentViews.StudentItem item : items) {
+            rows.add(List.of(
+                    String.valueOf(item.userId()),
+                    item.displayName(),
+                    str(item.practiceCount()),
+                    item.correctRate() == null ? "" : String.valueOf(item.correctRate()),
+                    item.avgCostSeconds() == null ? "" : String.valueOf(item.avgCostSeconds()),
+                    item.avgMastery() == null ? "" : String.valueOf(item.avgMastery()),
+                    str(item.errorCount()),
+                    str(item.planDone()),
+                    str(item.planTotal()),
+                    item.lastActiveAt() == null ? "" : item.lastActiveAt()));
+        }
+        return CsvWriter.write(CLASS_CSV_HEADER, rows);
+    }
+
+    private static final List<String> CLASS_CSV_HEADER = List.of(
+            "学生ID", "姓名（脱敏）", "练习次数", "正确率", "平均耗时（秒）",
+            "平均掌握度", "错题数", "本周完成题数", "本周计划题数", "最近活跃时间");
+
+    private String normalizeSort(String sort) {
         String sortKey = sort == null || sort.isBlank() ? "lastActiveDesc" : sort.trim();
         if (!SORTS.contains(sortKey)) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "sort 仅允许 lastActiveDesc/masteryAsc/practiceDesc");
         }
+        return sortKey;
+    }
+
+    /** 全量聚合（列表分页与 CSV 导出共用，保证两边口径一致）。 */
+    private List<TeacherStudentViews.StudentItem> aggregateAll(long courseId, String sortKey) {
         ensureOwnership(courseId);
         List<String> qIds = questionBankService.listQidsByCourse(courseId);
         if (qIds.isEmpty()) {
-            return new TeacherStudentViews.Page(page, size, 0, List.of());
+            return List.of();
         }
         List<UserPracticeAgg> aggregates = practiceRecordMapper.aggregateByUser(qIds, null,
                 aggregateSince());
         if (aggregates.isEmpty()) {
-            return new TeacherStudentViews.Page(page, size, 0, List.of());
+            return List.of();
         }
         Set<Long> userIds = aggregates.stream().map(UserPracticeAgg::getUserId)
                 .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -135,15 +181,14 @@ public class TeacherStudentService {
                 continue;
             }
             items.add(buildItem(userId, aggregate, kpByUser.getOrDefault(userId, List.of()),
-                    mask(names.get(userId)), planProgress.getOrDefault(userId, new int[2])));
+                    NameMasker.mask(names.get(userId)), planProgress.getOrDefault(userId, new int[2])));
         }
         items.sort(comparator(sortKey));
+        return items;
+    }
 
-        long total = items.size();
-        int fromIndex = Math.min(items.size(), (page - 1) * size);
-        int toIndex = Math.min(items.size(), fromIndex + size);
-        return new TeacherStudentViews.Page(page, size, total,
-                new ArrayList<>(items.subList(fromIndex, toIndex)));
+    private static String str(int value) {
+        return String.valueOf(value);
     }
 
     /** 单个学生学习记录详情。 */
@@ -346,19 +391,9 @@ public class TeacherStudentService {
         };
     }
 
-    /** 姓名脱敏：保留首字与末字，中间打码（“欧阳锋”→“欧*锋”），降低可识别度；2 字保留首字。 */
+    /** 姓名脱敏：单一事实源在 {@link NameMasker}（教师端列表与导出共用），此处保留委托供既有调用。 */
     static String mask(String name) {
-        if (name == null || name.isBlank()) {
-            return "学生";
-        }
-        String value = name.trim();
-        if (value.length() == 1) {
-            return value;
-        }
-        if (value.length() == 2) {
-            return value.charAt(0) + "*";
-        }
-        return value.charAt(0) + "*".repeat(value.length() - 2) + value.charAt(value.length() - 1);
+        return NameMasker.mask(name);
     }
 
     private double round3(double value) {

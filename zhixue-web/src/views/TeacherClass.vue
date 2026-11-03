@@ -12,6 +12,7 @@
           <el-option label="练习量" value="practiceDesc" />
         </el-select>
         <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button :loading="exporting" @click="onExport">导出 CSV</el-button>
       </div>
     </div>
 
@@ -192,11 +193,13 @@ import { computed, onMounted, ref } from "vue";
 import PageState from "../components/PageState.vue";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
 import {
+  exportClassLearning,
   getStudentLearningRecords,
   listCourseStudents,
   type StudentLearningRecord,
   type TeacherStudentItem
 } from "../api/teacherStudent";
+import { ElMessage } from "element-plus";
 
 const records = ref<TeacherStudentItem[]>([]);
 const total = ref(0);
@@ -205,6 +208,20 @@ const size = ref(10);
 const sort = ref("lastActiveDesc");
 const loading = ref(false);
 const error = ref("");
+const exporting = ref(false);
+
+/** 导出班级学情 CSV（完整结果，非当前分页）；下载由 downloadCsv 触发浏览器保存 */
+const onExport = async () => {
+  exporting.value = true;
+  try {
+    await exportClassLearning(DEFAULT_COURSE_ID, sort.value);
+    ElMessage.success("已导出班级学情 CSV");
+  } catch {
+    // downloadCsv 已按业务 code 提示，这里只需止住未处理拒绝
+  } finally {
+    exporting.value = false;
+  }
+};
 
 const drawerVisible = ref(false);
 const detailLoading = ref(false);

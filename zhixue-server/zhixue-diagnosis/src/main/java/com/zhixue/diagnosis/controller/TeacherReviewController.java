@@ -8,6 +8,10 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,7 +20,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 
 /**
  * 教师评阅接口（契约 V2 teacher 组）。
@@ -44,6 +50,29 @@ public class TeacherReviewController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ApiResponse.ok(teacherReviewService.page(page, size, status, kpId, from, to));
+    }
+
+    /**
+     * 评阅留痕 CSV 导出（学期材料）：筛选条件与队列完全一致，导出完整筛选结果而非当前分页；
+     * 权限与队列一致（TEACHER，service 内校验）；学生姓名脱敏、UTF-8 + BOM、中文表头。
+     */
+    @GetMapping(value = "/export", produces = "text/csv;charset=UTF-8")
+    public ResponseEntity<byte[]> export(
+            @Parameter(schema = @Schema(allowableValues = {"PENDING", "REVIEWED", "ALL"}))
+            @RequestParam(defaultValue = "PENDING") String status,
+            @RequestParam(required = false) String kpId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        byte[] csv = teacherReviewService.exportCsv(status, kpId, from, to);
+        String filename = "review-log-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+                + ".csv";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType("text", "csv", StandardCharsets.UTF_8));
+        headers.setContentDisposition(ContentDisposition.attachment().filename(filename,
+                StandardCharsets.UTF_8).build());
+        return ResponseEntity.ok().headers(headers).body(csv);
     }
 
     @PostMapping("/{logPk}")

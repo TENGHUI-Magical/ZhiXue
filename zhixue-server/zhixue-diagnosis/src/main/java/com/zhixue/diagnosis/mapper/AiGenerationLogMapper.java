@@ -81,6 +81,36 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                                           @Param("offset") int offset);
 
     /**
+     * 教师评阅留痕全量导出（CSV）：筛选条件与 {@link #selectForReview} 完全一致，仅去掉分页。
+     * 导出量有界（scene=RAG 的讲解留痕，单课程试点规模 ≤ 千行级）；避免无界查询的红线
+     * 由调用方（TeacherReviewService.exportCsv）确认场景后使用。
+     */
+    @Select("""
+            <script>
+            SELECT l.*
+            FROM ai_generation_log l
+            WHERE l.scene = 'RAG'
+              <if test="reviewed != null">
+                <choose>
+                  <when test="reviewed">AND l.reviewed_at IS NOT NULL</when>
+                  <otherwise>AND l.reviewed_at IS NULL</otherwise>
+                </choose>
+              </if>
+              <if test="from != null">AND l.created_at &gt;= #{from}</if>
+              <if test="to != null">AND l.created_at &lt;= #{to}</if>
+              <if test="kpId != null and kpId != ''">
+                AND EXISTS (SELECT 1 FROM student_error_record e
+                            WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
+              </if>
+            ORDER BY l.created_at DESC, l.log_pk DESC
+            </script>
+            """)
+    List<AiGenerationLog> selectForReviewAll(@Param("reviewed") Boolean reviewed,
+                                             @Param("kpId") String kpId,
+                                             @Param("from") LocalDateTime from,
+                                             @Param("to") LocalDateTime to);
+
+    /**
      * 学生端评阅回流（05 §4.6）：按学生 + 错题编号集合取已评阅讲解。
      * 一条错题可能多次生成讲解（缓存回放/重新生成各落一行），调用方按 logId 分组
      * 取 reviewed_at 最大的一条作为该错题的复核结论。

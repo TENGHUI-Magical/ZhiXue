@@ -1,5 +1,5 @@
 // 教师评阅（契约 teacher 组）：页面只经本文件调用。
-import { api } from "./request";
+import { api, downloadCsv } from "./request";
 
 export interface ReviewSource {
   kpId?: string;
@@ -58,3 +58,14 @@ export const submitReview = (
   logPk: number,
   payload: { score: number; comment: string; result?: "PASS" | "RETURN" }
 ) => api.post<null>(`/api/teacher/reviews/${logPk}`, payload);
+
+/** 评阅留痕 CSV 导出（V2.2.8）：与队列同筛选，导出完整结果 */
+export const exportReviewLog = (params: {
+  status?: "PENDING" | "REVIEWED" | "ALL";
+  kpId?: string;
+  from?: string;
+  to?: string;
+}) => {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return downloadCsv("/api/teacher/reviews/export", params, `review-log-${date}.csv`);
+};

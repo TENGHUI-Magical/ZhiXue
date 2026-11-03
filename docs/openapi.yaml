@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.2.7
+  version: 2.2.8
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -544,6 +544,29 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReviewQueueResponse' }
+  /api/teacher/reviews/export:
+    get:
+      tags: [teacher]
+      summary: 评阅留痕 CSV 导出（教师，学期材料；完整筛选结果非当前分页；姓名脱敏；UTF-8+BOM 中文表头）
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, REVIEWED, ALL], default: PENDING }
+        - name: kpId
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: CSV 文件（Content-Disposition 附件下载；业务错误仍 HTTP 200 + code≠0）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
   /api/teacher/reviews/{logPk}:
     post:
       tags: [teacher]
@@ -598,6 +621,24 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TeacherStudentPageResponse' }
+  /api/teacher/students/export:
+    get:
+      tags: [teacher]
+      summary: 班级学情 CSV 导出（教师，学期材料；完整结果非当前分页；姓名脱敏；UTF-8+BOM 中文表头）
+      parameters:
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [lastActiveDesc, masteryAsc, practiceDesc], default: lastActiveDesc }
+      responses:
+        '200':
+          description: CSV 文件（Content-Disposition 附件下载；业务错误仍 HTTP 200 + code≠0）
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
   /api/teacher/students/{userId}/learning-records:
     get:
       tags: [teacher]
@@ -1299,6 +1340,16 @@ components:
         waitingSeconds: { type: integer, description: 提交至今等待秒数 }
         reviewResult: { type: string, enum: [PASS, RETURN], nullable: true }
         reviewStatus: { type: string, enum: [PENDING, REVIEWED] }
+        # —— 评阅结论留痕（V2.2.8，评阅留痕导出共用）——
+        teacherScore: { type: integer, nullable: true, description: 教师评分 1—5；未评阅为 null }
+        teacherComment:
+          type: [string, "null"]
+          nullable: true
+          description: 教师评语；未评阅为 null
+        reviewedAt:
+          type: [string, "null"]
+          nullable: true
+          description: 评阅时间（yyyy-MM-dd HH:mm:ss）；未评阅为 null
     TeacherStudentPageResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
