@@ -41,11 +41,11 @@ import java.util.function.IntPredicate;
 @Service
 public class RecommendationService {
 
-    /** 05 §3.4 理由模板（≤15 字，禁止自由发挥，保证可解释可测试） */
-    private static final String REASON_CONSOLIDATE = "同知识点再练一道";
+    /** 05 §3.4 理由模板（学生语言，≤45 字，禁止内部术语；explain 由 PRP 生成） */
+    private static final String REASON_CONSOLIDATE = "同一块知识，再练一道";
     private static final String REASON_VARIANT = "换个问法巩固一下";
-    private static final String REASON_ADVANCE = "衔接下一知识点";
-    private static final String REASON_INSUFFICIENT = "题量不足，先练这些";
+    private static final String REASON_ADVANCE = "接着学下一块";
+    private static final String REASON_INSUFFICIENT = "这章题不多，先练这几道";
 
     /** 05 §3.2：难度基准取最近 N 条练习，无记录取 2 */
     private static final int RECENT_PRACTICE_LIMIT = 5;

@@ -119,77 +119,97 @@ class RepairPriorityServiceTest {
         RepairPriorityService.Priority priority = service.rank(2L, 1L, NOW)
                 .priorityByKp().get("KP0101");
 
-        assertThat(service.explain(priority, "同知识点再练一道"))
-                .isEqualTo("前置知识点未掌握 + 尚未答对");
-        assertThat(service.explain(null, "同知识点再练一道"))
-                .isEqualTo("同知识点再练一道");
+        assertThat(service.explain(priority, "同一块知识，再练一道"))
+                .isEqualTo("这道题要用到它，还没答对过");
+        assertThat(service.explain(null, "同一块知识，再练一道"))
+                .isEqualTo("同一块知识，再练一道");
     }
 
-    // ---------- firstReason："为什么排第一"（算法评审 2026-11-03 唯一采纳项，05 §3.7）----------
+    // ---------- firstReason："为什么排第一"（学生语言版，2026-11-03 复核重写）----------
     // 期望句全部手写写死：纯函数同一输入永远同一句话，文案漂移即测试红。
+    // 硬约束（与实现注释一致）：≤45 字、禁用词（先修/权重/优先级/因子/可修复/紧迫度/补漏/聚合/后验）。
 
-    /** 正常态：三因子齐备的完整叙事句（评审示例风格，人话、面向教师）。 */
+    /**
+     * 正常态：三因子齐备的学生叙事句。
+     * 正例（本断言）："先练关系模型：这道题要用到它，已 21 天没答对，把两个概念记混了，先练它见效最快"
+     * 反例（写成这样就说明又回术语了）："先补关系模型：它是当前错题知识点的直接先修……综合三因子补漏优先级最高"
+     */
     @Test
     void firstReasonNarratesThreeFactors() {
         RepairPriorityService.Priority priority = new RepairPriorityService.Priority(
                 "KP0101", 0.583, 1, false, 0.583, 1.0, "CONCEPT_CONFUSION", 21, 30);
 
-        assertThat(service.firstReason("关系模型", priority, "同知识点再练一道"))
-                .isEqualTo("先补关系模型：它是当前错题知识点的直接先修，已 21 天未答对，"
-                        + "概念混淆型错误，属可修复；综合先修、遗忘与错因三因子，它当前补漏优先级最高");
+        assertThat(service.firstReason("关系模型", priority, "同一块知识，再练一道"))
+                .isEqualTo("先练关系模型：这道题要用到它，已 21 天没答对，"
+                        + "把两个概念记混了，先练它见效最快");
     }
 
-    /** 边界①：无先修关系 → 按"最薄弱"叙事，不编造关联。 */
+    /**
+     * 边界①：无先修关系 → "最没把握的一块"，不编造关联。
+     * 正例："先练KP0301：它是你现在最没把握的一块，已 45 天没答对，先练它见效最快"
+     * 反例："它是当前课程中最薄弱的环节，综合先修权重与遗忘紧迫度最高"
+     */
     @Test
     void firstReasonWithoutPrereqRelationFallsToWeakestNarrative() {
         RepairPriorityService.Priority priority = new RepairPriorityService.Priority(
                 "KP0301", 0.2, -1, false, 0.5, 0.5, null, 45, 60);
 
         assertThat(service.firstReason(null, priority, null))
-                .isEqualTo("先补KP0301：它是当前课程中最薄弱的环节，已 45 天未答对；"
-                        + "综合先修、遗忘与错因三因子，它当前补漏优先级最高");
+                .isEqualTo("先练KP0301：它是你现在最没把握的一块，已 45 天没答对，"
+                        + "先练它见效最快");
     }
 
-    /** 边界②：证据不足（从未答对）→ 如实说，紧迫度按最高但不虚造天数。 */
+    /**
+     * 边界②：从未答对（证据不足）→ 如实说"还没答对过"，不虚造天数。
+     * 正例："先练关系模型：你刚错的就是这块，还没答对过，方法还没掌握，先练它见效最快"
+     * 反例："证据不足（daysSinceLastCorrect=null），紧迫度按最高 1.0 处理"
+     */
     @Test
     void firstReasonWithNoCorrectEvidenceSaysSo() {
         RepairPriorityService.Priority priority = new RepairPriorityService.Priority(
                 "KP0201", 0.6, 0, false, 1.0, 0.9, "METHOD_MISSING", null, 12);
 
         assertThat(service.firstReason("关系模型", priority, null))
-                .isEqualTo("先补关系模型：它正是当前出错的知识点，至今尚未答对过，"
-                        + "方法缺失型错误，属可修复；综合先修、遗忘与错因三因子，它当前补漏优先级最高");
+                .isEqualTo("先练关系模型：你刚错的就是这块，还没答对过，"
+                        + "方法还没掌握，先练它见效最快");
     }
 
-    /** 边界③：UNCLASSIFIED 错因 → "错因待归类"，不猜具体类型。 */
+    /**
+     * 边界③：错因待归类 → "错在哪再做一遍才知道"，不猜具体类型。
+     * 正例："先练关系模型：这道题要用到它，已 33 天没答对，错在哪再做一遍才知道，先练它见效最快"
+     * 反例："错因 UNCLASSIFIED，无法归类，建议人工复核"
+     */
     @Test
     void firstReasonWithUnclassifiedErrorSaysPendingClassification() {
         RepairPriorityService.Priority priority = new RepairPriorityService.Priority(
                 "KP0101", 0.4, 1, false, 0.6, 0.5, "UNCLASSIFIED", 33, 40);
 
         assertThat(service.firstReason("关系模型", priority, null))
-                .isEqualTo("先补关系模型：它是当前错题知识点的直接先修，已 33 天未答对，"
-                        + "错因待归类；综合先修、遗忘与错因三因子，它当前补漏优先级最高");
+                .isEqualTo("先练关系模型：这道题要用到它，已 33 天没答对，"
+                        + "错在哪再做一遍才知道，先练它见效最快");
     }
 
-    /** 边界④：冷却期内（3 天前刚练过，冷却 7 天）仍排第一 → 薄弱未消除、趁热补。 */
+    /**
+     * 边界④：冷却期内（3 天前刚练过，冷却 7 天）仍排第一 → "还是错"说明没学会，趁热再练。
+     * 正例："先练关系模型：你刚错的就是这块，3 天前刚练过还是错，趁热再练一遍最有效"
+     * 反例："该知识点处于冷却期内仍排名第一，薄弱程度未消除，建议立即复习"
+     */
     @Test
     void firstReasonInCooldownSaysWeaknessUnresolved() {
         RepairPriorityService.Priority priority = new RepairPriorityService.Priority(
                 "KP0201", 0.7, 0, false, 0.6, 1.0, "CONCEPT_CONFUSION", 25, 3);
 
         assertThat(service.firstReason("关系模型", priority, null))
-                .isEqualTo("先补关系模型：它正是当前出错的知识点，已 25 天未答对，"
-                        + "概念混淆型错误，属可修复；该点 3 天内刚练过仍排第一，薄弱未消除，趁热补最有效");
+                .isEqualTo("先练关系模型：你刚错的就是这块，3 天前刚练过还是错，趁热再练一遍最有效");
     }
 
     /** 兜底：无评分（知识点不在范围/题量不足）→ fallback，不编造叙事。 */
     @Test
     void firstReasonFallsBackWhenPriorityMissing() {
         assertThat(service.firstReason("关系模型", null, null))
-                .isEqualTo("按补漏优先级常规推荐");
-        assertThat(service.firstReason("关系模型", null, "题量不足，先练这些"))
-                .isEqualTo("题量不足，先练这些");
+                .isEqualTo("先练它，见效最快");
+        assertThat(service.firstReason("关系模型", null, "这章题不多，先练这几道"))
+                .isEqualTo("这章题不多，先练这几道");
     }
 
     /**

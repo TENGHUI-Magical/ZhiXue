@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.2.6
+  version: 2.2.7
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -1053,16 +1053,16 @@ components:
         layer: { type: string, enum: [CONSOLIDATE, VARIANT, ADVANCE] }
         reason:
           type: string
-          maxLength: 50
-          description: 补漏理由（05 §3.4），三段式：关系 + 距上次练习天数 + 最近错因
+          maxLength: 45
+          description: 推荐理由（05 §3.4，学生语言、禁内部术语），如"这道题要用到它，已 38 天没答对，把两个概念记混了"
         difficulty: { type: integer, minimum: 1, maximum: 3 }
         isAdopted: { type: boolean }
         questionText: { type: string }
         top1Reason:
           type: string
           nullable: true
-          maxLength: 100
-          description: "“为什么排第一”一句话（05 §3.7，三因子确定性生成）：仅补漏重排后的第一条非空，题量不足的兜底场景与其余条为 null"
+          maxLength: 45
+          description: 为什么先练它（05 §3.7，学生语言、三因子确定性生成、≤45 字），如"先练关系模型：这道题要用到它，已 21 天没答对，把两个概念记混了"；仅补漏重排第一条非空，题量不足的兜底场景与其余条为 null
     PortraitResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
@@ -1163,8 +1163,8 @@ components:
         sampleCount: { type: integer, description: 该知识点累计练习次数 }
         reason:
           type: string
-          maxLength: 50
-          description: 到期理由（05 §3.8 模板拼接），如“距上次答对 40 天，已过半衰期 + 概念混淆型错误”
+          maxLength: 45
+          description: 到期理由（05 §3.8，学生语言、模板拼接），如"距上次答对 40 天，早该复习了，把两个概念记混了"
     ReviewQueueResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'
