@@ -56,8 +56,9 @@ public final class CsvWriter {
      * 文本前缀记号，WPS/各 CSV 解析器行为一致且不会被 trim/分列吞掉；
      * TAB 前缀在部分解析器（如按制表符分列、去前导空白）下行为不确定。
      * 数值列误伤核查：现有调用方唯一可能带符号的数值列是平均耗时，
-     * 其来源 practice_record.cost_seconds 只有两个写入方——服务端计时
-     * （恒为非负，时钟回拨防御为 0）与 PLAN 打卡自报（@Min(0) 校验），
+     * 其来源 practice_record.cost_seconds 只有两类写入：服务端计时
+     * （恒为非负，时钟回拨防御为 0）与历史 PLAN 打卡自报（写入时有 @Min(0) 校验；
+     * V2.2.9 起新 PLAN 记录恒落 null），
      * 评分 1—5、计数、正确率/掌握度均非负，种子数据无负数，故 '-' 一刀切不误伤。</p>
      */
     static String escape(String value) {

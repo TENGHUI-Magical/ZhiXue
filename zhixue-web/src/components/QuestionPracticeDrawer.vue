@@ -332,7 +332,6 @@ const clearFields = () => {
 let loadSeq = 0;
 let submitToken = "";
 let submitTokenKey = "";
-let openedAt = 0;
 
 const onClosed = () => {
   // 提交后由学生主动关闭时再通知父页刷新，避免结果与讲解入口被提前卸载。
@@ -403,7 +402,6 @@ const load = async () => {
     return;
   }
   loading.value = true;
-  openedAt = Date.now();
   try {
     const data = await getQuestionDetail(currentQId.value);
     if (seq !== loadSeq) return; // 快速切题时丢弃旧响应
@@ -453,7 +451,6 @@ const submit = async (isCorrect?: boolean) => {
   try {
     // 计划模式：打卡走 checkin（answered=true）；客观题由服务端判分，主观题自评
     if (props.mode === "plan" && props.planId != null) {
-      const costSeconds = openedAt ? Math.max(0, Math.round((Date.now() - openedAt) / 1000)) : null;
       const result = await checkinPlan(props.planId, {
         qId: currentQId.value,
         clientToken: tokenForCurrentQuestion(),
@@ -461,7 +458,8 @@ const submit = async (isCorrect?: boolean) => {
         myAnswer: combinedAnswer.value,
         isCorrect,
         errorType,
-        costSeconds
+        // 计划打卡无服务端计时（契约不含 startToken），不信任前端自算耗时，置 null
+        costSeconds: null
       });
       submitToken = "";
       const actual = result.isCorrect ?? isCorrect ?? false;
