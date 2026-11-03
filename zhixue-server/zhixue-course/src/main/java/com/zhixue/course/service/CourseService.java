@@ -70,6 +70,17 @@ public class CourseService {
         return course;
     }
 
+    /**
+     * 教师的可管理课程 ID 集合（启用课程）。
+     * 教师端数据范围的单一事实源：评阅队列/留痕导出按此隔离（明确属于其他教师课程的记录不可见）。
+     */
+    public List<Long> listActiveCourseIdsByTeacher(long teacherId) {
+        return courseMapper.selectList(new LambdaQueryWrapper<Course>()
+                        .eq(Course::getIsActive, 1)
+                        .eq(Course::getTeacherId, teacherId))
+                .stream().map(Course::getCourseId).toList();
+    }
+
     /** 章节列表，按 chapterNo 升序。 */
     public List<ChapterView> listChapters(Long courseId) {
         getActiveById(courseId);

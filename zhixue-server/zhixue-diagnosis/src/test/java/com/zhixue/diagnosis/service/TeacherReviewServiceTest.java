@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewPageView;
@@ -36,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -55,6 +58,8 @@ class TeacherReviewServiceTest {
     private QuestionBankService questionBankService;
     @Mock
     private UserQueryService userQueryService;
+    @Mock
+    private CourseService courseService;
 
     private TeacherReviewService service;
 
@@ -67,7 +72,7 @@ class TeacherReviewServiceTest {
     @BeforeEach
     void setUp() {
         service = new TeacherReviewService(logMapper, errorRecordMapper, knowledgePointService,
-                questionBankService, userQueryService, new ObjectMapper());
+                questionBankService, userQueryService, new ObjectMapper(), courseService);
     }
 
     @Test
@@ -83,8 +88,9 @@ class TeacherReviewServiceTest {
         log.setSourceIds("[\"KP0201\"]");
         log.setContentText("讲解正文");
         log.setCreatedAt(LocalDateTime.of(2026, 10, 28, 20, 0, 0));
-        when(logMapper.countForReview(any(), any(), any(), any())).thenReturn(1L);
-        when(logMapper.selectForReview(any(), any(), any(), any(), anyInt(), anyInt()))
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(1L);
+        when(logMapper.selectForReview(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(List.of(log));
 
         StudentErrorRecord error = new StudentErrorRecord();
@@ -143,7 +149,8 @@ class TeacherReviewServiceTest {
         reviewed.setTeacherScore(5);
         reviewed.setTeacherComment("讲解清晰");
         reviewed.setReviewedAt(LocalDateTime.of(2026, 10, 29, 9, 0, 0));
-        when(logMapper.selectForReviewAll(any(), any(), any(), any()))
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.selectForReviewAll(any(), any(), any(), any(), any()))
                 .thenReturn(List.of(reviewed));
 
         StudentErrorRecord error = new StudentErrorRecord();
@@ -178,8 +185,27 @@ class TeacherReviewServiceTest {
         assertTrue(text.contains(",通过,5,讲解清晰,2026-10-29 09:00:00"));
         // 正文是系统内可查的字段，不进学期材料导出
         assertFalse(text.contains("正文不进导出"));
-        // 全量查询（无分页参数）
-        verify(logMapper).selectForReviewAll(any(), any(), any(), any());
+        // 全量查询（无分页参数），且带登录教师的课程范围
+        verify(logMapper).selectForReviewAll(any(), any(), any(), any(), eq(List.of(1L)));
+    }
+
+    /** 课程范围（队列与导出同口径）：无课程教师传哨兵 -1（看不到任何有归属的记录）；有课程教师传自己的课程集。 */
+    @Test
+    void reviewQueriesAreScopedToTeachersManagedCourses() {
+        when(courseService.listActiveCourseIdsByTeacher(2L)).thenReturn(List.of(1L, 3L));
+        when(courseService.listActiveCourseIdsByTeacher(9L)).thenReturn(List.of());
+        when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(0L);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            service.page(1, 10, "PENDING", null, null, null);
+            verify(logMapper).countForReview(any(), any(), any(), any(), eq(List.of(1L, 3L)));
+
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(9L);
+            service.page(1, 10, "PENDING", null, null, null);
+            // 无课程教师：哨兵 -1 → NOT IN (-1) 恒真 → 有归属的记录全排除，只剩归属不明
+            verify(logMapper).countForReview(any(), any(), any(), any(), eq(List.of(-1L)));
+        }
     }
 
     @Test

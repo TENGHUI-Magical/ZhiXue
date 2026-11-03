@@ -1026,6 +1026,81 @@ class IntegrationFlowTest {
     }
 
     /**
+     * 评阅留痕的课程范围隔离（2026-11-03 补数据范围级越权）：队列与导出同口径，
+     * 教师只能看到自己可管理课程的记录。用两条真实不同课程的种子记录判别
+     * （A 属 course 1 / it_teacher，B 属隔离课程 99 / it_teacher2），不 mock。
+     * 改前（无课程条件）教师 A 的导出两行都含；改后只含自己课程的。
+     */
+    @Test
+    void reviewExportAndQueueAreScopedToTeacherCourses() throws Exception {
+        long teacher2 = userIdOf("it_teacher2");
+        long student = userIdOf("it_user");
+        List<String> qIds = courseQids(1);
+
+        jdbcTemplate.update(
+                "INSERT INTO course (course_id, course_name, teacher_id, is_active) "
+                        + "VALUES (99, '隔离测试课程', ?, 1)", teacher2);
+        jdbcTemplate.update(
+                "INSERT INTO course_chapter (course_id, chapter_no, title) VALUES (99, 1, '隔离章节')");
+        Long chapter99 = jdbcTemplate.queryForObject(
+                "SELECT chapter_id FROM course_chapter WHERE course_id = 99", Long.class);
+        jdbcTemplate.update(
+                "INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, textbook_page, "
+                        + "dimension_key, sort_no, created_by, is_active) "
+                        + "VALUES ('KPSCOPE99', 99, ?, '隔离知识点', 'P1', 'concept', 1, 1, 1)", chapter99);
+        jdbcTemplate.update(
+                "INSERT INTO question_bank (q_id, course_id, primary_kp_id, question_type, "
+                        + "question_text, answer_text, difficulty, is_active) "
+                        + "VALUES ('Q_SCOPE_99', 99, 'KPSCOPE99', '单选', '隔离课程题目', 'A', 1, 1)");
+        try {
+            // 两条真实讲解留痕：A 属 course 1，B 属 course 99（同一学生，排除学生维度干扰）
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_SCOPE_A', ?, 'scope-a', ?, 'KP0201', 'CONFIRMED', "
+                            + "'CONCEPT_CONFUSION', '范围A')", student, qIds.get(0));
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_SCOPE_B', ?, 'scope-b', 'Q_SCOPE_99', 'KPSCOPE99', "
+                            + "'CONFIRMED', 'CONCEPT_CONFUSION', '范围B')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_SCOPE_A', 'EX_SCOPE_A', 'TR_SCOPE_A', ?, 'RAG', "
+                            + "'deepseek-chat', 'A课程的讲解')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_SCOPE_B', 'EX_SCOPE_B', 'TR_SCOPE_B', ?, 'RAG', "
+                            + "'deepseek-chat', 'B课程的讲解')", student);
+
+            // 教师 A（course 1）：队列与导出都含 A 不含 B
+            String teacherA = login("it_teacher");
+            String queueA = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacherA));
+            assertThat(queueA).contains("EX_SCOPE_A").doesNotContain("EX_SCOPE_B");
+            String exportA = body(getJson("/api/teacher/reviews/export?status=ALL", teacherA));
+            assertThat(exportA).contains("EX_SCOPE_A").doesNotContain("EX_SCOPE_B");
+
+            // 教师 B（course 99）：含 B 不含 A（双向证明，不是只把 B 藏起来）
+            String teacherB = login("it_teacher2");
+            String queueB = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacherB));
+            assertThat(queueB).contains("EX_SCOPE_B").doesNotContain("EX_SCOPE_A");
+            String exportB = body(getJson("/api/teacher/reviews/export?status=ALL", teacherB));
+            assertThat(exportB).contains("EX_SCOPE_B").doesNotContain("EX_SCOPE_A");
+        } finally {
+            jdbcTemplate.update(
+                    "DELETE FROM ai_generation_log WHERE log_id IN ('EL_SCOPE_A', 'EL_SCOPE_B')");
+            jdbcTemplate.update(
+                    "DELETE FROM student_error_record WHERE log_id IN ('EL_SCOPE_A', 'EL_SCOPE_B')");
+            jdbcTemplate.update("DELETE FROM question_bank WHERE q_id = 'Q_SCOPE_99'");
+            jdbcTemplate.update("DELETE FROM knowledge_point WHERE kp_id = 'KPSCOPE99'");
+            jdbcTemplate.update("DELETE FROM course_chapter WHERE course_id = 99");
+            jdbcTemplate.update("DELETE FROM course WHERE course_id = 99");
+        }
+    }
+
+    /**
      * CSV 导出内容（P0 立项三条要求之二、之三）：BOM + 中文表头、完整筛选结果
      * 而非当前分页（size=1 列表只回 1 条但导出 3 行）、姓名脱敏（不出原始名）、
      * 评阅留痕带结论/评分/评语且与队列筛选同口径。

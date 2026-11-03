@@ -20,10 +20,16 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * IN 集合随课程历史增长无上限，且会把排序/分页压力留在 JVM。
      * 所有条件参数绑定，分页 LIMIT/OFFSET 也由这里绑定，不拼接 SQL 字符串。</p>
      *
-     * @param reviewed null=全部；true=已评阅；false=待评阅
-     * @param kpId     知识点筛选；null/空 表示不限
-     * @param from     创建时间下界（含）
-     * @param to       创建时间上界（含）
+     * <p>课程范围隔离（2026-11-03）：courseIds = 登录教师可管理课程；明确能定位到
+     * 其他教师课程的记录不可见；关联不到错题/题库（归属不明）的记录保留——
+     * 行消失会被当成丢数据，证据列为空更诚实（docs/01 §7.2）。调用方保证
+     * courseIds 非 null 且非空（无课程教师传哨兵 -1，即看不到任何有归属的记录）。</p>
+     *
+     * @param reviewed   null=全部；true=已评阅；false=待评阅
+     * @param kpId       知识点筛选；null/空 表示不限
+     * @param from       创建时间下界（含）
+     * @param to         创建时间上界（含）
+     * @param courseIds  登录教师可管理课程 ID（有界：教师课程数）
      */
     @Select("""
             <script>
@@ -42,15 +48,24 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                 AND EXISTS (SELECT 1 FROM student_error_record e
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
+              <if test="courseIds != null">
+                AND NOT EXISTS (SELECT 1 FROM student_error_record e
+                                JOIN question_bank q ON q.q_id = e.q_id
+                                WHERE e.log_id = l.log_id
+                                  AND q.course_id NOT IN
+                                  <foreach collection="courseIds" item="cid"
+                                            open="(" separator="," close=")">#{cid}</foreach>)
+              </if>
             </script>
             """)
     long countForReview(@Param("reviewed") Boolean reviewed,
                         @Param("kpId") String kpId,
                         @Param("from") LocalDateTime from,
-                        @Param("to") LocalDateTime to);
+                        @Param("to") LocalDateTime to,
+                        @Param("courseIds") List<Long> courseIds);
 
     /**
-     * 教师评阅队列分页（C3）。筛选条件与 {@link #countForReview} 完全一致。
+     * 教师评阅队列分页（C3）。筛选条件（含课程范围）与 {@link #countForReview} 完全一致。
      */
     @Select("""
             <script>
@@ -69,6 +84,14 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                 AND EXISTS (SELECT 1 FROM student_error_record e
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
+              <if test="courseIds != null">
+                AND NOT EXISTS (SELECT 1 FROM student_error_record e
+                                JOIN question_bank q ON q.q_id = e.q_id
+                                WHERE e.log_id = l.log_id
+                                  AND q.course_id NOT IN
+                                  <foreach collection="courseIds" item="cid"
+                                            open="(" separator="," close=")">#{cid}</foreach>)
+              </if>
             ORDER BY l.created_at DESC, l.log_pk DESC
             LIMIT #{limit} OFFSET #{offset}
             </script>
@@ -77,11 +100,12 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                                           @Param("kpId") String kpId,
                                           @Param("from") LocalDateTime from,
                                           @Param("to") LocalDateTime to,
+                                          @Param("courseIds") List<Long> courseIds,
                                           @Param("limit") int limit,
                                           @Param("offset") int offset);
 
     /**
-     * 教师评阅留痕全量导出（CSV）：筛选条件与 {@link #selectForReview} 完全一致，仅去掉分页。
+     * 教师评阅留痕全量导出（CSV）：筛选条件（含课程范围）与 {@link #selectForReview} 完全一致，仅去掉分页。
      * 导出量有界（scene=RAG 的讲解留痕，单课程试点规模 ≤ 千行级）；避免无界查询的红线
      * 由调用方（TeacherReviewService.exportCsv）确认场景后使用。
      */
@@ -102,13 +126,22 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                 AND EXISTS (SELECT 1 FROM student_error_record e
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
+              <if test="courseIds != null">
+                AND NOT EXISTS (SELECT 1 FROM student_error_record e
+                                JOIN question_bank q ON q.q_id = e.q_id
+                                WHERE e.log_id = l.log_id
+                                  AND q.course_id NOT IN
+                                  <foreach collection="courseIds" item="cid"
+                                            open="(" separator="," close=")">#{cid}</foreach>)
+              </if>
             ORDER BY l.created_at DESC, l.log_pk DESC
             </script>
             """)
     List<AiGenerationLog> selectForReviewAll(@Param("reviewed") Boolean reviewed,
                                              @Param("kpId") String kpId,
                                              @Param("from") LocalDateTime from,
-                                             @Param("to") LocalDateTime to);
+                                             @Param("to") LocalDateTime to,
+                                             @Param("courseIds") List<Long> courseIds);
 
     /**
      * 学生端评阅回流（05 §4.6）：按学生 + 错题编号集合取已评阅讲解。

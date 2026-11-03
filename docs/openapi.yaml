@@ -547,7 +547,7 @@ paths:
   /api/teacher/reviews/export:
     get:
       tags: [teacher]
-      summary: 评阅留痕 CSV 导出（教师，学期材料；完整筛选结果非当前分页；姓名脱敏；UTF-8+BOM 中文表头）
+      summary: 评阅留痕 CSV 导出（教师，学期材料；完整筛选结果非当前分页；按登录教师可管理课程隔离；姓名脱敏；UTF-8+BOM 中文表头）
       parameters:
         - name: status
           in: query

@@ -8,6 +8,7 @@ import com.zhixue.common.util.CsvWriter;
 import com.zhixue.common.util.NameMasker;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewItemView;
@@ -55,23 +56,27 @@ public class TeacherReviewService {
     private final QuestionBankService questionBankService;
     private final UserQueryService userQueryService;
     private final ObjectMapper objectMapper;
+    private final CourseService courseService;
 
     public TeacherReviewService(AiGenerationLogMapper logMapper,
                                 StudentErrorRecordMapper errorRecordMapper,
                                 KnowledgePointService knowledgePointService,
                                 QuestionBankService questionBankService,
                                 UserQueryService userQueryService,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                CourseService courseService) {
         this.logMapper = logMapper;
         this.errorRecordMapper = errorRecordMapper;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
         this.userQueryService = userQueryService;
         this.objectMapper = objectMapper;
+        this.courseService = courseService;
     }
 
     /**
-     * 评阅队列，按 createdAt 倒序。
+     * 评阅队列，按 createdAt 倒序。课程范围 = 登录教师可管理课程（与导出同一口径）：
+     * 明确属于其他教师课程的记录不可见；归属不明的记录保留。
      *
      * @param status PENDING（默认）/ REVIEWED / ALL
      * @param kpId   按知识点筛选；为空不限
@@ -100,9 +105,10 @@ public class TeacherReviewService {
         LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
         LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
         String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
-        long total = logMapper.countForReview(reviewed, kp, fromTime, toTime);
+        List<Long> courseIds = scopedCourseIds();
+        long total = logMapper.countForReview(reviewed, kp, fromTime, toTime, courseIds);
         List<AiGenerationLog> rows = total == 0 ? List.of()
-                : logMapper.selectForReview(reviewed, kp, fromTime, toTime,
+                : logMapper.selectForReview(reviewed, kp, fromTime, toTime, courseIds,
                 size, (page - 1) * size);
         return new ReviewPageView(page, size, total, toViews(rows));
     }
@@ -110,6 +116,16 @@ public class TeacherReviewService {
     /** 兼容旧调用：默认待评阅、无筛选。 */
     public ReviewPageView page(int page, int size) {
         return page(page, size, "PENDING", null, null, null);
+    }
+
+    /**
+     * 登录教师可管理课程范围（评阅队列与留痕导出共用，勿另造口径）：
+     * 无课程教师传哨兵 -1——SQL 的 NOT IN (-1) 恒真，所有能定位课程的记录被排除，
+     * 只剩归属不明的记录（诚实留行原则，docs/01 §7.2）。
+     */
+    private List<Long> scopedCourseIds() {
+        List<Long> ids = courseService.listActiveCourseIdsByTeacher(StpUtil.getLoginIdAsLong());
+        return ids.isEmpty() ? List.of(-1L) : ids;
     }
 
     private static final List<String> REVIEW_CSV_HEADER = List.of(
@@ -122,8 +138,8 @@ public class TeacherReviewService {
             "BOUNDARY_ERROR", "边界条件", "UNCLASSIFIED", "未归类");
 
     /**
-     * 评阅留痕 CSV 导出（学期材料）：筛选条件与队列完全一致，导出完整筛选结果而非当前分页。
-     * 权限与队列一致（TEACHER）；学生姓名脱敏（NameMasker，与班级学情同口径）；
+     * 评阅留痕 CSV 导出（学期材料）：筛选条件与队列完全一致（含课程范围），导出完整筛选结果而非当前分页。
+     * 权限与队列一致（TEACHER + 登录教师可管理课程范围）；学生姓名脱敏（NameMasker，与班级学情同口径）；
      * UTF-8 + BOM、中文表头；不含讲解正文（正文在系统内按讲解 ID 可查）。
      */
     public byte[] exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
@@ -140,7 +156,8 @@ public class TeacherReviewService {
         LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
         LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
         String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
-        List<AiGenerationLog> rows = logMapper.selectForReviewAll(reviewed, kp, fromTime, toTime);
+        List<AiGenerationLog> rows = logMapper.selectForReviewAll(reviewed, kp, fromTime, toTime,
+                scopedCourseIds());
         List<ReviewItemView> views = toViews(rows);
 
         List<List<String>> lines = new ArrayList<>(views.size());
