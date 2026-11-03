@@ -213,26 +213,86 @@ class ExplainQueryServiceTest {
         }
     }
 
-    /** 读侧课程范围：归属不明（关联不到课程）按写侧同口径放行，不误伤。 */
+    /**
+     * P1-6：归属不明（关联不到课程）不归属任何教师课程，非创建者教师一律 40300。
+     * 旧版此处断言“归属不明放行”，那是单课程阶段无害、扩多课程即越权读学生正文的漏洞，已收紧。
+     */
     @Test
-    void teacherCanReadRecordWithUnknownCourseAttribution() {
+    void teacherCannotReadRecordWithUnknownCourseAttribution() {
         AiGenerationLog row = new AiGenerationLog();
         row.setExplainId("EX_unknown");
         row.setLogId("EL_unknown");
-        row.setContentText("正文");
+        row.setUserId(7L);
+        row.setContentText("其他学生的正文");
         row.setSourceIds("[]");
         when(logMapper.selectOne(any())).thenReturn(row);
         when(logMapper.selectLinkedCourseIds("EL_unknown")).thenReturn(List.of());
-        when(courseService.listActiveCourseIdsByTeacher(500L)).thenReturn(List.of(2L));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
+            assertThatThrownBy(() -> service.get("EX_unknown"))
+                    .isInstanceOfSatisfying(BizException.class, ex -> {
+                        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.FORBIDDEN);
+                        assertThat(ex.getMessage()).doesNotContain("其他学生的正文");
+                    });
+        }
+    }
+
+    /** P1-6 反向：创建者本人读自己归属不明的讲解 → 200，不许误伤。 */
+    @Test
+    void creatorCanReadOwnUnattributedRecord() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_own_unknown");
+        row.setLogId("EL_own_unknown");
+        row.setUserId(500L);
+        row.setContentText("本人正文");
+        row.setSourceIds("[]");
+        when(logMapper.selectOne(any())).thenReturn(row);
+        when(logMapper.selectLinkedCourseIds("EL_own_unknown")).thenReturn(List.of());
 
         ExplainLogView view;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
             stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
-            view = service.get("EX_unknown");
+            view = service.get("EX_own_unknown");
         }
 
-        assertThat(view.content()).isEqualTo("正文");
+        assertThat(view.content()).isEqualTo("本人正文");
+    }
+
+    /** 学生本人读自己的讲解 → 200（学生只按本人 user_id 过滤，无归属收紧不影响本人）。 */
+    @Test
+    void studentCanReadOwnExplain() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_student_own");
+        row.setUserId(9002L);
+        row.setContentText("自己的正文");
+        row.setSourceIds("[]");
+        when(logMapper.selectOne(any())).thenReturn(row);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(9002L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(false);
+            view = service.get("EX_student_own");
+        }
+
+        assertThat(view.content()).isEqualTo("自己的正文");
+    }
+
+    /** P1-6：记录不存在仍是 40400，不能被“无权限”合并成 40300。 */
+    @Test
+    void missingRecordKeeps40400NotForbidden() {
+        when(logMapper.selectOne(any())).thenReturn(null);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
+            assertThatThrownBy(() -> service.get("EX_missing"))
+                    .isInstanceOfSatisfying(BizException.class,
+                            ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+        }
     }
 
     /** 非教师（学生）语义不变：仍只按本人 user_id 查，查不到一律 40400。 */

@@ -44,7 +44,8 @@ import java.util.stream.Collectors;
 /**
  * 教师评阅：待评阅队列 + 提交评阅。
  * 待评阅口径：scene=RAG 且 reviewed_at IS NULL；重复评阅 40900，非教师 40300，
- * 提交评阅超出登录教师可管理课程范围 40300（读写同口径 scopedCourseIds）。
+ * 提交评阅超出登录教师可管理课程范围 40300（读写同口径 scopedCourseIds）；
+ * 归属不明的记录不归属任何教师课程，只有创建者本人可读/可评阅（P1-6）。
  *
  * <p>队列补评阅证据（题干/题型/选项/参考答案/解析/学生笔记/等待时长），
  * 支持 status / kpId / from / to 筛选。</p>
@@ -83,7 +84,7 @@ public class TeacherReviewService {
 
     /**
      * 评阅队列，按 createdAt 倒序。课程范围 = 登录教师可管理课程（与导出同一口径）：
-     * 明确属于其他教师课程的记录不可见；归属不明的记录保留。
+     * 明确属于其他教师课程的记录不可见；归属不明的记录也不可见（无教师可归属，P1-6）。
      *
      * @param status PENDING（默认）/ REVIEWED / ALL
      * @param kpId   按知识点筛选；为空不限
@@ -127,8 +128,9 @@ public class TeacherReviewService {
 
     /**
      * 登录教师可管理课程范围（评阅队列与留痕导出共用，勿另造口径）：
-     * 无课程教师传哨兵 -1——SQL 的 NOT IN (-1) 恒真，所有能定位课程的记录被排除，
-     * 只剩归属不明的记录（诚实留行原则，docs/01 §7.2）。
+     * 无课程教师传哨兵 -1——SQL 的 NOT IN (-1) 恒真，所有能定位课程的记录被排除；
+     * 归属不明的记录再由 Mapper 的“可归属”守卫（{@code q.course_id IS NOT NULL}）一并排除，
+     * 因此无课程教师看不到任何留痕（P1-6）。
      */
     private List<Long> scopedCourseIds() {
         List<Long> ids = courseService.listActiveCourseIdsByTeacher(StpUtil.getLoginIdAsLong());
@@ -252,14 +254,23 @@ public class TeacherReviewService {
         if (row == null || !"RAG".equals(row.getScene())) {
             throw new BizException(ErrorCode.NOT_FOUND, "评阅记录不存在: " + logPk);
         }
-        // 写侧课程范围校验（2026-11-03）：记录可定位到登录教师可管理课程之外 → 40300。
-        // 先于 reviewed_at 检查，避免向范围外教师泄漏评阅状态；归属不明（无错题关联/
-        // 题库查不到课程）按读侧同口径放行，不误伤（诚实留行原则，docs/01 §7.2）。
-        List<Long> scope = scopedCourseIds();
-        for (Long courseId : logMapper.selectLinkedCourseIds(row.getLogId())) {
-            if (!scope.contains(courseId)) {
+        // 写侧课程范围校验（2026-11-03，P1-6 收紧）：可归属记录可定位到登录教师可管理课程之外 → 40300；
+        // 归属不明（无错题关联/题库查不到课程）只有创建者本人可见，其他教师一律 40300。
+        // 先于 reviewed_at 检查，避免向范围外教师泄漏评阅状态。
+        long loginId = StpUtil.getLoginIdAsLong();
+        List<Long> linkedCourseIds = logMapper.selectLinkedCourseIds(row.getLogId());
+        if (linkedCourseIds.isEmpty()) {
+            if (!Objects.equals(row.getUserId(), loginId)) {
                 throw new BizException(ErrorCode.FORBIDDEN,
-                        "不能评阅自己可管理课程之外的记录: " + logPk);
+                        "不能评阅归属不明的记录: " + logPk);
+            }
+        } else {
+            List<Long> scope = scopedCourseIds();
+            for (Long courseId : linkedCourseIds) {
+                if (!scope.contains(courseId)) {
+                    throw new BizException(ErrorCode.FORBIDDEN,
+                            "不能评阅自己可管理课程之外的记录: " + logPk);
+                }
             }
         }
         if (row.getReviewedAt() != null) {

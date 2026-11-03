@@ -89,17 +89,29 @@ public class ExplainQueryService {
     /**
      * 教师读侧课程范围（与写侧 {@link TeacherReviewService#submit} 同一口径）：
      * 课程来源用 {@link CourseService#listActiveCourseIdsByTeacher}，记录归属用
-     * {@link AiGenerationLogMapper#selectLinkedCourseIds}；记录可定位到登录教师
-     * 可管理课程之外 → 40300。归属不明（无错题关联/题库查不到课程）放行，
-     * 与评阅队列/导出同一口径（docs/01 §7.2 第 1、2 条：明确属于别人课程的不可见，
-     * 归属不明保留）。
+     * {@link AiGenerationLogMapper#selectLinkedCourseIds}。
+     * <p>
+     * 可归属（至少能定位到一个课程）：记录可定位到登录教师可管理课程之外 → 40300，行为不变。
+     * 归属不明（无错题关联/题库查不到课程）：不归属任何教师课程，只有创建者本人可读，
+     * 其他教师一律 40300（P1-6）。系统角色目前只有 STUDENT/TEACHER（openapi
+     * {@code allowableValues}），没有管理员角色，管理员放行需先升契约，本轮不实现。
+     * </p>
      */
     private void checkTeacherScope(AiGenerationLog row, boolean teacher) {
         if (!teacher) {
             return;
         }
-        List<Long> scope = courseService.listActiveCourseIdsByTeacher(StpUtil.getLoginIdAsLong());
-        for (Long courseId : logMapper.selectLinkedCourseIds(row.getLogId())) {
+        long loginId = StpUtil.getLoginIdAsLong();
+        List<Long> linkedCourseIds = logMapper.selectLinkedCourseIds(row.getLogId());
+        if (linkedCourseIds.isEmpty()) {
+            if (!Objects.equals(row.getUserId(), loginId)) {
+                throw new BizException(ErrorCode.FORBIDDEN,
+                        "无权查看归属不明的讲解: " + row.getExplainId());
+            }
+            return;
+        }
+        List<Long> scope = courseService.listActiveCourseIdsByTeacher(loginId);
+        for (Long courseId : linkedCourseIds) {
             if (!scope.contains(courseId)) {
                 throw new BizException(ErrorCode.FORBIDDEN,
                         "无权查看自己可管理课程之外的讲解: " + row.getExplainId());
