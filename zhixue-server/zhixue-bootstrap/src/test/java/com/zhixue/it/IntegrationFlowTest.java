@@ -344,6 +344,35 @@ class IntegrationFlowTest {
     }
 
     @Test
+    void myAnswerChangeInvalidatesPreviousExplanationCache() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-answer-context");
+        String qId = jdbcTemplate.queryForObject(
+                "SELECT q_id FROM question_bank WHERE primary_kp_id = 'KP0201' ORDER BY q_id LIMIT 1",
+                String.class);
+        assertThat(qId).isNotBlank();
+        jdbcTemplate.update("UPDATE student_error_record SET q_id = ? WHERE log_id = ?", qId, logId);
+        insertPractice(userIdOf("it_user"), "ct-answer-practice", qId,
+                false, 10, 0, "CONCEPT_CONFUSION");
+
+        String first = body(explain(token, logId));
+        assertThat(first).contains("第一段讲解").doesNotContain("\"cached\":true");
+        assertThat(AI_CALLS.get()).isEqualTo(1);
+
+        // 只改最近作答，题目、KP、错因、作答次数与答错次数均不变，排除其他字段造成 miss。
+        jdbcTemplate.update("UPDATE practice_record SET my_answer = 'B' "
+                + "WHERE user_id = ? AND q_id = ?", userIdOf("it_user"), qId);
+        String second = body(explain(token, logId));
+        assertThat(second).contains("作答B讲解").doesNotContain("\"model\":\"cache\"");
+        assertThat(AI_CALLS.get()).isEqualTo(2);
+
+        String third = body(explain(token, logId));
+        assertThat(third).contains("作答B讲解", "\"model\":\"cache\"", "\"cached\":true");
+        assertThat(AI_CALLS.get()).isEqualTo(2);
+        System.out.println("[cache] myAnswer A→B: AI_CALLS before=1, after=2, replay=2");
+    }
+
+    @Test
     void explainRateLimitReturns42900AfterTenRequests() throws Exception {
         String token = login();
         String logId = createAndConfirm(token, "ct-rate");
@@ -1847,7 +1876,7 @@ class IntegrationFlowTest {
                 write(output, "event: degraded\ndata: {\"level\":\"L2\",\"reason\":\"L1 调用失败\"}\n\n");
                 write(output, "event: chunk\ndata: {\"content\":\"GLM 兜底讲解。\"}\n\n");
                 write(output, "event: done\ndata: {\"degraded\":true,\"blocked\":false,"
-                        + "\"modelUsed\":\"glm-4-flash\",\"promptVersion\":\"v1\","
+                        + "\"modelUsed\":\"glm-4-flash\",\"promptVersion\":\"v2\","
                         + "\"tokens\":8,\"promptTokens\":4}\n\n");
                 return;
             }
@@ -1861,7 +1890,7 @@ class IntegrationFlowTest {
                 write(output, "event: chunk\ndata: {\"content\":\"心跳场景第三段。\"}\n\n");
                 pause(6_000);
                 write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
-                        + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\"}\n\n");
+                        + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v2\"}\n\n");
                 return;
             }
             if (requestBody.contains("\"kpId\":\"KPITSTALL\"")) {
@@ -1874,10 +1903,11 @@ class IntegrationFlowTest {
                 write(output, "event: chunk\ndata: {\"content\":\"第二段讲解。\"}\n\n");
                 return;
             }
-            String chunk = requestBody.contains("概念B_MARKER") ? "概念B讲解。" : "第一段讲解。";
+            String chunk = requestBody.contains("概念B_MARKER") ? "概念B讲解。"
+                    : requestBody.contains("\"myAnswer\":\"B\"") ? "作答B讲解。" : "第一段讲解。";
             write(output, "event: chunk\ndata: {\"content\":\"" + chunk + "\"}\n\n");
             write(output, "event: done\ndata: {\"degraded\":false,\"blocked\":false,"
-                    + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v1\",\"tokens\":10,\"promptTokens\":5}\n\n");
+                    + "\"modelUsed\":\"stub-model\",\"promptVersion\":\"v2\",\"tokens\":10,\"promptTokens\":5}\n\n");
         } catch (IOException ignored) {
             // 客户端主动断开（IT-SSE-02）：桩侧写失败属预期，不是服务异常
         }

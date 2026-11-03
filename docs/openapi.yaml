@@ -305,10 +305,14 @@ paths:
   /api/diagnosis/explain:
     post:
       tags: [diagnosis]
-      summary: 生成启发式讲解（SSE）
+      summary: 生成三段式讲解或学习卡（SSE）
       description: |
         返回 text/event-stream。事件类型：meta / delta / source / degraded / done / error，详见契约文档第 5 节。
         超时：连接 3s、首字节 10s、整体 60s；服务端每 15s 发送 `: heartbeat`。
+        正常讲解的 done 携带 sections；L3 学习卡的 done 携带 learningCard，两者均与 delta 累积正文对应。
+      x-sse-events:
+        done:
+          $ref: '#/components/schemas/ExplainDone'
       requestBody:
         required: true
         content:
@@ -981,6 +985,36 @@ components:
           enum: [CONCEPT_CONFUSION, METHOD_MISSING, STEP_OMISSION, CALCULATION_ERROR, BOUNDARY_ERROR]
         questionText: { type: string, nullable: true, maxLength: 2000 }
         forceRefresh: { type: boolean, default: false }
+    ExplainDone:
+      type: object
+      required: [explainId, latencyMs, tokens]
+      properties:
+        explainId: { type: string }
+        latencyMs: { type: integer, format: int64 }
+        tokens: { type: integer }
+        cached: { type: boolean, description: 命中缓存时为 true；未命中时缺省 }
+        sections:
+          $ref: '#/components/schemas/ExplainSections'
+        learningCard:
+          $ref: '#/components/schemas/LearningCard'
+    ExplainSections:
+      type: object
+      required: [errorLocation, explanation, selfCheck]
+      properties:
+        errorLocation: { type: string, description: 错因定位，最多 3 句 }
+        explanation: { type: string, description: 完整讲解正文 }
+        selfCheck: { type: string, description: 1 个自查问题 }
+    LearningCard:
+      type: object
+      required: [kpName, textbookPage, misconceptions, practiceHint]
+      properties:
+        kpName: { type: string }
+        textbookPage: { type: string, description: 未登记时为“页码待确认”，不得编造 }
+        misconceptions:
+          type: array
+          maxItems: 3
+          items: { type: string }
+        practiceHint: { type: string, description: 引导学生完成下方同类练习的固定提示 }
     ExplainLogResponse:
       allOf:
         - $ref: '#/components/schemas/ApiEnvelope'

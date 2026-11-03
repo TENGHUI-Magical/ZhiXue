@@ -33,6 +33,15 @@ class OcrTaskOut(BaseModel):
 
 
 # ===== /api/rag =====
+class PrereqWeakness(BaseModel):
+    """讲解所需的一个直接先修弱项；Java 只传入样本数达标的最低掌握度项。"""
+    kpId: str
+    kpName: str
+    mastery: float = Field(ge=0, le=1)
+    sampleCount: int = Field(ge=0)
+    conceptText: Optional[str] = Field(default=None, description="先修概念提示，预算不足时优先于弱项元数据裁掉")
+
+
 class RagExplainRequest(BaseModel):
     """RAG 讲解请求：Java 侧已从 MySQL 取出知识点上下文，Python 不再查库。"""
     kpId: str = Field(description="知识点编号，如 KP0201")
@@ -41,6 +50,10 @@ class RagExplainRequest(BaseModel):
     misconception: Optional[str] = Field(default=None, description="常见误区，换行分隔")
     textbookPage: Optional[str] = Field(default=None, description="教材页码，来源追溯")
     questionText: Optional[str] = Field(default=None, description="学生错题题干；为空时做概念讲解")
+    myAnswer: Optional[str] = Field(default=None, description="该生该题最近作答，只取当前一条，不带历史")
+    attemptCount: int = Field(default=0, ge=0, description="该生该题累计作答次数")
+    wrongCount: int = Field(default=0, ge=0, description="该生该题累计答错次数")
+    prereqWeakness: Optional[PrereqWeakness] = Field(default=None, description="最多一个直接先修弱项")
     answerText: Optional[str] = Field(default=None, description="题目标准答案，仅用于输出泄露校验，不进入 Prompt")
     errorType: Optional[str] = Field(default=None, description="契约五类错因英文 Key")
     courseId: int = Field(default=1, description="课程 ID")

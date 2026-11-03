@@ -8,9 +8,12 @@ import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.controller.DiagnosisController;
 import com.zhixue.diagnosis.dto.ExplainRequest;
+import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
+import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
+import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,6 +71,12 @@ class RagExplainServiceTest {
     private ExplainCacheService explainCacheService;
 
     @Mock
+    private PracticeRecordMapper practiceRecordMapper;
+
+    @Mock
+    private PortraitService portraitService;
+
+    @Mock
     private ExplainRateLimiter explainRateLimiter;
 
     private RagExplainService service;
@@ -78,13 +87,17 @@ class RagExplainServiceTest {
     void setUp() {
         AiClientProperties properties = new AiClientProperties("http://127.0.0.1:1", 1);
         service = new RagExplainService(knowledgePointService, errorRecordService, questionBankService,
-                properties, new ObjectMapper(), aiGenerationLogMapper, explainCacheService);
+                properties, new ObjectMapper(), aiGenerationLogMapper, explainCacheService,
+                practiceRecordMapper, portraitService, 30.0);
         DiagnosisController controller = new DiagnosisController(
                 mock(KpMappingService.class), service, mock(RecommendationService.class),
                 mock(OcrService.class), explainRateLimiter, mock(ExplainQueryService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         lenient().when(explainRateLimiter.acquire(anyLong()))
                 .thenReturn(new ExplainRateLimiter.Decision(true, 0L));
+        lenient().when(portraitService.userKpAggregates(anyLong())).thenReturn(Map.of());
+        lenient().when(knowledgePointService.prerequisites(anyString())).thenReturn(List.of());
+        lenient().when(practiceRecordMapper.selectCount(any())).thenReturn(0L);
     }
 
     @Test
@@ -116,7 +129,7 @@ class RagExplainServiceTest {
     @Test
     void cacheHitReplaysFullContentWithoutCallingUpstream() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key(org.mockito.ArgumentMatchers.eq("v2"), anyString())).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "缓存中的完整讲解", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -146,7 +159,7 @@ class RagExplainServiceTest {
     @Test
     void cacheHitSanitizesPagesOutsideKnowledgePointWhitelist() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key(org.mockito.ArgumentMatchers.eq("v2"), anyString())).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "参见教材P999，合法 P34。", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -170,7 +183,7 @@ class RagExplainServiceTest {
     @Test
     void forceRefreshSkipsCacheRead() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key(org.mockito.ArgumentMatchers.eq("v2"), anyString())).thenReturn("k1");
 
         String body = BODY.replace("\"questionText\"", "\"forceRefresh\":true,\"questionText\"");
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
@@ -191,9 +204,97 @@ class RagExplainServiceTest {
         request.setLogId("EL_1");
 
         Map<String, Object> payload = service.buildUpstreamPayload(
-                request, kp, "CONCEPT_CONFUSION", "t-test", "求闭包", "B");
+                request, kp, "CONCEPT_CONFUSION", "t-test", "求闭包", "B",
+                new RagExplainService.ExplanationContext(null, 0, 0, null));
 
         assertThat(payload).containsEntry("answerText", "B");
+    }
+
+    @Test
+    void contextUsesLatestAnswerAndQuestionCounts() {
+        stubRecordAndKp("关系模型的核心概念");
+        StudentErrorRecord record = errorRecordService.getConfirmed("EL_1");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        PracticeRecord latest = new PracticeRecord();
+        latest.setMyAnswer("学生最近作答");
+        when(practiceRecordMapper.selectOne(any())).thenReturn(latest);
+        when(practiceRecordMapper.countByUserAndQid(2L, "Q_0201")).thenReturn(4);
+        when(practiceRecordMapper.selectCount(any())).thenReturn(3L);
+
+        RagExplainService.ExplanationContext context = service.buildExplanationContext(2L, record, kp);
+
+        assertThat(context.myAnswer()).isEqualTo("学生最近作答");
+        assertThat(context.attemptCount()).isEqualTo(4);
+        assertThat(context.wrongCount()).isEqualTo(3);
+        assertThat(context.prereqWeakness()).isNull();
+    }
+
+    @Test
+    void contextSelectsOnlyLowestPrereqWeaknessWithThreeSamples() {
+        stubRecordAndKp("关系模型的核心概念");
+        StudentErrorRecord record = errorRecordService.getConfirmed("EL_1");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of("KP0101", "KP0102", "KP0103"));
+        when(portraitService.userKpAggregates(2L)).thenReturn(Map.of(
+                "KP0101", agg(2, 0.0, 4.0),
+                "KP0102", agg(3, 0.0, 4.0),
+                "KP0103", agg(4, 4.0, 0.0)));
+        KnowledgePoint prereq = new KnowledgePoint();
+        prereq.setKpId("KP0102");
+        prereq.setName("候选码");
+        prereq.setConceptText("最小性");
+        when(knowledgePointService.getById("KP0102")).thenReturn(prereq);
+
+        RagExplainService.ExplanationContext context = service.buildExplanationContext(2L, record, kp);
+        RagExplainService.PrereqWeakness weakness = context.prereqWeakness();
+
+        assertThat(weakness.kpId()).isEqualTo("KP0102");
+        assertThat(weakness.kpName()).isEqualTo("候选码");
+        assertThat(weakness.sampleCount()).isEqualTo(3);
+        assertThat(weakness.mastery()).isEqualTo(0.25);
+        assertThat(weakness.conceptText()).isEqualTo("最小性");
+    }
+
+    @Test
+    void structuredOutputParsesThreeSectionsExactly() {
+        stubRecordAndKp("关系模型的核心概念");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        String content = "【错因定位】\n你混淆了候选码与主码。\n"
+                + "【完整讲解】\n先检查最小性。\n【自查】\n去掉属性后还唯一吗？";
+
+        assertThat(service.structuredOutput(content, kp)).isEqualTo(Map.of(
+                "sections", Map.of(
+                        "errorLocation", "你混淆了候选码与主码。",
+                        "explanation", "先检查最小性。",
+                        "selfCheck", "去掉属性后还唯一吗？")));
+    }
+
+    @Test
+    void localFallbackAndStructuredOutputUseLearningCard() {
+        stubRecordAndKp("关系模型的核心概念");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        kp.setMisconception("误区一\\n误区二\n误区三\n误区四");
+        ExplainRequest request = new ExplainRequest();
+        String content = String.join("", service.localTemplate(kp, request));
+
+        assertThat(content).isEqualTo("【学习卡】\n【知识点】关系模型；教材P34\n【常见误区】\n"
+                + "1. 误区一\n2. 误区二\n3. 误区三\n"
+                + "【练习提示】请完成下方同类练习，检验自己是否真正掌握。");
+        assertThat(service.structuredOutput(content, kp)).isEqualTo(Map.of(
+                "learningCard", Map.of(
+                        "kpName", "关系模型",
+                        "textbookPage", "P34",
+                        "misconceptions", List.of("误区一", "误区二", "误区三"),
+                        "practiceHint", "请完成下方同类练习，检验自己是否真正掌握。")));
+    }
+
+    private UserKpAgg agg(int events, double successWeight, double severitySum) {
+        UserKpAgg agg = new UserKpAgg();
+        agg.setEvents(events);
+        agg.setSuccessWeight(successWeight);
+        agg.setSeveritySum(severitySum);
+        agg.setErrorCount(1);
+        return agg;
     }
 
     @Test

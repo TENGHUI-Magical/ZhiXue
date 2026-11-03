@@ -3,6 +3,7 @@ package com.zhixue.diagnosis.service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
 import jakarta.annotation.PreDestroy;
 import com.zhixue.common.exception.BizException;
@@ -12,11 +13,15 @@ import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.dto.ExplainRequest;
+import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
+import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
+import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -30,6 +35,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,6 +76,14 @@ public class RagExplainService {
     /** meta.model 暂用 auto；接入模型配置同步后改为真实模型名 */
     private static final String META_MODEL = "auto";
 
+    private static final String PROMPT_VERSION = "v2";
+    private static final int PREREQ_MIN_SAMPLES = 3;
+    private static final String PRACTICE_HINT = "请完成下方同类练习，检验自己是否真正掌握。";
+    private static final Pattern SECTION_PATTERN = Pattern.compile(
+            "\\A\\s*【错因定位】\\s*(.*?)\\s*【完整讲解】\\s*(.*?)\\s*【自查】\\s*(.*?)\\s*\\z",
+            Pattern.DOTALL);
+    private static final Pattern MISCONCEPTION_SPLIT = Pattern.compile("(?:\\r?\\n|\\\\n)");
+
     private static final Pattern PAGE_CITATION = Pattern.compile(
             "(?<![A-Za-z0-9])P\\s*(\\d+)(?:\\s*[—–-]\\s*(\\d+))?"
                     + "|第\\s*(\\d+)(?:\\s*[—–-]\\s*(\\d+))?\\s*页",
@@ -93,7 +107,21 @@ public class RagExplainService {
     private final ObjectMapper objectMapper;
     private final AiGenerationLogMapper aiGenerationLogMapper;
     private final ExplainCacheService explainCacheService;
+    private final PracticeRecordMapper practiceRecordMapper;
+    private final PortraitService portraitService;
+    private final MasteryCalculator masteryCalculator;
     private final WebClient webClient;
+
+    record ExplanationContext(String myAnswer, int attemptCount, int wrongCount,
+                              PrereqWeakness prereqWeakness) {
+    }
+
+    record PrereqWeakness(String kpId, String kpName, double mastery,
+                          int sampleCount, String conceptText) {
+    }
+
+    private record PrereqCandidate(String kpId, double mastery) {
+    }
 
     /** 心跳调度：固定 2 线程，取消的任务及时移除，避免高并发 SSE 下队列堆积 */
     private final ScheduledThreadPoolExecutor heartbeatPool =
@@ -111,7 +139,10 @@ public class RagExplainService {
                              AiClientProperties aiClientProperties,
                              ObjectMapper objectMapper,
                              AiGenerationLogMapper aiGenerationLogMapper,
-                             ExplainCacheService explainCacheService) {
+                             ExplainCacheService explainCacheService,
+                             PracticeRecordMapper practiceRecordMapper,
+                             PortraitService portraitService,
+                             @Value("${mastery.half-life-days:30}") double halfLifeDays) {
         this.knowledgePointService = knowledgePointService;
         this.errorRecordService = errorRecordService;
         this.questionBankService = questionBankService;
@@ -119,6 +150,9 @@ public class RagExplainService {
         this.objectMapper = objectMapper;
         this.aiGenerationLogMapper = aiGenerationLogMapper;
         this.explainCacheService = explainCacheService;
+        this.practiceRecordMapper = practiceRecordMapper;
+        this.portraitService = portraitService;
+        this.masteryCalculator = new MasteryCalculator(halfLifeDays);
         this.webClient = WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build();
         this.heartbeatPool.setRemoveOnCancelPolicy(true);
     }
@@ -202,11 +236,12 @@ public class RagExplainService {
 
         String answerText = resolveAnswerText(record);
 
-        // 契约 §6：sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天；forceRefresh 跳过读缓存。
-        // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText；
-        // 同一份文本同时用于缓存键和上游 prompt，避免“按 A 生成、按 B 缓存”。
+        // 同一份规范化上下文同时用于缓存键和上游 prompt；任一学生证据变化都会换键。
         String cacheText = resolveCacheText(record, request);
-        String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText, kp.getConceptText());
+        ExplanationContext explanationContext = buildExplanationContext(userId, record, kp);
+        String canonicalContext = canonicalContext(userId, record, kp, errorType, cacheText,
+                answerText, explanationContext);
+        String cacheKey = explainCacheService.key(PROMPT_VERSION, canonicalContext);
         if (!Boolean.TRUE.equals(request.getForceRefresh())) {
             ExplainCacheService.Cached cached = explainCacheService.get(cacheKey);
             if (cached != null && cached.content() != null && !cached.content().isBlank()) {
@@ -218,7 +253,7 @@ public class RagExplainService {
                 }
                 String replay = sanitizePageCitations(cached.content(), kp.getTextbookPage());
                 send(emitter, "delta", Map.of("text", replay));
-                sendDone(emitter, explainId, start, 0, true);
+                sendDone(emitter, explainId, start, 0, true, replay, kp);
                 writeLog(explainId, traceId, userId, request.getLogId(), kp.getKpId(),
                         "cache", false, null, System.currentTimeMillis() - start,
                         cached.promptVersion(), 0, 0, replay, false,
@@ -275,7 +310,7 @@ public class RagExplainService {
         sendSource(emitter, kp);
 
         Map<String, Object> payload = buildUpstreamPayload(
-                request, kp, errorType, traceId, cacheText, answerText);
+                request, kp, errorType, traceId, cacheText, answerText, explanationContext);
         Flux<ServerSentEvent<String>> stream = webClient.post()
                 .uri("/api/rag/explain")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -370,7 +405,8 @@ public class RagExplainService {
                 },
                 () -> {
                     saveCache(cacheKey, kp, content, modelUsed, promptVersion, degraded, blocked);
-                    sendDone(emitter, explainId, start, completionTokens.get());
+                    sendDone(emitter, explainId, start, completionTokens.get(), false,
+                            content.toString(), kp);
                     emitter.complete();
                     cleanup.run();
                 });
@@ -400,7 +436,7 @@ public class RagExplainService {
                 } else {
                     send(emitter, "degraded", Map.of("level", "L3", "reason", "上游中断"));
                 }
-                sendDone(emitter, explainId, start, 0);
+                sendDone(emitter, explainId, start, 0, false, content.toString(), kp);
                 emitter.complete();
             } catch (Exception e) {
                 log.warn("本地模板讲解发送失败", e);
@@ -483,11 +519,8 @@ public class RagExplainService {
         send(emitter, "source", source);
     }
 
-    private void sendDone(SseEmitter emitter, String explainId, long start, int tokens) {
-        sendDone(emitter, explainId, start, tokens, false);
-    }
-
-    private void sendDone(SseEmitter emitter, String explainId, long start, int tokens, boolean cached) {
+    private void sendDone(SseEmitter emitter, String explainId, long start, int tokens,
+                          boolean cached, String content, KnowledgePoint kp) {
         Map<String, Object> done = new LinkedHashMap<>();
         done.put("explainId", explainId);
         done.put("latencyMs", System.currentTimeMillis() - start);
@@ -495,7 +528,37 @@ public class RagExplainService {
         if (cached) {
             done.put("cached", true);
         }
+        done.putAll(structuredOutput(content, kp));
         send(emitter, "done", done);
+    }
+
+    /** 正常讲解返回三段字段；学习卡返回定位、页码、最多三条误区与练习提示。 */
+    Map<String, Object> structuredOutput(String content, KnowledgePoint kp) {
+        Map<String, Object> output = new LinkedHashMap<>();
+        if (content == null) {
+            return output;
+        }
+        if (content.strip().startsWith("【学习卡】")) {
+            Map<String, Object> card = new LinkedHashMap<>();
+            card.put("kpName", kp.getName() == null ? kp.getKpId() : kp.getName());
+            card.put("textbookPage", kp.getTextbookPage() == null ? "页码待确认" : kp.getTextbookPage());
+            card.put("misconceptions", misconceptions(kp.getMisconception(), 3));
+            card.put("practiceHint", PRACTICE_HINT);
+            output.put("learningCard", card);
+            return output;
+        }
+        Matcher matcher = SECTION_PATTERN.matcher(content);
+        if (!matcher.matches()) {
+            return output;
+        }
+        Map<String, Object> sections = new LinkedHashMap<>();
+        sections.put("errorLocation", matcher.group(1).trim());
+        sections.put("explanation", matcher.group(2).trim());
+        sections.put("selfCheck", matcher.group(3).trim());
+        if (sections.values().stream().allMatch(value -> !String.valueOf(value).isBlank())) {
+            output.put("sections", sections);
+        }
+        return output;
     }
 
     /**
@@ -504,7 +567,8 @@ public class RagExplainService {
     private void saveCache(String cacheKey, KnowledgePoint kp, StringBuffer content,
                            AtomicReference<String> modelUsed, AtomicReference<String> promptVersion,
                            AtomicBoolean degraded, AtomicBoolean blocked) {
-        if (degraded.get() || blocked.get() || content.length() == 0) {
+        if (degraded.get() || blocked.get() || content.length() == 0
+                || !PROMPT_VERSION.equals(promptVersion.get())) {
             return;
         }
         ExplainCacheService.Cached cached = new ExplainCacheService.Cached(
@@ -546,9 +610,105 @@ public class RagExplainService {
                 ? request.getQuestionText() : correctedText;
     }
 
+    /** 只取该题最近一条作答与聚合计数，不把练习历史明细塞进 Prompt。 */
+    ExplanationContext buildExplanationContext(long userId, StudentErrorRecord record, KnowledgePoint kp) {
+        String myAnswer = null;
+        int attemptCount = 0;
+        int wrongCount = 0;
+        String qId = record.getQId();
+        if (qId != null && !qId.isBlank()) {
+            PracticeRecord latest = practiceRecordMapper.selectOne(new LambdaQueryWrapper<PracticeRecord>()
+                    .eq(PracticeRecord::getUserId, userId)
+                    .eq(PracticeRecord::getQId, qId)
+                    .orderByDesc(PracticeRecord::getCreatedAt)
+                    .orderByDesc(PracticeRecord::getPracticeId)
+                    .last("LIMIT 1"));
+            myAnswer = latest == null ? null : latest.getMyAnswer();
+            attemptCount = practiceRecordMapper.countByUserAndQid(userId, qId);
+            Long wrong = practiceRecordMapper.selectCount(new LambdaQueryWrapper<PracticeRecord>()
+                    .eq(PracticeRecord::getUserId, userId)
+                    .eq(PracticeRecord::getQId, qId)
+                    .eq(PracticeRecord::getIsCorrect, 0));
+            wrongCount = Math.toIntExact(wrong);
+        }
+        return new ExplanationContext(myAnswer, attemptCount, wrongCount,
+                weakestPrereq(userId, kp.getKpId()));
+    }
+
+    /** 直接先修中只选样本数 >=3 且有错误证据的最低掌握度项，同分按 kpId 保证稳定。 */
+    private PrereqWeakness weakestPrereq(long userId, String kpId) {
+        List<String> prereqIds = knowledgePointService.prerequisites(kpId);
+        if (prereqIds.isEmpty()) {
+            return null;
+        }
+        Map<String, UserKpAgg> aggregates = portraitService.userKpAggregates(userId);
+        List<PrereqCandidate> candidates = new ArrayList<>();
+        for (String prereqId : prereqIds) {
+            UserKpAgg agg = aggregates.get(prereqId);
+            if (agg == null || agg.getEvents() == null || agg.getEvents() < PREREQ_MIN_SAMPLES
+                    || agg.getErrorCount() == null || agg.getErrorCount() == 0) {
+                continue;
+            }
+            double mastery = masteryCalculator.mastery(
+                    agg.getSuccessWeight() == null ? 0.0 : agg.getSuccessWeight(),
+                    agg.getSeveritySum() == null ? 0.0 : agg.getSeveritySum());
+            candidates.add(new PrereqCandidate(prereqId, mastery));
+        }
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        candidates.sort(Comparator.comparingDouble(PrereqCandidate::mastery)
+                .thenComparing(PrereqCandidate::kpId));
+        PrereqCandidate weakest = candidates.get(0);
+        KnowledgePoint prereq = knowledgePointService.getById(weakest.kpId());
+        if (prereq == null) {
+            return null;
+        }
+        UserKpAgg agg = aggregates.get(weakest.kpId());
+        return new PrereqWeakness(prereq.getKpId(),
+                prereq.getName() == null ? prereq.getKpId() : prereq.getName(),
+                weakest.mastery(), agg.getEvents(), prereq.getConceptText());
+    }
+
+    /** 固定字段顺序序列化，避免缓存键受 Map 遍历顺序影响。 */
+    private String canonicalContext(long userId, StudentErrorRecord record, KnowledgePoint kp,
+                                    String errorType, String questionText, String answerText,
+                                    ExplanationContext context) {
+        Map<String, Object> canonical = new LinkedHashMap<>();
+        canonical.put("userId", userId);
+        canonical.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
+        canonical.put("kpId", kp.getKpId());
+        canonical.put("qId", record.getQId());
+        canonical.put("errorType", errorType);
+        canonical.put("questionText", questionText);
+        canonical.put("conceptText", kp.getConceptText());
+        canonical.put("misconception", kp.getMisconception());
+        canonical.put("textbookPage", kp.getTextbookPage());
+        canonical.put("answerText", answerText);
+        canonical.put("myAnswer", context.myAnswer());
+        canonical.put("attemptCount", context.attemptCount());
+        canonical.put("wrongCount", context.wrongCount());
+        canonical.put("prereqWeakness", prereqPayload(context.prereqWeakness()));
+        return objectMapper.writeValueAsString(canonical);
+    }
+
+    private Map<String, Object> prereqPayload(PrereqWeakness weakness) {
+        if (weakness == null) {
+            return null;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("kpId", weakness.kpId());
+        payload.put("kpName", weakness.kpName());
+        payload.put("mastery", weakness.mastery());
+        payload.put("sampleCount", weakness.sampleCount());
+        payload.put("conceptText", weakness.conceptText());
+        return payload;
+    }
+
     Map<String, Object> buildUpstreamPayload(ExplainRequest request, KnowledgePoint kp,
                                              String errorType, String traceId,
-                                             String questionText, String answerText) {
+                                             String questionText, String answerText,
+                                             ExplanationContext context) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("traceId", traceId);
         payload.put("kpId", kp.getKpId());
@@ -557,6 +717,10 @@ public class RagExplainService {
         payload.put("misconception", kp.getMisconception());
         payload.put("textbookPage", kp.getTextbookPage());
         payload.put("questionText", questionText);
+        payload.put("myAnswer", context.myAnswer());
+        payload.put("attemptCount", context.attemptCount());
+        payload.put("wrongCount", context.wrongCount());
+        payload.put("prereqWeakness", prereqPayload(context.prereqWeakness()));
         payload.put("answerText", answerText);
         payload.put("errorType", errorType);
         payload.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
@@ -565,20 +729,41 @@ public class RagExplainService {
         return payload;
     }
 
-    /** L3 本地模板：逐段使用已核对的概念切片与误区，不新增事实。 */
-    private List<String> localTemplate(KnowledgePoint kp, ExplainRequest request) {
+    /** L3 学习卡：只给知识点定位、页码、最多三条误区与练习入口，不输出讲解长文。 */
+    List<String> localTemplate(KnowledgePoint kp, ExplainRequest request) {
         String name = kp.getName() == null ? kp.getKpId() : kp.getName();
-        String concept = first(kp.getConceptText(), 160);
-        String mistake = first(kp.getMisconception(), 90);
-        String question = first(request.getQuestionText(), 70);
         String page = kp.getTextbookPage() == null ? "页码待确认" : kp.getTextbookPage();
+        List<String> mistakes = misconceptions(kp.getMisconception(), 3);
+        List<String> lines = new ArrayList<>();
+        lines.add("【学习卡】");
+        lines.add("【知识点】" + name + "；教材" + page);
+        lines.add("【常见误区】");
+        if (mistakes.isEmpty()) {
+            lines.add("暂未登记常见误区，请对照教材概念自查。");
+        } else {
+            for (int i = 0; i < mistakes.size(); i++) {
+                lines.add((i + 1) + ". " + mistakes.get(i));
+            }
+        }
+        lines.add("【练习提示】" + PRACTICE_HINT);
+        return List.of(String.join("\n", lines));
+    }
 
-        List<String> parts = new ArrayList<>(4);
-        parts.add("这道题对应知识点「" + name + "」。先抓定义：" + concept);
-        parts.add(mistake.isEmpty() ? "这个知识点暂时没有登记常见误区，请对照概念逐条自查。" : "常见误区：" + mistake);
-        parts.add(question.isEmpty() ? "先用自己的话复述概念，再找一个反例检验边界条件。" : "回到题目：" + question);
-        parts.add("自查顺序：定义 → 适用条件 → 反例。来源：《数据库系统概论（第6版）》" + page + "。");
-        return parts;
+    private List<String> misconceptions(String text, int limit) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>(limit);
+        for (String item : MISCONCEPTION_SPLIT.split(text)) {
+            String clean = first(item, 90);
+            if (!clean.isEmpty()) {
+                result.add(clean);
+                if (result.size() == limit) {
+                    break;
+                }
+            }
+        }
+        return result;
     }
 
     /** 上游 chunk 的 data 是 {"content":"..."}，转成契约 delta 的 {"text":"..."} */
