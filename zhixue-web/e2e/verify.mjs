@@ -33,7 +33,7 @@ const edges = nodes.slice(1).map((n, i) => ({ source: nodes[i].id, target: n.id,
 const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。'.repeat(80), misconception: '把笛卡儿积当连接\\n第二段仍应可见', textbookPage: 'P88', dimensionKey: 'sql' }
 const portrait = { statDate: '2026-10-29', dimensionScores: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }, weakestKps: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6 }, { kpId: 'KP0006', name: '函数依赖', mastery: 0.41, sampleCount: 8 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, totalPractice: 18, totalError: 12 }
 const errorPage = { page: 1, size: 10, total: 3, records: [
-  { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:00:00' },
+  { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: '讲解准确，可继续练习', reviewedAt: '2026-11-03 09:00:00' },
   { logId: 'LOG002', qId: null, kpId: 'KP0006', kpName: '函数依赖', status: 'DRAFT', errorType: 'STEP_OMISSION', createdAt: '2026-10-28T19:00:00', reviewResult: 'RETURN', reviewComment: '请补充连接条件的书写', reviewedAt: '2026-11-03 09:10:00' },
   { logId: 'LOG003', qId: 'Q_0303', kpId: 'KP0003', kpName: '连接查询', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '题干 3', createdAt: '2026-10-28T18:00:00', reviewResult: null, reviewComment: null, reviewedAt: null }
 ] }
@@ -593,13 +593,15 @@ try {
     const passText = await page.locator('.el-table__row').filter({ hasText: 'LOG001' }).locator('.review-status').innerText().catch(() => '')
     const returnText = await page.locator('.el-table__row').filter({ hasText: 'LOG002' }).locator('.review-status').innerText().catch(() => '')
     const pendingCount = await page.locator('.el-table__row').filter({ hasText: 'LOG003' }).locator('.review-status').count()
-    return rowCount >= 2 && passText === '老师已复核这条讲解' && returnText === '需要补充：请补充连接条件的书写' && pendingCount === 0
+    return rowCount >= 2 && passText === '老师已复核这条讲解：讲解准确，可继续练习' && returnText === '需要补充：请补充连接条件的书写' && pendingCount === 0
   })
+  const passCommentText = await page.locator('.el-table__row').filter({ hasText: 'LOG001' }).locator('.review-status').innerText().catch(() => '')
+  check('错题本：PASS 评语可见', passCommentText.includes('老师已复核这条讲解') && passCommentText.includes('讲解准确，可继续练习'), JSON.stringify({ passCommentText }))
   let detailsOk = false
   const detailLinksReady = await page.locator('.error-record-link').count() >= 3
   if (detailLinksReady) {
     detailsOk = true
-    for (const [logId, result, expected] of [['LOG001', 'PASS', '老师已复核这条讲解'], ['LOG002', 'RETURN', '需要补充：请补充连接条件的书写'], ['LOG003', null, '']]) {
+    for (const [logId, result, expected] of [['LOG001', 'PASS', '老师已复核这条讲解：讲解准确，可继续练习'], ['LOG002', 'RETURN', '需要补充：请补充连接条件的书写'], ['LOG003', null, '']]) {
       await page.locator('.el-table__row').filter({ hasText: logId }).locator('.error-record-link').click()
       await sleep(250)
       const drawer = page.locator('.error-record-drawer')
@@ -970,7 +972,7 @@ try {
     return result === null ? await explainStatus.count() === 0 : (await explainStatus.innerText().catch(() => '')) === expected
   }
   await checkNext('评阅回流：未评阅不渲染', async () => verifyReviewAcrossOutlets({ logId: 'LOG003', explainId: 'EXP003', result: null, expected: '' }))
-  await checkNext('评阅回流：PASS 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG001', explainId: 'EXP001', result: 'PASS', expected: '老师已复核这条讲解' }))
+  await checkNext('评阅回流：PASS 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG001', explainId: 'EXP001', result: 'PASS', expected: '老师已复核这条讲解：讲解准确，可继续练习' }))
   await checkNext('评阅回流：RETURN 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG002', explainId: 'EXP002', result: 'RETURN', expected: '需要补充：请补充连接条件的书写' }))
 
   // 未登录：回登录并保留站内 returnUrl
