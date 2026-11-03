@@ -83,6 +83,57 @@ class DueReviewServiceTest {
         assertThat(service.dueReviews(2L, 1L, NOW)).isEmpty();
     }
 
+    /** 半衰期边界：距上次答对恰好 30 天即到期（判定是 >=，不是“超过 30 天”）。 */
+    @Test
+    void exactlyHalfLifeIsDue() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(kp("KP0201", 1)));
+        when(practiceRecordMapper.selectKpSignals(2L, 1L)).thenReturn(List.of(
+                signal("KP0201", 1, 0, NOW.minusDays(30), NOW.minusDays(30), null)));
+        stubTail(new HashMap<>(), List.of(qSignal("KP0201", "Q01", null, NOW.minusDays(30))),
+                List.of(question("Q01", "KP0201", 2)));
+
+        List<DueReviewItem> items = service.dueReviews(2L, 1L, NOW);
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).daysSinceLastCorrect()).isEqualTo(30);
+    }
+
+    /** 半衰期边界下侧：距上次答对 29 天仍不触发（保留率仍 > 50%）。 */
+    @Test
+    void justUnderHalfLifeIsNotDue() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(kp("KP0201", 1)));
+        when(practiceRecordMapper.selectKpSignals(2L, 1L)).thenReturn(List.of(
+                signal("KP0201", 1, 0, NOW.minusDays(29), NOW.minusDays(29), null)));
+
+        assertThat(service.dueReviews(2L, 1L, NOW)).isEmpty();
+    }
+
+    /** 冷却边界：距上次任意作答恰好 7 天即出队（判定是 >=，不是“超过 7 天”）。 */
+    @Test
+    void exactlyCooldownDaysIsDue() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(kp("KP0201", 1)));
+        when(practiceRecordMapper.selectKpSignals(2L, 1L)).thenReturn(List.of(
+                signal("KP0201", 2, 1, NOW.minusDays(40), NOW.minusDays(7), "METHOD_MISSING")));
+        stubTail(new HashMap<>(), List.of(
+                qSignal("KP0201", "Q01", NOW.minusDays(7), NOW.minusDays(40))),
+                List.of(question("Q01", "KP0201", 2)));
+
+        List<DueReviewItem> items = service.dueReviews(2L, 1L, NOW);
+
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).daysSinceLastCorrect()).isEqualTo(40);
+    }
+
+    /** 冷却边界下侧：距上次任意作答 6 天仍在冷却内，不出队。 */
+    @Test
+    void justInsideCooldownIsNotDue() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(kp("KP0201", 1)));
+        when(practiceRecordMapper.selectKpSignals(2L, 1L)).thenReturn(List.of(
+                signal("KP0201", 1, 0, NOW.minusDays(40), NOW.minusDays(6), null)));
+
+        assertThat(service.dueReviews(2L, 1L, NOW)).isEmpty();
+    }
+
     /** 到期项排序（score 降序）+ 可解释理由 + 掌握度与画像同源；期望值手算见类注释。 */
     @Test
     void dueQueueOrdersByForgettingAndMastery() {
