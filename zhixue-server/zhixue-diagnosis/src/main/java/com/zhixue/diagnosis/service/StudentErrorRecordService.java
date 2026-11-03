@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -38,6 +39,9 @@ import java.util.Set;
  */
 @Service
 public class StudentErrorRecordService {
+
+    /** 统一时区口径：确认时间入库不能随 JVM 默认时区漂移（docs/13 B 组） */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final String DRAFT = "DRAFT";
     private static final String CONFIRMED = "CONFIRMED";
@@ -159,7 +163,7 @@ public class StudentErrorRecordService {
                 .set(StudentErrorRecord::getKpId, request.getKpId())
                 .set(StudentErrorRecord::getErrorType, request.getErrorType())
                 .set(StudentErrorRecord::getStatus, CONFIRMED)
-                .set(StudentErrorRecord::getConfirmedAt, LocalDateTime.now());
+                .set(StudentErrorRecord::getConfirmedAt, LocalDateTime.now(ZONE));
         if (request.getCorrectedText() != null) {
             update.set(StudentErrorRecord::getCorrectedText, request.getCorrectedText());
         }

@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -40,6 +41,9 @@ import java.util.function.IntPredicate;
  */
 @Service
 public class RecommendationService {
+
+    /** 统一时区口径：练习记录时间窗不能随 JVM 默认时区漂移（docs/13 B 组） */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 05 §3.4 理由模板（学生语言，≤45 字，禁止内部术语；explain 由 PRP 生成） */
     private static final String REASON_CONSOLIDATE = "同一块知识，再练一道";
@@ -304,7 +308,7 @@ public class RecommendationService {
     /** 05 §3.3：按课程过滤的近期已练题目（7 天 / 3 天冷却） */
     private Set<String> practicedQids(long userId, long courseId, int days) {
         return new HashSet<>(practiceRecordMapper.selectPracticedQids(
-                userId, courseId, LocalDateTime.now().minusDays(days)));
+                userId, courseId, LocalDateTime.now(ZONE).minusDays(days)));
     }
 
     /**

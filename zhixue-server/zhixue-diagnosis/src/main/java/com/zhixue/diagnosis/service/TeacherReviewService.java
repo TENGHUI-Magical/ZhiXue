@@ -22,12 +22,14 @@ import com.zhixue.user.service.UserQueryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -50,6 +52,8 @@ import java.util.stream.Collectors;
 public class TeacherReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(TeacherReviewService.class);
+    /** 统一时区口径：入库时间与“距上次作答”计算不能随 JVM 默认时区漂移（docs/13 B 组） */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final AiGenerationLogMapper logMapper;
@@ -156,10 +160,10 @@ public class TeacherReviewService {
      * 权限与队列一致（TEACHER + 登录教师可管理课程范围）；学生姓名脱敏（NameMasker，与班级学情同口径）；
      * UTF-8 + BOM、中文表头；不含讲解正文（正文在系统内按讲解 ID 可查）。
      *
-     * <p>只读事务：COUNT 与取数在同一快照内，避免两次查询之间新增留痕导致
-     * "数过上限却取到更多行"（TOCTOU）；行数上限判定才会对实际取数有约束力。</p>
+     * <p>只读事务：COUNT 与取数依赖同一快照，不依赖数据库默认隔离级别；显式声明
+     * REPEATABLE_READ，保证"数过上限却取到更多行"（TOCTOU）不会因部署环境默认值不同而失效。</p>
      */
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public byte[] exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
         StpUtil.checkRole("TEACHER");
         String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
@@ -246,7 +250,7 @@ public class TeacherReviewService {
                 .set(AiGenerationLog::getTeacherScore, request.score())
                 .set(AiGenerationLog::getTeacherComment, request.comment())
                 .set(AiGenerationLog::getReviewResult, result)
-                .set(AiGenerationLog::getReviewedAt, LocalDateTime.now()));
+                .set(AiGenerationLog::getReviewedAt, LocalDateTime.now(ZONE)));
         if (rows == 0) {
             AiGenerationLog fresh = logMapper.selectById(logPk);
             if (fresh == null) {
@@ -296,7 +300,7 @@ public class TeacherReviewService {
                 .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
         Map<Long, String> userNameById = userQueryService.findDisplayNames(userIds);
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(ZONE);
         List<ReviewItemView> result = new ArrayList<>(rows.size());
         for (AiGenerationLog row : rows) {
             StudentErrorRecord error = errorById.get(row.getLogId());
