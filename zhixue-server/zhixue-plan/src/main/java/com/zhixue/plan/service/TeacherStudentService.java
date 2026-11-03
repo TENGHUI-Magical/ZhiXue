@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
  * <p>学生集合 = 在该课程题目上有作答记录的学生（无 course_student 表，复用 practice_record）。
  * 权限：TEACHER 且课程归属教师；姓名脱敏；不返回图片/OCR 原文。</p>
  *
- * <p>性能（2026-10-31 二次审核修复，整合为单一实现）：
+ * <p>性能（整合为单一实现）：
  * 列表与摘要一律走 SQL 聚合（GROUP BY user_id / user_id+kp_id），JVM 只接收
  * “每学生一行 / 每学生-知识点一行”的有界结果；排序（含 masteryAsc）在全局聚合结果上完成，
  * 修正“只对当前页排序”的全局顺序错误。明细分页使用参数绑定的 LIMIT/OFFSET。</p>

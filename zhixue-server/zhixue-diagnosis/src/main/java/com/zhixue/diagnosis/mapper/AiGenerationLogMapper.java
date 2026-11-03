@@ -20,7 +20,7 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * IN 集合随课程历史增长无上限，且会把排序/分页压力留在 JVM。
      * 所有条件参数绑定，分页 LIMIT/OFFSET 也由这里绑定，不拼接 SQL 字符串。</p>
      *
-     * <p>课程范围隔离（2026-11-03）：courseIds = 登录教师可管理课程；明确能定位到
+     * <p>课程范围隔离：courseIds = 登录教师可管理课程；明确能定位到
      * 其他教师课程的记录不可见；关联不到错题/题库（归属不明）的记录保留——
      * 行消失会被当成丢数据，证据列为空更诚实（docs/01 §7.2）。调用方保证
      * courseIds 非 null 且非空（无课程教师传哨兵 -1，即看不到任何有归属的记录）。</p>
@@ -106,8 +106,8 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
 
     /**
      * 教师评阅留痕全量导出（CSV）：筛选条件（含课程范围）与 {@link #selectForReview} 完全一致，仅去掉分页。
-     * 导出量有界（scene=RAG 的讲解留痕，单课程试点规模 ≤ 千行级）；避免无界查询的红线
-     * 由调用方（TeacherReviewService.exportCsv）确认场景后使用。
+     * 导出量有界：调用方先 COUNT，超过 {@code TeacherReviewService.MAX_EXPORT_ROWS}（50,000）即拒绝并
+     * 提示缩小日期范围，确认未超限后才调用本方法——本方法本身不设 LIMIT，上限由调用方保证。
      */
     @Select("""
             <script>

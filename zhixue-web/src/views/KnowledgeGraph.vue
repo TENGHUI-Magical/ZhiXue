@@ -41,6 +41,15 @@
       </template>
 
       <el-card class="graph-card">
+        <button
+          v-if="chapterFilter != null"
+          type="button"
+          class="chapter-back"
+          aria-label="返回全课程"
+          @click="showAllChapters"
+        >
+          ← 返回全课程
+        </button>
         <div v-if="visibleNodes.length" class="graph-controls" role="group" aria-label="图谱缩放与视图">
           <button type="button" aria-label="放大" @click="zoomBy(1.2)">+</button>
           <button type="button" aria-label="缩小" @click="zoomBy(0.83)">−</button>
@@ -51,9 +60,9 @@
           ref="svgRef"
           class="graph-svg"
           :class="{ dragging }"
-          viewBox="0 0 800 600"
+          viewBox="0 0 1200 620"
           role="group"
-          aria-label="知识点先后关系图，完整名称见下方节点列表"
+          aria-label="知识点先修关系图；默认按章节聚合，点击章名展开，点击知识点查看详情"
           @wheel="onWheel"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
@@ -74,6 +83,43 @@
             </marker>
           </defs>
           <g class="graph-viewport" :transform="viewportTransform">
+            <g v-if="chapterFilter == null" class="chapter-groups">
+              <g v-for="chapter in chapterLayouts" :key="chapter.id" class="chapter-group">
+                <rect
+                  class="chapter-card"
+                  :x="chapter.x"
+                  :y="chapter.y"
+                  :width="chapter.width"
+                  :height="chapter.height"
+                  rx="14"
+                />
+                <g
+                  class="chapter-node"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`展开${chapter.label}，共 ${chapter.nodes.length} 个知识点`"
+                  @click="expandChapter(chapter.id)"
+                  @keydown.enter.prevent="expandChapter(chapter.id)"
+                  @keydown.space.prevent="expandChapter(chapter.id)"
+                >
+                  <rect
+                    class="chapter-hit"
+                    :x="chapter.x + 1"
+                    :y="chapter.y + 1"
+                    :width="chapter.width - 2"
+                    height="66"
+                    rx="13"
+                  />
+                  <text :x="chapter.x + 18" :y="chapter.y + 29" class="chapter-label">
+                    {{ chapter.shortLabel }}
+                  </text>
+                  <text :x="chapter.x + 18" :y="chapter.y + 52" class="chapter-meta">
+                    {{ chapter.nodes.length }} 个知识点 · 点击展开
+                  </text>
+                  <title>{{ chapter.label }}，共 {{ chapter.nodes.length }} 个知识点</title>
+                </g>
+              </g>
+            </g>
             <line
               v-for="edge in edgeLines"
               :key="edge.id"
@@ -103,6 +149,14 @@
               @keydown.enter.prevent="openNode(node.id)"
               @keydown.space.prevent="openNode(node.id)"
             >
+              <rect
+                class="node-hit"
+                :x="node.x - node.r"
+                :y="node.y - 24"
+                :width="node.hitWidth"
+                height="48"
+                rx="8"
+              />
               <circle
                 :cx="node.x"
                 :cy="node.y"
@@ -118,10 +172,9 @@
                 {{ node.codeText }}
               </text>
               <text
-                v-if="node.showLabel"
-                :x="node.x"
-                :y="node.y + node.r + 14"
-                text-anchor="middle"
+                :x="node.labelX"
+                :y="node.labelY"
+                text-anchor="start"
                 class="node-label"
               >
                 {{ node.labelText }}
@@ -134,7 +187,13 @@
           <el-empty description="本章暂无知识点" :image-size="64" />
         </div>
         <div class="graph-note">
-          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先后关系<span v-if="chapterFilter != null">（已筛选{{ chapterNoLabel(chapterFilter) }}）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
+          <template v-if="chapterFilter == null">
+            课程共 {{ visibleNodes.length }} 个知识点；当前按 {{ chapterLayouts.length }} 章展示 {{ nodePoints.length }} 个代表知识点与 {{ edgeLines.length }} 条可见先修关系。点击章名展开全部，点击知识点查看详情。
+          </template>
+          <template v-else>
+            已筛选{{ chapterNoLabel(chapterFilter) }}，显示本章 {{ visibleNodes.length }} 个知识点与 {{ edgeLines.length }} 条先修关系；点击知识点查看详情。
+          </template>
+          完整名称见下方“知识点清单”。
           <a class="mobile-list-jump" href="#kp-list">节点太小？按清单浏览</a>
         </div>
       </el-card>
@@ -273,64 +332,97 @@ const visibleNodes = computed(() =>
     : nodes.value.filter((node) => node.chapterId === chapterFilter.value)
 );
 
-const CENTER = { x: 400, y: 300 };
+const GRAPH_WIDTH = 1200;
+const GRAPH_HEIGHT = 620;
+const truncate = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max)}…` : text;
+const compactCode = (id: string) => {
+  const match = /^KP(\d{2})(\d{2})$/i.exec(id);
+  return match ? `${Number(match[1])}·${match[2]}` : id;
+};
+const sortNodes = (items: GraphNode[]) => [...items]
+  .filter((node) => !!node.id)
+  .sort((a, b) => (a.id ?? "").localeCompare(b.id ?? ""));
 
-/**
- * 单环 → 双环 → 三环。
- * 80 个知识点单环会互相压住，按周长比例分配环内数量，
- * 环半径 95/155/215 时，最密的外环仍有约 10px 间距。
- */
+const chapterGroups = computed(() =>
+  chapterOptions.value.map((id) => ({
+    id,
+    label: chapterLabel(id),
+    nodes: sortNodes(nodes.value.filter((node) => node.chapterId === id))
+  }))
+);
+
+/** 默认每章一个固定网格卡片，标签按格子排布，从布局上避免 81 点互相遮挡。 */
+const chapterLayouts = computed(() => {
+  const groups = chapterGroups.value;
+  const columns = groups.length <= 3 ? Math.max(groups.length, 1) : 4;
+  const rows = Math.max(Math.ceil(groups.length / columns), 1);
+  const margin = 24;
+  const gap = 16;
+  const width = (GRAPH_WIDTH - margin * 2 - gap * (columns - 1)) / columns;
+  const height = (GRAPH_HEIGHT - margin * 2 - gap * (rows - 1)) / rows;
+  return groups.map((group, index) => ({
+    ...group,
+    shortLabel: truncate(group.label, Math.max(8, Math.floor((width - 36) / 16))),
+    x: margin + (index % columns) * (width + gap),
+    y: margin + Math.floor(index / columns) * (height + gap),
+    width,
+    height
+  }));
+});
+
 const nodePoints = computed(() => {
-  const visible = visibleNodes.value
-    .filter((node) => !!node.id)
-    .sort(
-      (a, b) =>
-        (a.chapterId ?? Number.MAX_SAFE_INTEGER) - (b.chapterId ?? Number.MAX_SAFE_INTEGER) ||
-        (a.id ?? "").localeCompare(b.id ?? "")
+  if (chapterFilter.value == null) {
+    return chapterLayouts.value.flatMap((chapter) =>
+      chapter.nodes.slice(0, 3).map((node, index) => {
+        const id = node.id as string;
+        const x = chapter.x + 36;
+        const y = chapter.y + 100 + index * 64;
+        return {
+          id,
+          name: node.name ?? id,
+          codeText: compactCode(id),
+          labelText: truncate(node.name ?? id, Math.max(8, Math.floor((chapter.width - 86) / 14))),
+          x,
+          y,
+          labelX: x + 28,
+          labelY: y + 5,
+          r: 17,
+          hitWidth: chapter.width - 54,
+          weak: weakIds.value.has(id)
+        };
+      })
     );
+  }
+
+  const visible = sortNodes(visibleNodes.value);
   const count = visible.length;
   if (!count) return [];
-
-  const ringCount = count <= 24 ? 1 : count <= 48 ? 2 : 3;
-  const radii = ringCount === 1 ? [210] : ringCount === 2 ? [120, 205] : [95, 155, 215];
-  const nodeRadius = count > 48 ? 13 : count > 24 ? 15 : 18;
-  // 圆内始终显示章·序号短码；节点较少时再外置名称，禁止 <12px 字号
-  const showLabel = count <= 24;
-  const truncate = (text: string, max: number) =>
-    text.length > max ? `${text.slice(0, max)}…` : text;
-  const compactCode = (id: string) => {
-    const match = /^KP(\d{2})(\d{2})$/i.exec(id);
-    return match ? `${Number(match[1])}·${match[2]}` : id;
-  };
-  const totalWeight = radii.reduce((sum, radius) => sum + radius, 0);
-  let remaining = count;
-  const ringSizes = radii.map((radius, index) => {
-    if (index === radii.length - 1) return remaining;
-    const size = Math.max(1, Math.round((count * radius) / totalWeight));
-    remaining -= size;
-    return size;
-  });
-
-  let cursor = 0;
-  return radii.flatMap((radius, ringIndex) => {
-    const ringNodes = visible.slice(cursor, cursor + ringSizes[ringIndex]);
-    cursor += ringSizes[ringIndex];
-    const offset = -Math.PI / 2 + ringIndex * 0.34;
-    return ringNodes.map((node, index) => {
-      const angle = offset + (index * 2 * Math.PI) / Math.max(ringNodes.length, 1);
-      const id = node.id as string;
-      return {
-        id,
-        name: node.name ?? id,
-        codeText: compactCode(id),
-        labelText: truncate(node.name ?? id, 5),
-        showLabel,
-        x: CENTER.x + Math.cos(angle) * radius,
-        y: CENTER.y + Math.sin(angle) * radius,
-        r: nodeRadius,
-        weak: weakIds.value.has(id)
-      };
-    });
+  const columns = count <= 6 ? 2 : 3;
+  const rows = Math.ceil(count / columns);
+  const marginX = 32;
+  const marginY = 32;
+  const gapX = 24;
+  const gapY = 18;
+  const cellWidth = (GRAPH_WIDTH - marginX * 2 - gapX * (columns - 1)) / columns;
+  const cellHeight = (GRAPH_HEIGHT - marginY * 2 - gapY * (rows - 1)) / rows;
+  return visible.map((node, index) => {
+    const id = node.id as string;
+    const x = marginX + (index % columns) * (cellWidth + gapX) + 34;
+    const y = marginY + Math.floor(index / columns) * (cellHeight + gapY) + Math.min(cellHeight / 2, 46);
+    return {
+      id,
+      name: node.name ?? id,
+      codeText: compactCode(id),
+      labelText: truncate(node.name ?? id, Math.max(8, Math.floor((cellWidth - 90) / 14))),
+      x,
+      y,
+      labelX: x + 28,
+      labelY: y + 5,
+      r: 18,
+      hitWidth: cellWidth - 54,
+      weak: weakIds.value.has(id)
+    };
   });
 });
 
@@ -374,13 +466,13 @@ const clientToViewBox = (clientX: number, clientY: number) => {
   const rect = svg.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
   return {
-    x: ((clientX - rect.left) / rect.width) * 800,
-    y: ((clientY - rect.top) / rect.height) * 600
+    x: ((clientX - rect.left) / rect.width) * GRAPH_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * GRAPH_HEIGHT
   };
 };
 
 /** 把 scale 设到 next，并让 viewBox 坐标 (cx,cy) 保持不动 */
-const applyScale = (next: number, cx = 400, cy = 300) => {
+const applyScale = (next: number, cx = GRAPH_WIDTH / 2, cy = GRAPH_HEIGHT / 2) => {
   const target = clamp(next, MIN_SCALE, MAX_SCALE);
   if (target === scale.value) return false;
   const ratio = target / scale.value;
@@ -417,8 +509,8 @@ const pointDistance = (a: PointerPoint, b: PointerPoint) => Math.hypot(a.x - b.x
 
 const onPointerDown = (event: PointerEvent) => {
   const target = event.target as Element | null;
-  // 首指落在节点上视为点击，不启动拖拽；第二指落在节点上仍应参与双指缩放
-  if (pointers.size === 0 && target?.closest(".graph-node")) return;
+  // 鼠标/触控笔首指落在节点上视为点击；触摸必须始终记录，才能识别落在节点上的双指缩放
+  if (pointers.size === 0 && event.pointerType !== "touch" && target?.closest(".graph-node, .chapter-node")) return;
   if (event.button !== 0) return;
   if (pointers.size >= 2) return; // 最多两指；第三指忽略
   const anchor = clientToViewBox(event.clientX, event.clientY);
@@ -498,6 +590,13 @@ const adjacentIds = computed(() => {
 
 /** 种子误区可能含字面 \n（如 KP0501），归一化为真实换行后再渲染（见 utils/text） */
 const misconceptionText = computed(() => normalizeLineBreaks(detail.value?.misconception));
+
+const expandChapter = (chapterId: number) => {
+  chapterFilter.value = chapterId;
+};
+const showAllChapters = () => {
+  chapterFilter.value = null;
+};
 
 watch(chapterFilter, () => {
   activeId.value = "";
@@ -648,7 +747,8 @@ onMounted(load);
   display: flex;
   gap: 6px;
 }
-.graph-controls button {
+.graph-controls button,
+.chapter-back {
   min-width: 34px;
   height: 34px;
   padding: 0 8px;
@@ -659,18 +759,26 @@ onMounted(load);
   font-size: var(--app-fs-sm);
   cursor: pointer;
 }
-.graph-controls button:hover {
+.graph-controls button:hover,
+.chapter-back:hover {
   color: var(--app-primary);
   border-color: var(--app-primary);
 }
-.graph-controls button:focus-visible {
+.graph-controls button:focus-visible,
+.chapter-back:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: 2px;
+}
+.chapter-back {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
 }
 .graph-svg {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1200 / 620;
   height: auto;
   background: var(--app-surface-muted);
   border-radius: var(--app-radius-sm);
@@ -683,6 +791,36 @@ onMounted(load);
 }
 .graph-viewport {
   transition: transform 0.15s var(--app-ease-standard);
+}
+.chapter-card {
+  fill: var(--app-surface);
+  stroke: var(--app-border);
+  stroke-width: 1;
+  pointer-events: none;
+}
+.chapter-node {
+  cursor: pointer;
+  outline: none;
+}
+.chapter-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 2;
+}
+.chapter-node:hover .chapter-hit,
+.chapter-node:focus .chapter-hit {
+  stroke: var(--app-primary);
+}
+.chapter-label {
+  fill: var(--app-text);
+  font-size: 16px;
+  font-weight: 700;
+  pointer-events: none;
+}
+.chapter-meta {
+  fill: var(--app-text-secondary);
+  font-size: 12px;
+  pointer-events: none;
 }
 .graph-edge {
   stroke: var(--app-border-strong);
@@ -714,6 +852,10 @@ onMounted(load);
 .graph-node:focus .node-circle {
   stroke: var(--app-warning);
   stroke-width: 3;
+}
+.node-hit {
+  fill: transparent;
+  pointer-events: all;
 }
 .node-circle {
   fill: var(--app-primary);
@@ -750,7 +892,7 @@ onMounted(load);
 }
 .node-label {
   fill: var(--app-text-secondary);
-  font-size: var(--app-fs-xs);
+  font-size: 14px;
   font-weight: 500;
   pointer-events: none;
 }
@@ -810,7 +952,8 @@ onMounted(load);
   .graph-svg {
     min-height: 0;
   }
-  .graph-controls button {
+  .graph-controls button,
+  .chapter-back {
     min-width: 44px;
     height: 44px;
   }

@@ -7,7 +7,7 @@
  *   - 账号口令通过环境变量传入，禁止写死
  *
  * 用法（PowerShell）：
- *   $env:E2E_USER='student01'; $env:E2E_PASS='123456'; npm run e2e:real
+ *   $env:E2E_USER='student01'; $env:E2E_PASS='<示例密码，勿用真实值>'; npm run e2e:real
  *
  * 注意：会写入 1 条错题、1 周计划、1 次打卡；仅用于本地/测试库。
  */

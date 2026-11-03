@@ -11,6 +11,8 @@
           <el-option label="已评阅" value="REVIEWED" />
           <el-option label="全部" value="ALL" />
         </el-select>
+        <input type="date" v-model="exportFrom" class="export-date" aria-label="导出起始日期" />
+        <input type="date" v-model="exportTo" class="export-date" aria-label="导出结束日期" />
         <el-button :loading="loading" @click="load">刷新队列</el-button>
         <el-button :loading="exporting" @click="onExport">导出留痕</el-button>
       </div>
@@ -230,12 +232,19 @@ const statusFilter = ref<"PENDING" | "REVIEWED" | "ALL">("PENDING");
 const loading = ref(false);
 const error = ref("");
 const exporting = ref(false);
+/** 导出起止日期（可选）：超限提示要求缩小范围时，老师可在此设置后重试 */
+const exportFrom = ref("");
+const exportTo = ref("");
 
-/** 导出评阅留痕 CSV（与当前状态筛选同口径，完整结果） */
+/** 导出评阅留痕 CSV（与当前状态筛选同口径，完整结果；可按起止日期缩小范围） */
 const onExport = async () => {
   exporting.value = true;
   try {
-    await exportReviewLog({ status: statusFilter.value });
+    await exportReviewLog({
+      status: statusFilter.value,
+      from: exportFrom.value || undefined,
+      to: exportTo.value || undefined
+    });
     ElMessage.success("已导出评阅留痕 CSV");
   } catch {
     // downloadCsv 已按业务 code 提示，这里只需止住未处理拒绝
@@ -605,6 +614,20 @@ onMounted(load);
 }
 .status-select {
   width: 108px;
+}
+.export-date {
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+  background: #fff;
+}
+@media (max-width: 768px) {
+  .export-date {
+    height: 44px;
+  }
 }
 .result-group {
   margin-bottom: 12px;
