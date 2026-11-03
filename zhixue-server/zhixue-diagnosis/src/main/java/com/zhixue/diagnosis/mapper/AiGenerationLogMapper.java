@@ -144,6 +144,23 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                                              @Param("courseIds") List<Long> courseIds);
 
     /**
+     * 解析单条评阅留痕的课程归属（写侧范围校验专用，2026-11-03）：
+     * 经错题记录 → 题库 course_id，与 {@link #countForReview} 等读侧 NOT EXISTS
+     * 完全同口径——只认 e.log_id 关联且 q_id 成功连接题库的行；course_id 为 NULL
+     * 不算归属（与读侧 {@code NULL NOT IN (...)} 不触发排除一致）。
+     * 返回空集 = 归属不明，调用方按读侧同口径放行（诚实留行原则，docs/01 §7.2）。
+     *
+     * @param logId ai_generation_log.log_id（错题记录关联键）
+     */
+    @Select("""
+            SELECT DISTINCT q.course_id
+            FROM student_error_record e
+            JOIN question_bank q ON q.q_id = e.q_id
+            WHERE e.log_id = #{logId} AND q.course_id IS NOT NULL
+            """)
+    List<Long> selectLinkedCourseIds(@Param("logId") String logId);
+
+    /**
      * 学生端评阅回流（05 §4.6）：按学生 + 错题编号集合取已评阅讲解。
      * 一条错题可能多次生成讲解（缓存回放/重新生成各落一行），调用方按 logId 分组
      * 取 reviewed_at 最大的一条作为该错题的复核结论。
