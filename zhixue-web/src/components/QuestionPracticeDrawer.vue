@@ -9,7 +9,25 @@
     @closed="onClosed"
   >
     <PageState :loading="loading" :error="error" retry-text="重新加载" @retry="load">
-      <template v-if="detail">
+      <div v-if="submissionResult" class="submission-result">
+        <el-result
+          :icon="submissionResult.isCorrect ? 'success' : 'error'"
+          :title="submissionResult.message"
+        />
+        <div class="answer-compare">
+          <div>
+            <span>你的答案</span>
+            <strong>{{ combinedAnswer || "未作答" }}</strong>
+          </div>
+          <div>
+            <span>正确答案</span>
+            <strong>{{ answer?.answerText || "暂无参考答案" }}</strong>
+          </div>
+        </div>
+        <p class="result-reason">{{ reasonText }}</p>
+        <p class="result-progress">{{ progressText }}</p>
+      </div>
+      <template v-else-if="detail">
         <div class="meta">
           <el-tag size="small">{{ detail.questionType || "题目" }}</el-tag>
           <el-tag v-if="detail.difficulty" size="small" type="info">
@@ -80,23 +98,6 @@
           title="先独立做一遍，再查看答案。推荐题的目标是掌握题型，不是背答案。"
         />
 
-        <div class="actions">
-          <el-button
-            type="primary"
-            :loading="answerLoading"
-            :disabled="!canReveal"
-            @click="reveal"
-          >
-            查看参考答案
-          </el-button>
-          <span v-if="!canReveal" class="hint">先作答或写下思路，再查看答案</span>
-        </div>
-
-        <div v-if="mode === 'plan'" class="actions plan-only">
-          <el-button :loading="submitting" @click="recordOnly">仅记录进度（未作答）</el-button>
-          <span class="hint">不计正确率、不入可信闭环</span>
-        </div>
-
         <div v-if="revealed && answer" class="answer-panel">
           <el-divider content-position="left">参考答案</el-divider>
           <div class="answer">{{ answer.answerText || "暂无参考答案" }}</div>
@@ -118,24 +119,6 @@
               :value="item.value"
             />
           </el-select>
-          <div class="actions">
-            <el-button
-              v-if="isObjective"
-              type="primary"
-              :loading="submitting"
-              @click="submit()"
-            >
-              提交本题（系统判分）
-            </el-button>
-            <template v-else>
-              <el-button type="success" :loading="submitting" @click="submit(true)">
-                我答对了（自评）
-              </el-button>
-              <el-button type="warning" :loading="submitting" @click="submit(false)">
-                我答错了（自评）
-              </el-button>
-            </template>
-          </div>
           <div class="hint">
             {{ isObjective
               ? "客观题由服务端按标准答案判分，所选答案提交后不可自行改判。"
@@ -144,11 +127,58 @@
         </div>
       </template>
     </PageState>
+    <template #footer>
+      <div v-if="submissionResult" class="actions drawer-footer-actions">
+        <el-button
+          type="primary"
+          :disabled="mode !== 'plan' && !nextQuestion"
+          @click="goNext"
+        >
+          下一题
+        </el-button>
+        <el-button @click="goExplain">查看本题讲解</el-button>
+        <el-button text @click="visible = false">完成</el-button>
+      </div>
+      <div v-else-if="detail && !revealed" class="actions drawer-footer-actions">
+        <el-button
+          type="primary"
+          :loading="answerLoading"
+          :disabled="!canReveal"
+          @click="reveal"
+        >
+          查看参考答案
+        </el-button>
+        <span v-if="!canReveal" class="hint">先作答或写下思路，再查看答案</span>
+        <template v-if="mode === 'plan'">
+          <el-button :loading="submitting" @click="recordOnly">仅记录进度（未作答）</el-button>
+          <span class="hint">不计正确率、不入可信闭环</span>
+        </template>
+      </div>
+      <div v-else-if="detail && revealed && answer" class="actions drawer-footer-actions">
+        <el-button
+          v-if="isObjective"
+          type="primary"
+          :loading="submitting"
+          @click="submit()"
+        >
+          提交本题（系统判分）
+        </el-button>
+        <template v-else>
+          <el-button type="success" :loading="submitting" @click="submit(true)">
+            我答对了（自评）
+          </el-button>
+          <el-button type="warning" :loading="submitting" @click="submit(false)">
+            我答错了（自评）
+          </el-button>
+        </template>
+      </div>
+    </template>
   </el-drawer>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import PageState from "./PageState.vue";
 import {
@@ -157,7 +187,14 @@ import {
   type QuestionAnswer,
   type QuestionDetail
 } from "../api/questions";
-import { newClientToken, submitPractice } from "../api/diagnosis";
+import {
+  DEFAULT_COURSE_ID,
+  getRecommendations,
+  newClientToken,
+  startPractice,
+  submitPractice,
+  type Recommendation
+} from "../api/diagnosis";
 import { checkinPlan } from "../api/plan";
 
 interface Props {
@@ -176,9 +213,12 @@ const props = withDefaults(defineProps<Props>(), {
   planId: null
 });
 
+const router = useRouter();
+
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
   (e: "completed", payload: { isCorrect: boolean; practiceId?: number; verified?: boolean }): void;
+  (e: "next"): void;
 }>();
 
 const visible = computed({
@@ -192,12 +232,30 @@ const submitting = ref(false);
 const error = ref("");
 const detail = ref<QuestionDetail | null>(null);
 const answer = ref<QuestionAnswer | null>(null);
+const currentQId = ref(props.qId);
+const currentRecommendationId = ref<number | null>(props.recommendationId ?? null);
+const nextQuestion = ref<Recommendation | null>(null);
+const nextLoading = ref(false);
+const timingUnavailable = ref(false);
 const selectedOption = ref("");
 const selectedOptions = ref<string[]>([]);
 const myAnswer = ref("");
 const revealed = ref(false);
 /** 主观题自评错因；不选时后端落 UNCLASSIFIED，客观题由服务端规则推断 */
 const selfErrorType = ref("");
+const completedResult = ref<{
+  isCorrect: boolean;
+  practiceId?: number;
+  verified?: boolean;
+} | null>(null);
+const submissionResult = ref<{
+  isCorrect: boolean;
+  practiceId?: number;
+  verified?: boolean;
+  message: string;
+  errorType?: string | null;
+  costSeconds: number | null;
+} | null>(null);
 
 const ERROR_TYPE_OPTIONS = [
   { value: "CONCEPT_CONFUSION", label: "概念混淆" },
@@ -228,6 +286,22 @@ const combinedAnswer = computed(() => {
 const isObjective = computed(() =>
   ["单选", "多选", "判断", "判断题"].includes(detail.value?.questionType ?? ""));
 
+const reasonText = computed(() => {
+  const result = submissionResult.value;
+  if (!result) return "";
+  if (result.isCorrect) return "本次作答正确";
+  const reason = ERROR_TYPE_OPTIONS.find((item) => item.value === result.errorType)?.label;
+  return `错因：${reason || "待接口返回"}`;
+});
+
+const progressText = computed(() => {
+  const result = submissionResult.value;
+  if (!result || result.costSeconds == null) {
+    return timingUnavailable.value ? "本次作答已记录（服务端耗时不可用）" : "本次作答已记录";
+  }
+  return `本次用时 ${result.costSeconds} 秒（服务端计时）`;
+});
+
 const reset = () => {
   loadSeq += 1;
   clearFields();
@@ -245,6 +319,10 @@ const clearFields = () => {
   myAnswer.value = "";
   revealed.value = false;
   selfErrorType.value = "";
+  submissionResult.value = null;
+  nextQuestion.value = null;
+  nextLoading.value = false;
+  timingUnavailable.value = false;
   submitToken = "";
   submitTokenKey = "";
 };
@@ -255,12 +333,59 @@ let submitTokenKey = "";
 let openedAt = 0;
 
 const onClosed = () => {
-  // 关闭动画结束时可能已经切到下一题，只有确实关闭才清空
-  if (!visible.value) reset();
+  // 提交后由学生主动关闭时再通知父页刷新，避免结果与讲解入口被提前卸载。
+  if (!visible.value) {
+    const completed = completedResult.value;
+    completedResult.value = null;
+    if (completed) {
+      emit("completed", {
+        isCorrect: completed.isCorrect,
+        practiceId: completed.practiceId,
+        verified: completed.verified
+      });
+    }
+    reset();
+  }
+};
+
+const goExplain = async () => {
+  const kpId = detail.value?.kpId || props.kpId;
+  if (!currentQId.value || !kpId) return;
+  await router.push({
+    path: "/diagnosis",
+    query: { qId: currentQId.value, kpId, autoExplain: "1" }
+  });
+  visible.value = false;
+};
+
+const prepareNext = async (kpId: string) => {
+  if (props.mode === "plan") return;
+  nextLoading.value = true;
+  try {
+    const recommendations = await getRecommendations({ kpId, courseId: DEFAULT_COURSE_ID });
+    nextQuestion.value = recommendations.find((item) => item.qId !== currentQId.value) ?? null;
+  } catch {
+    nextQuestion.value = null;
+  } finally {
+    nextLoading.value = false;
+  }
+};
+
+const goNext = async () => {
+  if (props.mode === "plan") {
+    emit("next");
+    return;
+  }
+  const next = nextQuestion.value;
+  if (!next) return;
+  currentQId.value = next.qId;
+  currentRecommendationId.value = next.recommendationId ?? null;
+  reset();
+  await load();
 };
 
 const tokenForCurrentQuestion = () => {
-  const key = `${props.qId}:${props.recommendationId ?? ""}`;
+  const key = `${currentQId.value}:${currentRecommendationId.value ?? ""}`;
   if (submitTokenKey !== key || !submitToken) {
     submitTokenKey = key;
     submitToken = newClientToken();
@@ -271,15 +396,24 @@ const tokenForCurrentQuestion = () => {
 const load = async () => {
   const seq = ++loadSeq;
   clearFields();
-  if (!props.qId) {
+  if (!currentQId.value) {
     error.value = "缺少题目编号";
     return;
   }
   loading.value = true;
   openedAt = Date.now();
   try {
-    const data = await getQuestionDetail(props.qId);
+    const data = await getQuestionDetail(currentQId.value);
     if (seq !== loadSeq) return; // 快速切题时丢弃旧响应
+    if (props.mode !== "plan") {
+      try {
+        await startPractice({ qId: currentQId.value, clientToken: tokenForCurrentQuestion() });
+      } catch {
+        // 打点不可用不阻断作答，结果态只显示服务端耗时不可用，不用前端秒表顶替。
+        timingUnavailable.value = true;
+      }
+    }
+    if (seq !== loadSeq) return;
     detail.value = data;
   } catch (e) {
     if (seq !== loadSeq) return;
@@ -293,7 +427,7 @@ const reveal = async () => {
   if (!canReveal.value) return;
   answerLoading.value = true;
   try {
-    answer.value = await getQuestionAnswer(props.qId);
+    answer.value = await getQuestionAnswer(currentQId.value);
     revealed.value = true;
   } catch (e) {
     ElMessage.error((e as Error).message || "参考答案加载失败");
@@ -319,7 +453,7 @@ const submit = async (isCorrect?: boolean) => {
     if (props.mode === "plan" && props.planId != null) {
       const costSeconds = openedAt ? Math.max(0, Math.round((Date.now() - openedAt) / 1000)) : null;
       const result = await checkinPlan(props.planId, {
-        qId: props.qId,
+        qId: currentQId.value,
         clientToken: tokenForCurrentQuestion(),
         answered: true,
         myAnswer: combinedAnswer.value,
@@ -330,34 +464,56 @@ const submit = async (isCorrect?: boolean) => {
       submitToken = "";
       const actual = result.isCorrect ?? isCorrect ?? false;
       const mode = result.gradingMode ?? (isObjective.value ? "AUTO" : "SELF");
-      ElMessage.success(mode === "AUTO"
+      const message = mode === "AUTO"
         ? (actual ? "已打卡：系统判分正确" : "已打卡：系统判分错误")
-        : (actual ? "已打卡：自评正确" : "已打卡：自评错误"));
-      emit("completed", { isCorrect: actual, practiceId: result.practiceId ?? undefined, verified: result.verified });
-      visible.value = false;
+        : (actual ? "已打卡：自评正确" : "已打卡：自评错误");
+      ElMessage.success(message);
+      completedResult.value = {
+        isCorrect: actual,
+        practiceId: result.practiceId ?? undefined,
+        verified: result.verified
+      };
+      submissionResult.value = {
+        isCorrect: actual,
+        practiceId: result.practiceId ?? undefined,
+        verified: result.verified,
+        message,
+        errorType,
+        // 计划打卡契约暂未返回服务端耗时，结果态不展示前端自算值。
+        costSeconds: null
+      };
       return;
     }
     const result = await submitPractice({
-      qId: props.qId,
+      qId: currentQId.value,
       kpId,
       isCorrect,
       myAnswer: combinedAnswer.value,
       errorType,
-      source: props.recommendationId != null ? "RECOMMEND" : "SELF",
-      recommendationId: props.recommendationId,
+      startToken: tokenForCurrentQuestion(),
+      source: currentRecommendationId.value != null ? "RECOMMEND" : "SELF",
+      recommendationId: currentRecommendationId.value,
       // 同一题复用 token：超时/连点重试不会写出两条作答
       clientToken: tokenForCurrentQuestion()
     });
     submitToken = "";
     const actual = result.isCorrect ?? isCorrect ?? false;
     const mode = result.gradingMode ?? (isObjective.value ? "AUTO" : "SELF");
-    ElMessage.success(result.duplicate
+    const message = result.duplicate
       ? "已提交过，返回首次结果"
       : (mode === "AUTO"
         ? (actual ? "系统判分：正确" : "系统判分：错误")
-        : (actual ? "已记录自评：正确" : "已记录自评：错误")));
-    emit("completed", { isCorrect: actual, practiceId: result.practiceId });
-    visible.value = false;
+        : (actual ? "已记录自评：正确" : "已记录自评：错误"));
+    ElMessage.success(message);
+    completedResult.value = { isCorrect: actual, practiceId: result.practiceId };
+    submissionResult.value = {
+      isCorrect: actual,
+      practiceId: result.practiceId,
+      message,
+      errorType,
+      costSeconds: result.costSeconds ?? null
+    };
+    void prepareNext(kpId);
   } catch (e) {
     ElMessage.error((e as Error).message || "提交失败");
   } finally {
@@ -381,7 +537,7 @@ const recordOnly = async () => {
   submitting.value = true;
   try {
     await checkinPlan(props.planId, {
-      qId: props.qId,
+      qId: currentQId.value,
       clientToken: newClientToken(),
       answered: false
     });
@@ -396,9 +552,13 @@ const recordOnly = async () => {
 };
 
 watch(
-  () => [props.modelValue, props.qId] as const,
+  () => [props.modelValue, props.qId, props.recommendationId] as const,
   ([open]) => {
-    if (open) load();
+    if (open) {
+      currentQId.value = props.qId;
+      currentRecommendationId.value = props.recommendationId ?? null;
+      load();
+    }
   },
   { immediate: true }
 );
@@ -455,6 +615,54 @@ watch(
 .hint {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
+}
+.submission-result {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+}
+.answer-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.answer-compare > div {
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+}
+.answer-compare span,
+.answer-compare strong {
+  display: block;
+}
+.answer-compare span {
+  margin-bottom: 4px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.answer-compare strong {
+  overflow-wrap: anywhere;
+}
+.result-reason,
+.result-progress {
+  margin: 4px 0;
+  text-align: center;
+}
+.result-progress {
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+}
+.drawer-footer-actions {
+  width: 100%;
+  margin-top: 0;
+}
+:deep(.el-drawer__footer) {
+  padding: 12px 20px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
 }
 .answer-panel {
   margin-top: 8px;

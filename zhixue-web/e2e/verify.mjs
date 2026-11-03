@@ -71,10 +71,47 @@ const teacherStudents = { page: 1, size: 20, total: 2, records: [
 const studentLearning = { summary: teacherStudents.records[0], practices: { page: 1, size: 10, total: 1, records: [{ practiceId: 1, qId: 'Q_0301', questionText: '题干', kpId: 'KP0001', kpName: '概念', isCorrect: true, myAnswer: 'B', correctAnswer: 'B', costSeconds: 45, errorType: null, source: 'PLAN', createdAt: '2026-10-30 21:10:00' }] }, errors: [], kpMastery: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6, errorCount: 4 }] }
 const questionDetail = { qId: 'Q_0301', courseId: 1, kpId: 'KP0001', kpName: '概念', questionType: '单选', questionText: '题干', options: [{key:'A',text:'A'},{key:'B',text:'B'},{key:'C',text:'C'},{key:'D',text:'D'}], difficulty: 1 }
 const answer = { qId: 'Q_0301', answerText: 'A', analysisText: '解析' }
+const nextQuestionDetail = { ...questionDetail, qId: 'Q_0302', questionText: '题干 2' }
+const nextAnswer = { qId: 'Q_0302', answerText: 'B', analysisText: '解析 2' }
+const thirdQuestionDetail = { ...questionDetail, qId: 'Q_0303', questionText: '题干 3' }
+const thirdAnswer = { qId: 'Q_0303', answerText: 'C', analysisText: '解析 3' }
+const ocrStem = '这是一道足够长度的题干'
 const defaultDueReviews = [{ source: 'DUE_REVIEW', kpId: 'KP0006', kpName: '函数依赖', qId: 'Q_0306', questionText: '题干 6', difficulty: 2, daysSinceLastCorrect: 41, mastery: 0.44, sampleCount: 5, reason: '距上次答对 41 天，已过半衰期 + 概念混淆型错误' }]
 let dueReviewsMock = defaultDueReviews
+let explainRequestCount = 0
+let mapRequestCount = 0
+let ocrConfidence = 0.95
+let recommendationDelayMs = 0
+let lastPracticePayload = null
+let lastStartPayload = null
+let lastErrorRecordPayload = null
 
 function reply(method, pathname, role, search = '') {
+  if (method === 'POST' && pathname === '/api/practices/start') {
+    return { code: 0, data: { clientToken: 'mock-start', startedAt: '2026-11-03 12:00:00' }, timestamp: Date.now() }
+  }
+  if (method === 'POST' && pathname === '/api/practices') {
+    return { code: 0, data: { practiceId: 777, duplicate: false, gradingMode: 'AUTO', isCorrect: true, costSeconds: 42 }, timestamp: Date.now() }
+  }
+  if (method === 'POST' && /^\/api\/plans\/\d+\/checkin$/.test(pathname)) {
+    return { code: 0, data: { practiceId: 778, duplicate: false, gradingMode: 'AUTO', isCorrect: true, verified: true }, timestamp: Date.now() }
+  }
+  if (method === 'POST' && pathname === '/api/error/upload') {
+    return { code: 0, data: { taskId: 'OCR1' }, timestamp: Date.now() }
+  }
+  if (method === 'GET' && pathname === '/api/error/tasks/OCR1') {
+    return { code: 0, data: { taskId: 'OCR1', status: 'SUCCESS', confidence: ocrConfidence, fields: { stem: ocrStem } }, timestamp: Date.now() }
+  }
+  if (method === 'POST' && pathname === '/api/diagnosis/map') {
+    mapRequestCount += 1
+    return { code: 0, data: { decision: 'AUTO', candidates: [{ kpId: 'KP0001', name: '概念', score: 0.9 }] }, timestamp: Date.now() }
+  }
+  if (method === 'POST' && pathname === '/api/error/records') {
+    return { code: 0, data: { logId: 'LOGAUTO', status: 'DRAFT' }, timestamp: Date.now() }
+  }
+  if (method === 'PUT' && pathname === '/api/error/records/LOGAUTO/confirm') {
+    return { code: 0, data: { logId: 'LOGAUTO', status: 'CONFIRMED' }, timestamp: Date.now() }
+  }
   if (pathname === '/api/auth/login') {
     return { code: 0, data: { token: 'mock-login', userId: role === 'TEACHER' ? 1 : 2, username: role === 'TEACHER' ? 'T001' : '2023034743010', role }, timestamp: Date.now() }
   }
@@ -111,14 +148,23 @@ function reply(method, pathname, role, search = '') {
   if (pathname === '/api/teacher/reviews') return { code: 0, data: reviewsPage, timestamp: Date.now() }
   if (pathname === '/api/teacher/students') return { code: 0, data: teacherStudents, timestamp: Date.now() }
   if (/^\/api\/teacher\/students\/\d+\/learning-records$/.test(pathname)) return { code: 0, data: studentLearning, timestamp: Date.now() }
-  if (/^\/api\/questions\/[^/]+\/answer$/.test(pathname)) return { code: 0, data: answer, timestamp: Date.now() }
-  if (/^\/api\/questions\/[^/]+$/.test(pathname)) return { code: 0, data: questionDetail, timestamp: Date.now() }
   if (pathname === '/api/questions') {
     const kpId = new URLSearchParams(search).get('kpId') || ''
+    if (kpId === 'KP0001') {
+      return { code: 0, data: [{ ...questionDetail, questionText: ocrStem }], timestamp: Date.now() }
+    }
     return { code: 0, data: [
       { qId: `Q_MOCK_${kpId}_1`, primaryKpId: kpId, questionType: '单选', questionText: `【mock】${kpId} 基础题题干`, difficulty: 1 },
       { qId: `Q_MOCK_${kpId}_2`, primaryKpId: kpId, questionType: '单选', questionText: `【mock】${kpId} 进阶题题干`, difficulty: 2 }
     ], timestamp: Date.now() }
+  }
+  if (/^\/api\/questions\/[^/]+\/answer$/.test(pathname)) {
+    const qId = decodeURIComponent(pathname.split('/').at(-2))
+    return { code: 0, data: qId === 'Q_0302' ? nextAnswer : qId === 'Q_0303' ? thirdAnswer : answer, timestamp: Date.now() }
+  }
+  if (/^\/api\/questions\/[^/]+$/.test(pathname)) {
+    const qId = decodeURIComponent(pathname.split('/').pop())
+    return { code: 0, data: qId === 'Q_0302' ? nextQuestionDetail : qId === 'Q_0303' ? thirdQuestionDetail : questionDetail, timestamp: Date.now() }
   }
   return { code: 0, data: null, timestamp: Date.now() }
 }
@@ -243,7 +289,47 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
     if (u.pathname.startsWith('/api/')) {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role, u.search)) })
+      if (route.request().method() === 'POST' && u.pathname === '/api/error/records') {
+        lastErrorRecordPayload = route.request().postDataJSON()
+      }
+      if (route.request().method() === 'GET' && u.pathname === '/api/questions') {
+        await sleep(300)
+      }
+      if (route.request().method() === 'GET' && u.pathname === '/api/recommendations' && recommendationDelayMs) {
+        await sleep(recommendationDelayMs)
+      }
+      if (route.request().method() === 'POST' && u.pathname === '/api/practices/start') {
+        lastStartPayload = route.request().postDataJSON()
+      }
+      if (route.request().method() === 'POST' && u.pathname === '/api/practices') {
+        lastPracticePayload = route.request().postDataJSON()
+      }
+      if (route.request().method() === 'POST' && /^\/api\/plans\/\d+\/checkin$/.test(u.pathname)) {
+        const payload = route.request().postDataJSON()
+        if (payload.answered) {
+          for (const plan of plans) {
+            const item = plan.items.find((entry) => entry.qId === payload.qId)
+            if (item && !item.isDone) {
+              item.isDone = true
+              plan.doneCount += 1
+              plan.status = plan.items.every((entry) => entry.isDone) ? 'DONE' : 'PENDING'
+            }
+          }
+        }
+      }
+      if (route.request().method() === 'POST' && u.pathname === '/api/diagnosis/explain') {
+        explainRequestCount += 1
+        const body = [
+          'event:meta\ndata:{"explainId":"EXPAUTO"}',
+          'event:source\ndata:{"kpId":"KP0001","textbookPage":"P34","title":"概念"}',
+          'event:delta\ndata:{"text":"本题讲解：先找连接条件。"}',
+          'event:done\ndata:{"explainId":"EXPAUTO","latencyMs":10}',
+          ''
+        ].join('\n\n')
+        await route.fulfill({ status: 200, contentType: 'text/event-stream', body })
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role, u.search)) })
+      }
     } else {
       await route.continue()
     }
@@ -356,6 +442,14 @@ try {
   // ---------- 学生桌面 ----------
   const studentCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   const page = await studentCtx.newPage()
+  const runtimeLogs = []
+  page.on('pageerror', (error) => runtimeLogs.push(`pageerror: ${error.message}`))
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) runtimeLogs.push(`nav: ${frame.url()}`)
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') runtimeLogs.push(`console: ${message.text()}`)
+  })
 
   await open(page, '/today')
   await checkNext('今日：主结论存在', async () => {
@@ -370,6 +464,114 @@ try {
     const visiblePrimary = await page.locator('.el-button--primary:visible').count()
     return heroPrimary === 1 && recommendationPrimary === 0 && visiblePrimary === 1
   })
+  await page.locator('.rec-card').first().getByRole('button', { name: '开始练习' }).click()
+  await page.locator('.practice-drawer.open').waitFor()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.locator('.answer-panel').waitFor()
+  recommendationDelayMs = 500
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await sleep(300)
+  const explainEntry = page.getByRole('button', { name: '查看本题讲解' })
+  const resultVisible = await page.locator('.submission-result').isVisible().catch(() => false)
+  const drawerStillOpen = await page.locator('.practice-drawer.open').isVisible().catch(() => false)
+  check(
+    '练习提交：原地保留结果与讲解入口',
+    drawerStillOpen && resultVisible && await explainEntry.count() === 1,
+    JSON.stringify({ drawerStillOpen, resultVisible, explainEntries: await explainEntry.count() })
+  )
+  const answerComparison = await page.locator('.answer-compare').innerText().catch(() => '')
+  const reasonText = await page.locator('.result-reason').innerText().catch(() => '')
+  const progressText = await page.locator('.result-progress').innerText().catch(() => '')
+  check(
+    '练习结果：展示答案对照与本次进步证据',
+    answerComparison.includes('你的答案') && answerComparison.includes('正确答案')
+      && !!reasonText && progressText.includes('本次用时 42 秒（服务端计时）'),
+    JSON.stringify({ answerComparison, reasonText, progressText })
+  )
+  check(
+    '练习提交：使用服务端计时令牌',
+    lastStartPayload?.qId === 'Q_0301'
+      && lastPracticePayload?.startToken === lastStartPayload?.clientToken
+      && lastPracticePayload?.costSeconds === undefined,
+    JSON.stringify({ lastStartPayload, lastPracticePayload })
+  )
+  const explainRequestsBeforeEntry = explainRequestCount
+  const mapRequestsBeforeEntry = mapRequestCount
+  let autoExplainOk = false
+  let autoExplainDetail = '讲解入口不存在'
+  if (await explainEntry.count()) {
+    await page.evaluate(() => document.addEventListener('click', (event) => {
+      window.__lastClickedButton = event.target.closest('button')?.innerText || event.target.textContent || ''
+    }, true))
+    await explainEntry.click()
+    await page.waitForURL((url) => new URL(url).pathname === '/diagnosis', { timeout: 10000 }).catch(() => {})
+    await page.locator('.explain-text').waitFor({ timeout: 10000 }).catch(() => {})
+    const url = new URL(page.url())
+    autoExplainDetail = JSON.stringify({ url: page.url(), explainRequestCount, mapRequestCount })
+    autoExplainOk = url.searchParams.get('qId') === 'Q_0301'
+      && url.searchParams.get('kpId') === 'KP0001'
+      && url.searchParams.get('autoExplain') === '1'
+      && explainRequestCount === explainRequestsBeforeEntry + 1
+      && mapRequestCount === mapRequestsBeforeEntry
+      && (await page.locator('.explain-text').innerText().catch(() => '')).includes('本题讲解')
+  }
+  if (!autoExplainOk) {
+    const screenshot = 'auto-explain-failure.png'
+    await page.screenshot({ path: path.join(OUT, screenshot), fullPage: true })
+    autoExplainDetail = JSON.stringify({
+      url: page.url(),
+      explainRequestCount,
+      mapRequestCount,
+      runtimeLogs,
+      screenshot,
+      lastClickedButton: await page.evaluate(() => window.__lastClickedButton || ''),
+      navigationType: await page.evaluate(() => performance.getEntriesByType('navigation')[0]?.type || ''),
+      drawerText: await page.locator('.practice-drawer.open').innerText().catch(() => '')
+    })
+  }
+  check('练习讲解：入口带题自动开始生成', autoExplainOk, autoExplainDetail)
+  recommendationDelayMs = 0
+
+  await page.locator('.recommend-card button.question').nth(1).waitFor()
+  await page.locator('.recommend-card button.question').nth(1).click()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  const secondExplainRequests = explainRequestCount
+  await page.getByRole('button', { name: '查看本题讲解' }).click()
+  const secondAutoOk = await waitFor(async () => {
+    const url = new URL(page.url())
+    return url.searchParams.get('qId') === 'Q_0302'
+      && explainRequestCount === secondExplainRequests + 1
+      && (await page.locator('.explain-text').innerText().catch(() => '')).includes('本题讲解')
+  }, 3000)
+  check(
+    '练习讲解：同页第二次入口按新题重新生成',
+    secondAutoOk,
+    JSON.stringify({ url: page.url(), before: secondExplainRequests, after: explainRequestCount })
+  )
+
+  await open(page, '/today')
+  await page.locator('.rec-card').first().getByRole('button', { name: '开始练习' }).click()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  const nextButton = page.getByRole('button', { name: '下一题' })
+  await waitFor(() => nextButton.isEnabled())
+  await nextButton.click()
+  await page.waitForFunction(() => document.querySelector('.practice-drawer .stem')?.textContent?.includes('题干 2'))
+  check(
+    '练习结果：下一题在原抽屉加载',
+    await page.locator('.practice-drawer.open').isVisible()
+      && (await page.locator('.practice-drawer .stem').innerText()).includes('题干 2')
+      && await page.locator('.submission-result').count() === 0,
+    await page.locator('.practice-drawer').innerText()
+  )
+  await page.keyboard.press('Escape')
+
   dueReviewsMock = []
   await open(page, '/today')
   await checkNext('今日：三张指标卡', async () => {
@@ -424,6 +626,32 @@ try {
   const practiceBox = await page.locator('.practice-drawer.open').boundingBox()
   check('抽屉：铺满视口', !!practiceBox && practiceBox.height > 800, JSON.stringify(practiceBox))
   await page.keyboard.press('Escape'); await sleep(500)
+
+  await page.locator('.day-card').nth(3).getByRole('button', { name: '去打卡' }).first().click()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  await page.getByRole('button', { name: '下一题' }).click()
+  await page.waitForFunction(() => document.querySelector('.practice-drawer .stem')?.textContent?.includes('题干 3'))
+  check(
+    '计划打卡：下一题进入当天未完成项',
+    await page.locator('.practice-drawer.open').isVisible()
+      && (await page.locator('.practice-drawer .stem').innerText()).includes('题干 3'),
+    await page.locator('.practice-drawer.open').innerText()
+  )
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  await page.getByRole('button', { name: '下一题' }).click()
+  await sleep(300)
+  check(
+    '计划打卡：连续下一题不回跳已提交项',
+    !await page.locator('.practice-drawer.open').isVisible().catch(() => false),
+    await page.locator('.practice-drawer.open').innerText().catch(() => '已全部完成并关闭')
+  )
+  await page.keyboard.press('Escape'); await sleep(300)
 
   await open(page, '/knowledge-graph')
   await checkNext('图谱：缩放控件 3 个', async () => (await page.locator('.graph-controls button').count()) === 3)
@@ -623,6 +851,63 @@ try {
   await checkNext('403：无权访问页', async () => (await page.locator('.state-code').innerText()).trim() === '403')
 
   await open(page, '/diagnosis')
+  await page.locator('textarea').first().fill('题干')
+  await page.getByRole('button', { name: '匹配知识点' }).click()
+  await page.getByRole('button', { name: '生成启发式讲解' }).click()
+  await page.locator('.recommend-card .question').first().waitFor({ timeout: 10000 })
+  const recommendationButton = page.locator('.recommend-card button.question').first()
+  let recommendationOpened = false
+  if (await recommendationButton.count()) {
+    await recommendationButton.click()
+    recommendationOpened = await page.locator('.practice-drawer.open').isVisible().catch(() => false)
+      && (await page.locator('.practice-drawer .stem').innerText().catch(() => '')).includes('题干')
+    await page.keyboard.press('Escape')
+  }
+  check(
+    '诊断推荐：题目可进入对应练习',
+    recommendationOpened,
+    JSON.stringify({ clickableQuestions: await recommendationButton.count(), recommendationOpened })
+  )
+
+  for (const testCase of [
+    { name: 'OCR：高置信识别自动匹配并生成讲解', confidence: 0.95, automatic: true },
+    { name: 'OCR：低置信识别明确等待人工核对', confidence: 0.5, automatic: false }
+  ]) {
+    ocrConfidence = testCase.confidence
+    await open(page, '/diagnosis')
+    const mapBeforeOcr = mapRequestCount
+    const explainBeforeOcr = explainRequestCount
+    lastErrorRecordPayload = null
+    await page.locator('.ocr-upload input[type="file"]').setInputFiles({
+      name: 'question.png', mimeType: 'image/png', buffer: Buffer.from('mock-image')
+    })
+    await waitFor(async () => (await page.locator('textarea').first().inputValue()) === ocrStem)
+    await sleep(300)
+    const followUp = await page.locator('.ocr-follow-up').innerText().catch(() => '')
+    const generated = (await page.locator('.explain-text').innerText().catch(() => '')).includes('本题讲解')
+    const actual = {
+      mapRequests: mapRequestCount - mapBeforeOcr,
+      explainRequests: explainRequestCount - explainBeforeOcr,
+      followUp,
+      generated,
+      matchDisabled: await page.getByRole('button', { name: '匹配知识点' }).isDisabled()
+    }
+    check(
+      testCase.name,
+      testCase.automatic
+        ? actual.mapRequests === 1 && actual.explainRequests === 1 && actual.generated && /自动|生成/.test(followUp)
+        : actual.mapRequests === 0 && actual.explainRequests === 0 && !actual.generated && actual.matchDisabled && /核对/.test(followUp),
+      JSON.stringify(actual)
+    )
+    if (testCase.automatic) {
+      check(
+        'OCR：自动讲解保留关联题目',
+        lastErrorRecordPayload?.qId === 'Q_0301',
+        JSON.stringify(lastErrorRecordPayload)
+      )
+    }
+  }
+  ocrConfidence = 0.95
   let explainReviewOk = true
   for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
     await open(page, `/diagnosis?explainId=${explainId}`)
@@ -844,6 +1129,27 @@ try {
       await pinchCtx.close()
     }
   }
+  const originalStem = questionDetail.questionText
+  const originalOptions = questionDetail.options
+  questionDetail.questionText = '请根据给定的学生表、课程表与选课表，分析连接条件并选择能够保留全部学生信息的查询结果。'.repeat(8)
+  questionDetail.options = originalOptions.map((option) => ({ ...option, text: `${option.text}：需要同时说明连接类型、连接条件以及空值保留范围。`.repeat(3) }))
+  await mp.setViewportSize({ width: 360, height: 740 })
+  await open(mp, '/today')
+  await mp.locator('.rec-card').first().getByRole('button', { name: '开始练习' }).click()
+  await mp.locator('.practice-drawer .el-radio').first().click()
+  await mp.getByRole('button', { name: '查看参考答案' }).click()
+  await mp.locator('.answer-panel').waitFor()
+  const mobileSubmit = mp.getByRole('button', { name: '提交本题（系统判分）' })
+  const mobileSubmitBox = await mobileSubmit.boundingBox()
+  check(
+    '移动端/练习：360x740 提交按钮首屏可见',
+    !!mobileSubmitBox && mobileSubmitBox.y >= 0 && mobileSubmitBox.y + mobileSubmitBox.height <= 740,
+    JSON.stringify(mobileSubmitBox)
+  )
+  await mp.keyboard.press('Escape')
+  questionDetail.questionText = originalStem
+  questionDetail.options = originalOptions
+  await mp.setViewportSize({ width: 390, height: 844 })
   await open(mp, '/knowledge-graph')
   await open(mp, '/knowledge-graph?kpId=KP0012')
   await checkNext('移动端/图谱：换行与主动作可见', async () => {

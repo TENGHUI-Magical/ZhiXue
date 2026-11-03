@@ -134,6 +134,14 @@ export const getRecommendations = (params: {
   courseId: number;
 }) => api.get<Recommendation[]>("/api/recommendations", params);
 
+export interface PracticeStartResult {
+  clientToken: string;
+  startedAt: string;
+}
+
+export const startPractice = (payload: { qId: string; clientToken: string }) =>
+  api.post<PracticeStartResult>("/api/practices/start", payload);
+
 export interface PracticeSubmitPayload {
   qId: string;
   kpId: string;
@@ -142,6 +150,8 @@ export interface PracticeSubmitPayload {
   myAnswer?: string | null;
   errorType?: string | null;
   costSeconds?: number | null;
+  /** 服务端 begin 打点令牌；携带后由服务端计时，客户端 costSeconds 被忽略 */
+  startToken?: string | null;
   source?: "RECOMMEND" | "SELF";
   recommendationId?: number | null;
   clientToken: string;
@@ -154,6 +164,8 @@ export interface PracticeSubmitResult {
   gradingMode?: "AUTO" | "SELF" | null;
   /** 服务端最终对错；幂等回放时来自首次记录 */
   isCorrect?: boolean | null;
+  /** 服务端 begin → submit 计时；未打点或超过 30 分钟为 null */
+  costSeconds?: number | null;
 }
 
 /** 提交作答（契约 POST /api/practices）：客观题服务端判分，主观题自评 */
