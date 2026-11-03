@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewPageView;
@@ -25,14 +26,19 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -52,6 +58,8 @@ class TeacherReviewServiceTest {
     private QuestionBankService questionBankService;
     @Mock
     private UserQueryService userQueryService;
+    @Mock
+    private CourseService courseService;
 
     private TeacherReviewService service;
 
@@ -64,7 +72,7 @@ class TeacherReviewServiceTest {
     @BeforeEach
     void setUp() {
         service = new TeacherReviewService(logMapper, errorRecordMapper, knowledgePointService,
-                questionBankService, userQueryService, new ObjectMapper());
+                questionBankService, userQueryService, new ObjectMapper(), courseService);
     }
 
     @Test
@@ -80,8 +88,9 @@ class TeacherReviewServiceTest {
         log.setSourceIds("[\"KP0201\"]");
         log.setContentText("讲解正文");
         log.setCreatedAt(LocalDateTime.of(2026, 10, 28, 20, 0, 0));
-        when(logMapper.countForReview(any(), any(), any(), any())).thenReturn(1L);
-        when(logMapper.selectForReview(any(), any(), any(), any(), anyInt(), anyInt()))
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(1L);
+        when(logMapper.selectForReview(any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(List.of(log));
 
         StudentErrorRecord error = new StudentErrorRecord();
@@ -119,6 +128,83 @@ class TeacherReviewServiceTest {
             assertEquals(ErrorCode.PARAM_ERROR, page.getErrorCode());
             BizException size = assertThrows(BizException.class, () -> service.page(1, 51));
             assertEquals(ErrorCode.PARAM_ERROR, size.getErrorCode());
+        }
+    }
+
+    /** 导出：全量查询、姓名脱敏、错因中文映射、评阅字段、BOM 与中文表头。 */
+    @Test
+    void exportCsvMasksNamesMapsErrorTypesAndCarriesReviewFields() {
+        AiGenerationLog reviewed = new AiGenerationLog();
+        reviewed.setLogPk(11L);
+        reviewed.setExplainId("EX_2");
+        reviewed.setUserId(3L);
+        reviewed.setLogId("EL_2");
+        reviewed.setScene("RAG");
+        reviewed.setModel("deepseek-chat");
+        reviewed.setIsDegraded(0);
+        reviewed.setSourceIds("[\"KP0201\"]");
+        reviewed.setContentText("正文不进导出");
+        reviewed.setCreatedAt(LocalDateTime.of(2026, 10, 28, 20, 0, 0));
+        reviewed.setReviewResult("PASS");
+        reviewed.setTeacherScore(5);
+        reviewed.setTeacherComment("讲解清晰");
+        reviewed.setReviewedAt(LocalDateTime.of(2026, 10, 29, 9, 0, 0));
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.selectForReviewAll(any(), any(), any(), any(), any()))
+                .thenReturn(List.of(reviewed));
+
+        StudentErrorRecord error = new StudentErrorRecord();
+        error.setLogId("EL_2");
+        error.setKpId("KP0201");
+        error.setErrorType("CONCEPT_CONFUSION");
+        error.setQId("Q_0201");
+        when(errorRecordMapper.selectBatchIds(any())).thenReturn(List.of(error));
+
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setKpId("KP0201");
+        kp.setName("关系模型");
+        kp.setTextbookPage("P34");
+        when(knowledgePointService.findByIds(any())).thenReturn(Map.of("KP0201", kp));
+        com.zhixue.course.entity.QuestionBank question = new com.zhixue.course.entity.QuestionBank();
+        question.setQId("Q_0201");
+        question.setQuestionText("求闭包");
+        when(questionBankService.findByIds(any())).thenReturn(Map.of("Q_0201", question));
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(3L, "欧阳锋"));
+
+        byte[] csv;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            csv = service.exportCsv("REVIEWED", null, null, null);
+        }
+
+        String text = new String(csv, StandardCharsets.UTF_8);
+        // BOM + 中文表头
+        assertEquals((byte) 0xEF, csv[0]);
+        assertTrue(text.startsWith("\uFEFF留痕ID,讲解ID,学生（脱敏）,"));
+        // 姓名“欧阳锋”→“欧*锋”（NameMasker 同口径）；错因映射中文；评阅字段完整
+        assertTrue(text.contains("11,EX_2,欧*锋,KP0201,概念混淆"));
+        assertTrue(text.contains(",通过,5,讲解清晰,2026-10-29 09:00:00"));
+        // 正文是系统内可查的字段，不进学期材料导出
+        assertFalse(text.contains("正文不进导出"));
+        // 全量查询（无分页参数），且带登录教师的课程范围
+        verify(logMapper).selectForReviewAll(any(), any(), any(), any(), eq(List.of(1L)));
+    }
+
+    /** 课程范围（队列与导出同口径）：无课程教师传哨兵 -1（看不到任何有归属的记录）；有课程教师传自己的课程集。 */
+    @Test
+    void reviewQueriesAreScopedToTeachersManagedCourses() {
+        when(courseService.listActiveCourseIdsByTeacher(2L)).thenReturn(List.of(1L, 3L));
+        when(courseService.listActiveCourseIdsByTeacher(9L)).thenReturn(List.of());
+        when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(0L);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            service.page(1, 10, "PENDING", null, null, null);
+            verify(logMapper).countForReview(any(), any(), any(), any(), eq(List.of(1L, 3L)));
+
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(9L);
+            service.page(1, 10, "PENDING", null, null, null);
+            // 无课程教师：哨兵 -1 → NOT IN (-1) 恒真 → 有归属的记录全排除，只剩归属不明
+            verify(logMapper).countForReview(any(), any(), any(), any(), eq(List.of(-1L)));
         }
     }
 

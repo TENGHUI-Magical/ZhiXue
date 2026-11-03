@@ -17,7 +17,10 @@ public record ReviewItemView(Long logPk, String explainId, String userName, Stri
                              String correctAnswer, String analysisText, String studentNote,
                              long waitingSeconds,
                              @Schema(allowableValues = {"PASS", "RETURN"}) String reviewResult,
-                             @Schema(allowableValues = {"PENDING", "REVIEWED"}) String reviewStatus) {
+                             @Schema(allowableValues = {"PENDING", "REVIEWED"}) String reviewStatus,
+                             Integer teacherScore,
+                             @Schema(nullable = true, description = "教师评语；未评阅为 null") String teacherComment,
+                             @Schema(nullable = true, description = "评阅时间（yyyy-MM-dd HH:mm:ss）；未评阅为 null") String reviewedAt) {
 
     public record SourceRef(String kpId, String textbookPage, String title) {
     }

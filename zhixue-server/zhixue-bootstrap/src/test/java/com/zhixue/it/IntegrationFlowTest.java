@@ -1005,6 +1005,158 @@ class IntegrationFlowTest {
         return logPk;
     }
 
+    /**
+     * CSV 导出越权（P0 立项三条要求之一）：学生调两个导出端点必须 40300，
+     * 非课程教师调班级学情导出必须 40300，未登录 40100——证明导出不泄漏学生数据。
+     */
+    @Test
+    void csvExportRejectsStudentsAndOutsiderTeachers() throws Exception {
+        String studentToken = login();
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", studentToken)))
+                .isEqualTo(40300);
+        assertThat(code(getJson("/api/teacher/reviews/export", studentToken)))
+                .isEqualTo(40300);
+
+        String otherTeacher = login("it_teacher2");
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", otherTeacher)))
+                .isEqualTo(40300);
+
+        assertThat(code(getJson("/api/teacher/students/export?courseId=1", null))).isEqualTo(40100);
+        assertThat(code(getJson("/api/teacher/reviews/export", null))).isEqualTo(40100);
+    }
+
+    /**
+     * 评阅留痕的课程范围隔离（2026-11-03 补数据范围级越权）：队列与导出同口径，
+     * 教师只能看到自己可管理课程的记录。用两条真实不同课程的种子记录判别
+     * （A 属 course 1 / it_teacher，B 属隔离课程 99 / it_teacher2），不 mock。
+     * 改前（无课程条件）教师 A 的导出两行都含；改后只含自己课程的。
+     */
+    @Test
+    void reviewExportAndQueueAreScopedToTeacherCourses() throws Exception {
+        long teacher2 = userIdOf("it_teacher2");
+        long student = userIdOf("it_user");
+        List<String> qIds = courseQids(1);
+
+        jdbcTemplate.update(
+                "INSERT INTO course (course_id, course_name, teacher_id, is_active) "
+                        + "VALUES (99, '隔离测试课程', ?, 1)", teacher2);
+        jdbcTemplate.update(
+                "INSERT INTO course_chapter (course_id, chapter_no, title) VALUES (99, 1, '隔离章节')");
+        Long chapter99 = jdbcTemplate.queryForObject(
+                "SELECT chapter_id FROM course_chapter WHERE course_id = 99", Long.class);
+        jdbcTemplate.update(
+                "INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, textbook_page, "
+                        + "dimension_key, sort_no, created_by, is_active) "
+                        + "VALUES ('KPSCOPE99', 99, ?, '隔离知识点', 'P1', 'concept', 1, 1, 1)", chapter99);
+        jdbcTemplate.update(
+                "INSERT INTO question_bank (q_id, course_id, primary_kp_id, question_type, "
+                        + "question_text, answer_text, difficulty, is_active) "
+                        + "VALUES ('Q_SCOPE_99', 99, 'KPSCOPE99', '单选', '隔离课程题目', 'A', 1, 1)");
+        try {
+            // 两条真实讲解留痕：A 属 course 1，B 属 course 99（同一学生，排除学生维度干扰）
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_SCOPE_A', ?, 'scope-a', ?, 'KP0201', 'CONFIRMED', "
+                            + "'CONCEPT_CONFUSION', '范围A')", student, qIds.get(0));
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_SCOPE_B', ?, 'scope-b', 'Q_SCOPE_99', 'KPSCOPE99', "
+                            + "'CONFIRMED', 'CONCEPT_CONFUSION', '范围B')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_SCOPE_A', 'EX_SCOPE_A', 'TR_SCOPE_A', ?, 'RAG', "
+                            + "'deepseek-chat', 'A课程的讲解')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_SCOPE_B', 'EX_SCOPE_B', 'TR_SCOPE_B', ?, 'RAG', "
+                            + "'deepseek-chat', 'B课程的讲解')", student);
+
+            // 教师 A（course 1）：队列与导出都含 A 不含 B
+            String teacherA = login("it_teacher");
+            String queueA = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacherA));
+            assertThat(queueA).contains("EX_SCOPE_A").doesNotContain("EX_SCOPE_B");
+            String exportA = body(getJson("/api/teacher/reviews/export?status=ALL", teacherA));
+            assertThat(exportA).contains("EX_SCOPE_A").doesNotContain("EX_SCOPE_B");
+
+            // 教师 B（course 99）：含 B 不含 A（双向证明，不是只把 B 藏起来）
+            String teacherB = login("it_teacher2");
+            String queueB = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacherB));
+            assertThat(queueB).contains("EX_SCOPE_B").doesNotContain("EX_SCOPE_A");
+            String exportB = body(getJson("/api/teacher/reviews/export?status=ALL", teacherB));
+            assertThat(exportB).contains("EX_SCOPE_B").doesNotContain("EX_SCOPE_A");
+        } finally {
+            jdbcTemplate.update(
+                    "DELETE FROM ai_generation_log WHERE log_id IN ('EL_SCOPE_A', 'EL_SCOPE_B')");
+            jdbcTemplate.update(
+                    "DELETE FROM student_error_record WHERE log_id IN ('EL_SCOPE_A', 'EL_SCOPE_B')");
+            jdbcTemplate.update("DELETE FROM question_bank WHERE q_id = 'Q_SCOPE_99'");
+            jdbcTemplate.update("DELETE FROM knowledge_point WHERE kp_id = 'KPSCOPE99'");
+            jdbcTemplate.update("DELETE FROM course_chapter WHERE course_id = 99");
+            jdbcTemplate.update("DELETE FROM course WHERE course_id = 99");
+        }
+    }
+
+    /**
+     * CSV 导出内容（P0 立项三条要求之二、之三）：BOM + 中文表头、完整筛选结果
+     * 而非当前分页（size=1 列表只回 1 条但导出 3 行）、姓名脱敏（不出原始名）、
+     * 评阅留痕带结论/评分/评语且与队列筛选同口径。
+     */
+    @Test
+    void csvExportsContainFullResultWithBomAndMasking() throws Exception {
+        seedC12Students();
+        String teacher = login("it_teacher");
+
+        // 班级学情：分页 size=1 只有 1 行，导出必须 3 行（u1/u2/u3）
+        HttpResponse<String> listResp = getJson(
+                "/api/teacher/students?courseId=1&page=1&size=1", teacher);
+        assertThat((Integer) JsonPath.read(body(listResp), "$.data.total")).isEqualTo(3);
+        assertThat((List<?>) JsonPath.read(body(listResp), "$.data.records")).hasSize(1);
+
+        HttpResponse<String> export = getJson("/api/teacher/students/export?courseId=1", teacher);
+        assertThat(export.statusCode()).isEqualTo(200);
+        assertThat(export.headers().firstValue("Content-Type").orElse(""))
+                .contains("text/csv");
+        assertThat(export.headers().firstValue("Content-Disposition").orElse(""))
+                .contains("attachment").contains("class-learning-1-");
+        String csv = body(export);
+        assertThat(csv.charAt(0)).isEqualTo('\uFEFF');
+        assertThat(csv).startsWith("\uFEFF学生ID,姓名（脱敏）,练习次数,正确率,");
+        assertThat(csv).contains("集**试").contains("张*").contains("欧*锋");
+        assertThat(csv).doesNotContain("集成测试").doesNotContain("欧阳锋");
+        long dataRows = csv.lines().count() - 1;
+        assertThat(dataRows).isEqualTo(3);
+
+        // 评阅留痕：一条已评阅记录 → 导出含脱敏姓名与结论/评分/评语
+        String studentToken = login();
+        String logId = createAndConfirm(studentToken, "csv-review");
+        String sse = body(explain(studentToken, logId));
+        assertThat(sse).contains("event:done");
+        String explainId = explainIdFromSse(sse);
+        awaitExplainLog(explainId, userIdOf("it_user"));
+        long logPk = logPkByExplainId(explainId);
+        assertThat(code(postJson("/api/teacher/reviews/" + logPk,
+                "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}", teacher))).isZero();
+
+        HttpResponse<String> reviewExport = getJson(
+                "/api/teacher/reviews/export?status=REVIEWED", teacher);
+        assertThat(reviewExport.statusCode()).isEqualTo(200);
+        assertThat(reviewExport.headers().firstValue("Content-Disposition").orElse(""))
+                .contains("review-log-");
+        String reviewCsv = body(reviewExport);
+        assertThat(reviewCsv.charAt(0)).isEqualTo('\uFEFF');
+        assertThat(reviewCsv).startsWith("\uFEFF留痕ID,讲解ID,学生（脱敏）,");
+        assertThat(reviewCsv).contains("集**试").doesNotContain("集成测试");
+        assertThat(reviewCsv).contains("概念混淆").contains(",通过,5,讲解清晰,");
+        // 待评阅口径：未评阅的记录不出现在 REVIEWED 导出里
+        HttpResponse<String> pendingExport = getJson(
+                "/api/teacher/reviews/export?status=PENDING", teacher);
+        assertThat(body(pendingExport)).doesNotContain("," + logPk + ",");
+    }
+
     // ==================== C12 教师下钻：聚合 / 脱敏 / 全局排序 / 权限 ====================
 
     @Test

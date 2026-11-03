@@ -102,6 +102,46 @@ class TeacherStudentServiceTest {
         }
     }
 
+    /** 导出与列表同口径：全量（不分页）、同排序、姓名脱敏、BOM 与中文表头；越权在进入聚合前被挡。 */
+    @Test
+    void exportCsvExportsFullResultWithMaskingAndBom() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
+        List<String> qIds = List.of("Q_1", "Q_2");
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
+                agg(2L, 18, 6, 5, 52.4, LocalDateTime.of(2026, 10, 30, 21, 10)),
+                agg(3L, 6, 2, 2, 35.0, LocalDateTime.of(2026, 10, 28, 12, 0))));
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any()))
+                .thenReturn(List.of(kp(2L, "KP01", 10, 4.0, 4)));
+        when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三", 3L, "欧阳锋"));
+
+        byte[] csv;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            csv = service.exportCsv(1L, "lastActiveDesc");
+        }
+
+        String text = new String(csv, java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals((byte) 0xEF, csv[0]);
+        assertTrue(text.startsWith("\uFEFF学生ID,姓名（脱敏）,练习次数,正确率,"));
+        // 两行全量导出（列表 size=1 分页时只有一行，导出必须完整）
+        assertTrue(text.contains("2,张*,18,0.667,52,"));
+        assertTrue(text.contains("3,欧*锋,6,0.667,35,"));
+    }
+
+    @Test
+    void exportCsvRejectsOtherTeacherBeforeAnyQuery() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(99L));
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.exportCsv(1L, "lastActiveDesc"));
+            assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+        }
+        verify(questionBankService, never()).listQidsByCourse(any());
+    }
+
     @Test
     void pageReturnsEmptyWhenCourseHasNoQuestions() {
         when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
