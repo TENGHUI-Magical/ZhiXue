@@ -176,14 +176,29 @@ const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/e
 const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teacher/class']]
 
 // ---------------- 启动与断言 ----------------
+// 只保留 Vite 依赖重优化相关行：首次挂载懒加载路由会触发整页 reload，是挂载超时的已知诱因
+const viteNotices = []
+function captureViteNotice(chunk) {
+  for (const line of String(chunk).split(/\r?\n/)) {
+    const text = line.trim()
+    if (!text) continue
+    if (/new dependencies optimized|optimized dependencies changed|reloading/i.test(text)) {
+      viteNotices.push(text)
+      if (viteNotices.length > 30) viteNotices.shift()
+    }
+  }
+}
+
 async function ensureServer() {
   try {
     const res = await fetch(BASE, { signal: AbortSignal.timeout(1500) })
     if (res.ok) return null
   } catch { /* not running */ }
   const child = spawn('npm', ['run', 'dev', '--', '--port', PORT, '--strictPort'], {
-    cwd: process.cwd(), stdio: 'ignore', shell: true
+    cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], shell: true
   })
+  child.stdout?.on('data', captureViteNotice)
+  child.stderr?.on('data', captureViteNotice)
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500))
     try {
@@ -218,26 +233,58 @@ async function waitFor(fn, timeout = 12000, interval = 250) {
   return false
 }
 
-/** 打开页面并等到路由内容挂载、骨架屏结束 */
+/** 打开页面并等到路由内容挂载、骨架屏结束；失败时把页面现场带出来 */
 async function open(page, pathname) {
-  await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
-  await page.waitForSelector('#main-content', { state: 'attached', timeout: 20000 }).catch(() => {})
-  const mounted = await page
-    .waitForFunction(
+  const started = Date.now()
+  const navs = []
+  const pageErrors = []
+  const onNav = (frame) => {
+    if (frame === page.mainFrame()) navs.push(`${Date.now() - started}ms ${new URL(frame.url()).pathname}`)
+  }
+  const onError = (error) => pageErrors.push(error.message)
+  page.on('framenavigated', onNav)
+  page.on('pageerror', onError)
+  let reason = ''
+  try {
+    await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
+    // 单一真实信号：路由组件根节点出现。reload 期间 waitForFunction 会跨导航重试，
+    // 不必再单独等 #main-content（它只是外壳，壳在而内容空正是懒加载/重载的典型形态）。
+    await page.waitForFunction(
       () => {
         const main = document.querySelector('#main-content')
         return !!main && !!main.querySelector('.page, .state-code, .el-result, .el-empty')
       },
       null,
-      { timeout: 20000 }
+      { timeout: 30000 }
     )
-    .then(() => true)
-    .catch(() => false)
-  if (!mounted) throw new Error(`页面未挂载：${pathname}`)
-  await page
-    .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
-    .catch(() => {})
-  await sleep(150)
+    await page
+      .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
+      .catch(() => {})
+    await sleep(150)
+  } catch (e) {
+    reason = e.message
+    const state = await page.evaluate(() => {
+      const main = document.querySelector('#main-content')
+      return {
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        hasMain: !!main,
+        mainChildren: main ? main.children.length : -1,
+        text: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 200),
+        skeleton: document.querySelectorAll('.el-skeleton').length
+      }
+    }).catch((err) => ({ evalError: err.message }))
+    for (const line of viteNotices.slice(-5)) console.error('VITE:', line)
+    throw new Error(
+      `页面未挂载：${pathname}（${Date.now() - started}ms） reason=${reason} ` +
+      `state=${JSON.stringify(state)} nav=${JSON.stringify(navs.slice(-5))} ` +
+      `errors=${JSON.stringify(pageErrors.slice(-3))}`
+    )
+  } finally {
+    page.off('framenavigated', onNav)
+    page.off('pageerror', onError)
+  }
 }
 
 /** 动态数据断言：轮询到条件成立或超时 */
