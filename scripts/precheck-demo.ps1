@@ -21,9 +21,9 @@ param(
     [string]$FrontendUrl = 'http://localhost:5173',
     [string]$IndexDir = (Join-Path $PSScriptRoot '..\zhixue-ai\data\vector_index'),
     [string]$ContentRoot = (Join-Path $PSScriptRoot '..\..\spark-output\content'),
-    [string]$DemoUsername = 'demo_stu01',
-    [string]$DemoPassword = 'Demo@2026',
-    [string]$DemoTeacherUsername = 'demo_teacher01',
+    [string]$DemoUsername = $(if ($env:DEMO_USERNAME) { $env:DEMO_USERNAME } else { 'demo_stu01' }),
+    [string]$DemoPassword = $env:DEMO_PASSWORD,
+    [string]$DemoTeacherUsername = $(if ($env:DEMO_TEACHER_USERNAME) { $env:DEMO_TEACHER_USERNAME } else { 'demo_teacher01' }),
     [switch]$SkipAiLive
 )
 
@@ -129,7 +129,9 @@ catch {
 }
 
 # ---------- 3. 演示账号登录 ----------
-if ($health) {
+if (-not $DemoPassword) {
+    Add-Result 'WARN' '演示登录' '未设置 DEMO_PASSWORD，跳过账号相关检查' '先 $env:DEMO_PASSWORD=<演示口令> 再重跑（脚本不内置任何口令）'
+} elseif ($health) {
     try {
         $login = Invoke-RestMethod -Uri "$BackendBase/api/auth/login" -Method Post -ContentType 'application/json' `
             -Body (@{ username = $DemoUsername; password = $DemoPassword } | ConvertTo-Json -Compress) -TimeoutSec 10
@@ -184,7 +186,9 @@ if ($token) {
 # 走查环境实证：运行时 jar 未做完整反应堆构建时，ReviewItemView$SourceRef 报
 # NoClassDefFoundError，但经全局异常处理器后以业务错误码 50000 出现，极难排查。
 # 本项区分三种失败：后端没起（catch）/ 类加载失败（message 含类加载异常）/ 其他业务错误。
-if ($health) {
+if (-not $DemoPassword) {
+    Add-Result 'WARN' '教师评阅' '未设置 DEMO_PASSWORD，跳过教师接口检查' '先 $env:DEMO_PASSWORD=<演示口令> 再重跑'
+} elseif ($health) {
     try {
         $tLogin = Invoke-RestMethod -Uri "$BackendBase/api/auth/login" -Method Post -ContentType 'application/json' `
             -Body (@{ username = $DemoTeacherUsername; password = $DemoPassword } | ConvertTo-Json -Compress) -TimeoutSec 10

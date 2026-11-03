@@ -4,6 +4,7 @@ import com.zhixue.common.api.ApiResponse;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,25 +31,63 @@ public class SystemController {
 
     private static final Duration AI_PROBE_TIMEOUT = Duration.ofSeconds(2);
 
+    /**
+     * 健康结果缓存时长：/health 公开且每次探三个组件，缓存 10s 防止被当作组件探测放大器。
+     * 探针本身的超时语义不变：缓存过期后的首个请求仍会实时探测。
+     */
+    private static final long CACHE_TTL_NANOS = Duration.ofSeconds(10).toNanos();
+
     private final JdbcTemplate jdbcTemplate;
     private final RedisConnectionFactory redisConnectionFactory;
     private final WebClient webClient;
 
+    private volatile Health cachedHealth;
+    private volatile long cachedAtNanos;
+
+    @Autowired
     public SystemController(JdbcTemplate jdbcTemplate,
                             RedisConnectionFactory redisConnectionFactory,
                             AiClientProperties aiClientProperties) {
+        this(jdbcTemplate, redisConnectionFactory,
+                WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build());
+    }
+
+    /** 测试用构造：允许注入已 mock 的 WebClient，避免真实网络探测。 */
+    SystemController(JdbcTemplate jdbcTemplate,
+                     RedisConnectionFactory redisConnectionFactory,
+                     WebClient webClient) {
         this.jdbcTemplate = jdbcTemplate;
         this.redisConnectionFactory = redisConnectionFactory;
-        this.webClient = WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build();
+        this.webClient = webClient;
     }
 
     /**
      * 健康检查：组件级状态 UP / DEGRADED；任一下降时 status=DEGRADED。
+     * 结果缓存 10s，窗口内重复调用不重复探组件。
      *
      * @return 统一响应，code=0
      */
     @GetMapping("/health")
     public ApiResponse<Health> health() {
+        Health snapshot = cachedHealth;
+        long now = System.nanoTime();
+        if (snapshot != null && now - cachedAtNanos < CACHE_TTL_NANOS) {
+            return ApiResponse.ok(snapshot);
+        }
+        synchronized (this) {
+            now = System.nanoTime();
+            if (cachedHealth != null && now - cachedAtNanos < CACHE_TTL_NANOS) {
+                return ApiResponse.ok(cachedHealth);
+            }
+            Health fresh = probeAll();
+            cachedHealth = fresh;
+            cachedAtNanos = now;
+            return ApiResponse.ok(fresh);
+        }
+    }
+
+    /** 实探 db / redis / ai 三个组件。 */
+    private Health probeAll() {
         String db = probe("db", () -> Integer.valueOf(1)
                 .equals(jdbcTemplate.queryForObject("SELECT 1", Integer.class)));
         String redis = probe("redis", () -> {
@@ -65,7 +104,7 @@ public class SystemController {
             return body != null && "UP".equals(String.valueOf(body.get("status")));
         });
         String overall = "UP".equals(db) && "UP".equals(redis) && "UP".equals(ai) ? "UP" : "DEGRADED";
-        return ApiResponse.ok(new Health(overall, db, redis, ai));
+        return new Health(overall, db, redis, ai);
     }
 
     /** 单组件探测：异常一律降级为 DEGRADED，不向调用方抛 5xx。 */

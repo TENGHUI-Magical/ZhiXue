@@ -30,8 +30,9 @@ mybatis-plus:
 # Sa-Token 配置（规划书硬约束：认证只用 Sa-Token）
 sa-token:
   token-name: satoken
-  timeout: 2592000 # 30 天
-  is-concurrent: true # 允许同账号多端登录（学生手机+电脑）
+  timeout: 604800 # 绝对有效期 7 天（原 30 天，缩短 token 泄露后的可用窗口）
+  active-timeout: 7200 # 活跃超时 2 小时：连续无请求即失效，防长期挂起会话
+  is-concurrent: false # 单会话：同账号再次登录即轮换，旧 token 立即失效
   token-style: uuid
 
 # ============ 知识点映射参数（契约 05-算法 第 0 节；禁止代码硬编码） ============
