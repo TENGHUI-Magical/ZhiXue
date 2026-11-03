@@ -33,6 +33,7 @@ import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -66,6 +67,8 @@ import java.util.regex.Pattern;
 public class RagExplainService {
 
     private static final Logger log = LoggerFactory.getLogger(RagExplainService.class);
+    /** 统一时区口径：缓存时间戳与新鲜度判定不能随 JVM 默认时区漂移（docs/13 B 组） */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     /** 整体超时：契约 5.2 节 */
     private static final long TOTAL_TIMEOUT_MS = 60_000L;
@@ -574,7 +577,7 @@ public class RagExplainService {
         ExplainCacheService.Cached cached = new ExplainCacheService.Cached(
                 content.toString(), modelUsed.get(), promptVersion.get(),
                 List.of(new ExplainCacheService.Source(kp.getKpId(), kp.getTextbookPage(), kp.getName())),
-                LocalDateTime.now().toString());
+                LocalDateTime.now(ZONE).toString());
         explainCacheService.put(cacheKey, cached);
     }
 
