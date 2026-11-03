@@ -502,7 +502,14 @@ paths:
                   type: boolean
                   nullable: true
                   description: 客观题可不传（服务端按 answerText 判分并忽略）；主观题必填自评
-                costSeconds: { type: integer, nullable: true, minimum: 0, maximum: 86400 }
+                costSeconds:
+                  type: integer
+                  nullable: true
+                  minimum: 0
+                  maximum: 86400
+                  description: >-
+                    PLAN 路径恒为 null（服务端不信任客户端自报耗时；打卡契约不含 startToken 服务端计时）；
+                    字段保留仅为兼容旧客户端
                 errorType:
                   type: [string, "null"]
                   nullable: true
@@ -1371,7 +1378,12 @@ components:
         displayName: { type: string, description: 脱敏，如“张*” }
         practiceCount: { type: integer }
         correctRate: { type: number, nullable: true, description: 样本<3 时为 null }
-        avgCostSeconds: { type: integer, nullable: true }
+        avgCostSeconds:
+          type: integer
+          nullable: true
+          description: >-
+            班级导出的“平均耗时”只统计有耗时的记录（AVG 忽略 null）：非 PLAN 记录仅在携带 startToken 时
+            有服务端计时；PLAN 打卡恒无耗时；历史数据不回溯，仍含旧客户端自报值
         avgMastery: { type: number, nullable: true }
         errorCount: { type: integer }
         planDone: { type: integer }
