@@ -1352,8 +1352,20 @@ try {
   }
   await teacherMobileCtx.close()
 
-  // ---------- axe（双主题 × 9 页 + 移动端 3 页） ----------
+  // ---------- axe（双主题 × 9 页 + 移动端 3 页 + 计划超时错误态） ----------
   const a11y = []
+  const planTimeoutCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
+  await planTimeoutCtx.route(/\/api\/plans(?:\?|$)/, async route => {
+    await sleep(16000)
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 0, data: plans, timestamp: Date.now() }) })
+  })
+  const planTimeoutPage = await planTimeoutCtx.newPage()
+  await planTimeoutPage.goto(BASE + '/plan', { waitUntil: 'domcontentloaded' })
+  await planTimeoutPage.locator('.page-state .el-alert--error').getByText('请求超时，请稍后重试').waitFor({ timeout: 20000 })
+  // 错误态并入既有 a11y/glass/plan 断言（不新增独立页，a11y 页数仍为 26）
+  const planTimeoutViolations = await axeScan(planTimeoutPage)
+  await planTimeoutCtx.close()
+
   const mobileAxeCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
   const mobileAxePage = await mobileAxeCtx.newPage()
   for (const [name, pathname] of [['today', '/today'], ['plan', '/plan'], ['portrait', '/portrait']]) {
@@ -1383,9 +1395,11 @@ try {
       await open(p, pathname)
       await sleep(300)
       const v = await axeScan(p)
+      const errorViolations = theme === 'glass' && name === 'plan' ? planTimeoutViolations : []
+      const violations = [...v, ...errorViolations]
       const buttonContrast = theme === 'glass-dark' ? await primaryButtonContrast(p) : null
-      a11y.push({ theme, page: name, violations: v, buttonContrast })
-      check(`a11y/${theme}/${name}`, v.length === 0 && (buttonContrast === null || buttonContrast.ratio >= 4.5), JSON.stringify({ violations: v, buttonContrast }))
+      a11y.push({ theme, page: name, violations, buttonContrast })
+      check(`a11y/${theme}/${name}`, violations.length === 0 && (buttonContrast === null || buttonContrast.ratio >= 4.5), JSON.stringify({ violations, buttonContrast }))
     }
     await ctx.close()
     const tctx = await newContext(browser, 'TEACHER', theme, { width: 1440, height: 900 })
