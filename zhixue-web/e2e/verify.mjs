@@ -41,6 +41,8 @@ const explainLogs = {
   EXP001: { explainId: 'EXP001', traceId: 'T001', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文一', sources: [{ kpId: 'KP0001', textbookPage: 'P34', title: '关系模型' }], blocked: false, createdAt: '2026-11-01 08:00:00', reviewResult: 'PASS', reviewComment: '讲解准确，可继续练习', reviewedAt: '2026-11-03 09:00:00' },
   EXP002: { explainId: 'EXP002', traceId: 'T002', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文二', sources: [{ kpId: 'KP0006', textbookPage: 'P88', title: '函数依赖' }], blocked: false, createdAt: '2026-11-01 08:05:00', reviewResult: 'RETURN', reviewComment: '请补充连接条件的书写', reviewedAt: '2026-11-03 09:10:00' },
   EXP003: { explainId: 'EXP003', traceId: 'T003', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文三', sources: [], blocked: false, createdAt: '2026-11-01 08:10:00', reviewResult: null, reviewComment: null, reviewedAt: null },
+  // PASS 但无评语：ReviewStatus 不应渲染冒号（回归基线）
+  EXP004: { explainId: 'EXP004', traceId: 'T004', model: 'deepseek', degraded: false, degradeLevel: null, content: '讲解正文四', sources: [], blocked: false, createdAt: '2026-11-01 08:15:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:20:00' },
   EXP501: { explainId: 'EXP501', traceId: 'T501', model: 'deepseek', degraded: false, degradeLevel: null, content: '待评阅讲解一', sources: [], blocked: false, createdAt: '2026-11-01 08:20:00', reviewResult: null, reviewComment: null, reviewedAt: null },
   EXP502: { explainId: 'EXP502', traceId: 'T502', model: 'deepseek', degraded: false, degradeLevel: null, content: '待评阅讲解二', sources: [], blocked: false, createdAt: '2026-11-01 08:25:00', reviewResult: null, reviewComment: null, reviewedAt: null }
 }
@@ -176,14 +178,43 @@ const STUDENT = [['today','/today'],['diagnosis','/diagnosis'],['error-book','/e
 const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teacher/class']]
 
 // ---------------- 启动与断言 ----------------
+// 只保留 Vite 依赖重优化相关行：首次挂载懒加载路由会触发整页 reload，是挂载超时的已知诱因
+const viteNotices = []
+function captureViteNotice(chunk) {
+  for (const line of String(chunk).split(/\r?\n/)) {
+    const text = line.trim()
+    if (!text) continue
+    if (/new dependencies optimized|optimized dependencies changed|reloading/i.test(text)) {
+      viteNotices.push(text)
+      if (viteNotices.length > 30) viteNotices.shift()
+    }
+  }
+}
+
+/** 杀掉 shell 启动的子进程树：Windows 上 server.kill() 只杀 cmd，Vite 仍活着会让 npm run e2e 挂住 */
+async function killTree(child) {
+  if (!child || !child.pid || child.killed) return
+  if (process.platform === 'win32') {
+    await new Promise((resolve) => {
+      const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+      killer.on('exit', resolve)
+      killer.on('error', resolve)
+    })
+    return
+  }
+  try { child.kill('SIGKILL') } catch { /* 已退出 */ }
+}
+
 async function ensureServer() {
   try {
     const res = await fetch(BASE, { signal: AbortSignal.timeout(1500) })
     if (res.ok) return null
   } catch { /* not running */ }
   const child = spawn('npm', ['run', 'dev', '--', '--port', PORT, '--strictPort'], {
-    cwd: process.cwd(), stdio: 'ignore', shell: true
+    cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], shell: true
   })
+  child.stdout?.on('data', captureViteNotice)
+  child.stderr?.on('data', captureViteNotice)
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500))
     try {
@@ -191,7 +222,7 @@ async function ensureServer() {
       if (res.ok) return child
     } catch { /* retry */ }
   }
-  child.kill()
+  await killTree(child)
   throw new Error('Vite 未能在 30s 内启动')
 }
 
@@ -218,25 +249,74 @@ async function waitFor(fn, timeout = 12000, interval = 250) {
   return false
 }
 
-/** 打开页面并等到路由内容挂载、骨架屏结束 */
+/** 打开页面并等到路由内容挂载、骨架屏结束；失败时把页面现场带出来 */
 async function open(page, pathname) {
-  await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
-  await page.waitForSelector('#main-content', { state: 'attached', timeout: 20000 }).catch(() => {})
-  const mounted = await page
-    .waitForFunction(
+  const started = Date.now()
+  const navs = []
+  const pageErrors = []
+  const onNav = (frame) => {
+    if (frame === page.mainFrame()) navs.push(`${Date.now() - started}ms ${new URL(frame.url()).pathname}`)
+  }
+  const onError = (error) => pageErrors.push(error.message)
+  page.on('framenavigated', onNav)
+  page.on('pageerror', onError)
+  let reason = ''
+  try {
+    await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
+    // 单一真实信号：路由组件根节点出现。reload 期间 waitForFunction 会跨导航重试，
+    // 不必再单独等 #main-content（它只是外壳，壳在而内容空正是懒加载/重载的典型形态）。
+    await page.waitForFunction(
       () => {
         const main = document.querySelector('#main-content')
         return !!main && !!main.querySelector('.page, .state-code, .el-result, .el-empty')
       },
       null,
-      { timeout: 20000 }
+      { timeout: 30000 }
     )
-    .then(() => true)
-    .catch(() => false)
-  if (!mounted) throw new Error(`页面未挂载：${pathname}`)
-  await page
-    .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
-    .catch(() => {})
+    await page
+      .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
+      .catch(() => {})
+    await sleep(150)
+  } catch (e) {
+    reason = e.message
+    const state = await page.evaluate(() => {
+      const main = document.querySelector('#main-content')
+      return {
+        url: location.href,
+        title: document.title,
+        readyState: document.readyState,
+        hasMain: !!main,
+        mainChildren: main ? main.children.length : -1,
+        text: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 200),
+        skeleton: document.querySelectorAll('.el-skeleton').length
+      }
+    }).catch((err) => ({ evalError: err.message }))
+    for (const line of viteNotices.slice(-5)) console.error('VITE:', line)
+    throw new Error(
+      `页面未挂载：${pathname}（${Date.now() - started}ms） reason=${reason} ` +
+      `state=${JSON.stringify(state)} nav=${JSON.stringify(navs.slice(-5))} ` +
+      `errors=${JSON.stringify(pageErrors.slice(-3))}`
+    )
+  } finally {
+    page.off('framenavigated', onNav)
+    page.off('pageerror', onError)
+  }
+}
+
+/** 登录页不在 #main-content 内，单独等登录卡片 */
+async function openLogin(page) {
+  await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector('.login-page .login-card', { timeout: 30000 })
+  await sleep(150)
+}
+
+/** 填日期框：空 input 的 value 不渲染，axe color-contrast 扫不到文字色 */
+async function fillExportDates(page) {
+  const inputs = page.locator('.export-date')
+  const count = await inputs.count()
+  for (let i = 0; i < count; i++) {
+    await inputs.nth(i).fill(i === 0 ? '2026-10-01' : '2026-11-03')
+  }
   await sleep(150)
 }
 
@@ -389,6 +469,7 @@ async function graphLabelAudit(page) {
 /** 移动端触控与横向溢出审计；返回越界元素样本 */
 async function mobileAudit(page) {
   return page.evaluate(() => {
+    const MIN_TOUCH = 43.5 // 用 43.5 而非 44：避免 DPR 换算把 43.6px 误判成不达标
     const els = Array.from(document.querySelectorAll('button, a, input, select, [role="button"]'))
     let small = 0
     const sample = []
@@ -397,11 +478,11 @@ async function mobileAudit(page) {
       if (el.matches('.el-select__input, .graph-node, .chapter-node')) continue
       const r = el.getBoundingClientRect()
       if (r.width === 0 || r.height === 0) continue
-      if (r.width < 44 || r.height < 44) {
+      if (r.width < MIN_TOUCH || r.height < MIN_TOUCH) {
         small++
         if (sample.length < 5) {
           const cls = Array.from(el.classList).slice(0, 2).join('.')
-          sample.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}:${Math.round(r.width)}x${Math.round(r.height)}`)
+          sample.push(`${el.tagName.toLowerCase()}${cls ? '.' + cls : ''}:${r.width.toFixed(1)}x${r.height.toFixed(1)}`)
         }
       }
     }
@@ -418,7 +499,7 @@ async function axeScan(page) {
       await page.addScriptTag({ content: axeSource })
       const result = await page.evaluate(async () => {
         // @ts-ignore
-        return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] })
+        return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'] })
       })
       const violations = result.violations.filter(v => ['serious', 'critical'].includes(v.impact))
       if (violations.length === 0) return []
@@ -483,7 +564,7 @@ if (process.env.TEACHER_AXE_ONLY === '1') {
   console.log('REPORT:', path.join(OUT, 'e2e-report.json'))
   await teacherAxeCtx.close()
   await browser.close()
-  if (server) server.kill()
+  await killTree(server)
   process.exit(failed.length ? 1 : 0)
 }
 
@@ -1047,6 +1128,16 @@ try {
   }
   await checkNext('诊断台：图片上传入口', async () => (await page.locator('.ocr-upload').count()) === 1 && explainReviewOk)
 
+  await open(page, '/diagnosis?explainId=EXP004')
+  const passNoCommentText = (await page.locator('.explain-detail .review-status').innerText().catch(() => '')).trim()
+  check(
+    '评阅回流：PASS 且无评语不渲染冒号',
+    (await page.locator('.explain-detail .review-status').getAttribute('data-review-result')) === 'PASS' &&
+      passNoCommentText === '老师已复核这条讲解' &&
+      !passNoCommentText.includes('：'),
+    JSON.stringify(passNoCommentText)
+  )
+
   const verifyReviewAcrossOutlets = async ({ logId, explainId, result, expected }) => {
     await open(page, '/error-book')
     const row = page.locator('.el-table__row').filter({ hasText: logId })
@@ -1354,7 +1445,7 @@ try {
   }
   await teacherMobileCtx.close()
 
-  // ---------- axe（双主题 × 9 页 + 移动端 3 页 + 计划超时错误态） ----------
+  // ---------- axe（双主题：学生 8 + 教师 3 + 登录 1 + 403/404 2；玻璃移动端学生 3 + 教师 3；计划超时错误态并入 glass/plan） ----------
   const a11y = []
   const planTimeoutCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   await planTimeoutCtx.route(/\/api\/plans(?:\?|$)/, async route => {
@@ -1364,7 +1455,7 @@ try {
   const planTimeoutPage = await planTimeoutCtx.newPage()
   await planTimeoutPage.goto(BASE + '/plan', { waitUntil: 'domcontentloaded' })
   await planTimeoutPage.locator('.page-state .el-alert--error').getByText('请求超时，请稍后重试').waitFor({ timeout: 20000 })
-  // 错误态并入既有 a11y/glass/plan 断言（不新增独立页，a11y 页数仍为 26）
+  // 错误态并入既有 a11y/glass/plan 断言，不新增独立页
   const planTimeoutViolations = await axeScan(planTimeoutPage)
   await planTimeoutCtx.close()
 
@@ -1383,6 +1474,7 @@ try {
   const teacherAxePage = await teacherAxeCtx.newPage()
   for (const [name, pathname] of [['teacher-overview', '/teacher'], ...TEACHER]) {
     await open(teacherAxePage, pathname)
+    if (name === 'teacher-reviews') await fillExportDates(teacherAxePage)
     await sleep(300)
     const v = await axeScan(teacherAxePage)
     a11y.push({ theme: 'glass', page: `mobile-${name}`, violations: v })
@@ -1406,8 +1498,10 @@ try {
     await ctx.close()
     const tctx = await newContext(browser, 'TEACHER', theme, { width: 1440, height: 900 })
     const tp2 = await tctx.newPage()
-    for (const [name, pathname] of TEACHER) {
+    for (const [name, pathname] of [['teacher-overview', '/teacher'], ...TEACHER]) {
       await open(tp2, pathname)
+      // 日期框必须填值后再扫：空输入的 value 不渲染，color-contrast 扫不到文字色（1.49:1 曾因此漏网）
+      if (name === 'teacher-reviews') await fillExportDates(tp2)
       await sleep(300)
       const v = await axeScan(tp2)
       const buttonContrast = theme === 'glass-dark' ? await primaryButtonContrast(tp2) : null
@@ -1415,6 +1509,26 @@ try {
       check(`a11y/${theme}/${name}`, v.length === 0 && (buttonContrast === null || buttonContrast.ratio >= 4.5), JSON.stringify({ violations: v, buttonContrast }))
     }
     await tctx.close()
+
+    // 登录 / 403 / 404：登录页无 token，403/404 需 token 才不会被守卫送回登录
+    const lctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 }, { token: false })
+    const lp = await lctx.newPage()
+    await openLogin(lp)
+    const lv = await axeScan(lp)
+    a11y.push({ theme, page: 'login', violations: lv })
+    check(`a11y/${theme}/login`, lv.length === 0, JSON.stringify(lv))
+    await lctx.close()
+
+    const sctx = await newContext(browser, 'STUDENT', theme, { width: 1440, height: 900 })
+    const sp = await sctx.newPage()
+    for (const [name, pathname] of [['forbidden', '/403'], ['not-found', '/404']]) {
+      await open(sp, pathname)
+      await sleep(300)
+      const v = await axeScan(sp)
+      a11y.push({ theme, page: name, violations: v })
+      check(`a11y/${theme}/${name}`, v.length === 0, JSON.stringify(v))
+    }
+    await sctx.close()
   }
   await studentCtx.close()
 
@@ -1423,8 +1537,13 @@ try {
   console.log(`\nE2E: ${results.length - failed.length}/${results.length} passed`)
   console.log(`a11y: ${a11y.filter(a => a.violations.length === 0).length}/${a11y.length} pages clean`)
   console.log('REPORT:', path.join(OUT, 'e2e-report.json'))
-  if (failed.length) process.exitCode = 1
+  process.exitCode = failed.length ? 1 : 0
+} catch (e) {
+  console.error('E2E 执行异常：', e)
+  process.exitCode = 1
 } finally {
   await browser.close()
-  if (server) server.kill()
+  await killTree(server)
 }
+// 显式退出：避免 shell:true 拉起的 Vite 子进程/stdio 句柄把事件循环拖住（#53 曾挂到 CI 20 分钟超时）
+process.exit(process.exitCode ?? 0)

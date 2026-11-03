@@ -30,7 +30,7 @@ html[data-theme="glass"] {
   --app-primary-strong: #1d4ed8;
   --app-primary-soft: rgba(37, 99, 235, 0.1);
   --app-success: #15803d;
-  --app-warning: #b45309;
+  --app-warning: #b04f08;
   --app-danger: #b42318;
   /* F6 修正：info 原与 text-muted 同值 #667085，违反裁决“info≠muted”；改为深板岩 #475569（白底对比≥4.5:1） */
   --app-info: #475569;
@@ -148,8 +148,10 @@ html[data-theme="glass-dark"] {
   --app-page-max: 1320px;
 }
 
-/* Element Plus 映射：变量在使用处解析，跟随 html 上的主题 */
-:root {
+/* Element Plus 映射：变量在使用处解析，跟随 html 上的主题。
+   选择器用 html[data-theme]（0,1,1）压过 Element Plus 后注入的 html.dark（0,1,1），
+   否则深色下 --el-text-color-regular 等仍是 EP 默认值，自定义映射失效。 */
+html[data-theme] {
   --el-border-radius-base: 8px;
   --el-border-radius-small: 6px;
   --el-border-radius-round: 999px;
@@ -170,11 +172,13 @@ html[data-theme="glass-dark"] {
   --el-box-shadow-lighter: var(--app-shadow-xs);
   --el-box-shadow-dark: var(--app-shadow-lg);
   --el-color-primary: var(--app-primary);
-  --el-color-primary-light-3: color-mix(in srgb, var(--app-primary) 74%, white);
-  --el-color-primary-light-5: color-mix(in srgb, var(--app-primary) 52%, white);
-  --el-color-primary-light-7: color-mix(in srgb, var(--app-primary) 30%, white);
-  --el-color-primary-light-8: color-mix(in srgb, var(--app-primary) 18%, white);
-  --el-color-primary-light-9: color-mix(in srgb, var(--app-primary) 9%, white);
+  /* 浅色调以 surface 为混合底：浅色等于混白，深色得到深色调；
+     若固定混白，深色下 primary-light-9 仍是白底淡蓝，tag 文字（#93c5fd）会掉到 1.6:1 */
+  --el-color-primary-light-3: color-mix(in srgb, var(--app-primary) 74%, var(--app-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--app-primary) 52%, var(--app-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--app-primary) 30%, var(--app-surface));
+  --el-color-primary-light-8: color-mix(in srgb, var(--app-primary) 18%, var(--app-surface));
+  --el-color-primary-light-9: color-mix(in srgb, var(--app-primary) 9%, var(--app-surface));
   --el-color-primary-dark-2: color-mix(in srgb, var(--app-primary) 82%, black);
   --el-bg-color: var(--app-surface);
   --el-bg-color-page: var(--app-bg);
@@ -191,12 +195,8 @@ html[data-theme="glass-dark"] {
   --el-fill-color-lighter: var(--app-surface-muted);
   --el-box-shadow-light: var(--app-shadow);
   --el-mask-color: rgba(11, 18, 32, 0.55);
-}
-
-/* el-alert type="error" / ElMessage.error 用的是 --el-color-error 家族（不是 danger），此前未映射，
-   默认 #f56c6c on #fef0f0 仅 2.61:1。用 html[data-theme] 提高特异性，压过 Element Plus 后注入的 :root；
-   浅底改为 danger 8% 混 surface，随主题解析。 */
-html[data-theme] {
+  /* el-alert type="error" / ElMessage.error 用的是 --el-color-error 家族（不是 danger），
+     默认 #f56c6c on #fef0f0 仅 2.61:1；浅底改为 danger 8% 混 surface，随主题解析 */
   --el-color-error: var(--app-danger);
   --el-color-error-light-9: color-mix(in srgb, var(--app-danger) 8%, var(--app-surface));
 }
