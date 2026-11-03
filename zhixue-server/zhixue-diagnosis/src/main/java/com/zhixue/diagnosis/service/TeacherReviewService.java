@@ -30,6 +30,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -133,6 +134,18 @@ public class TeacherReviewService {
             "留痕ID", "讲解ID", "学生（脱敏）", "知识点", "错因", "题干", "模型",
             "是否降级", "创建时间", "评阅结果", "教师评分", "教师评语", "评阅时间");
 
+    /**
+     * 导出行数上限：全量结果一次性进内存（实体 + 视图 + CSV 三份）。
+     * 超限拒绝并引导缩小日期范围——不做截断：静默少行会让老师以为数据丢了，
+     * 与“证据列为空比整行消失诚实”（docs/01 §7.2）同一原则。
+     * 5 万 = 真实学期规模（单课程数百至数千行）的 10—50 倍余量；
+     * 实测过程与原始输出见 spark-output/review/export-perf-2026-11-03.md。
+     */
+    static final int MAX_EXPORT_ROWS = 50_000;
+
+    /** toViews 批量回查错题的分块大小：避免无界 IN（红线），500 为参数绑定安全值。 */
+    private static final int ERROR_LOOKUP_CHUNK = 500;
+
     private static final Map<String, String> ERROR_TYPE_ZH = Map.of(
             "CONCEPT_CONFUSION", "概念混淆", "METHOD_MISSING", "方法缺失",
             "STEP_OMISSION", "步骤遗漏", "CALCULATION_ERROR", "计算失误",
@@ -142,7 +155,11 @@ public class TeacherReviewService {
      * 评阅留痕 CSV 导出（学期材料）：筛选条件与队列完全一致（含课程范围），导出完整筛选结果而非当前分页。
      * 权限与队列一致（TEACHER + 登录教师可管理课程范围）；学生姓名脱敏（NameMasker，与班级学情同口径）；
      * UTF-8 + BOM、中文表头；不含讲解正文（正文在系统内按讲解 ID 可查）。
+     *
+     * <p>只读事务：COUNT 与取数在同一快照内，避免两次查询之间新增留痕导致
+     * "数过上限却取到更多行"（TOCTOU）；行数上限判定才会对实际取数有约束力。</p>
      */
+    @Transactional(readOnly = true)
     public byte[] exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
         StpUtil.checkRole("TEACHER");
         String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
@@ -157,8 +174,16 @@ public class TeacherReviewService {
         LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
         LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
         String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
+        List<Long> courseIds = scopedCourseIds();
+        // 先 COUNT 再取数：超限直接拒绝（不截断），避免全量进内存后才失败
+        long total = logMapper.countForReview(reviewed, kp, fromTime, toTime, courseIds);
+        if (total > MAX_EXPORT_ROWS) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "导出数据过大（" + total + " 行，上限 " + MAX_EXPORT_ROWS
+                            + "），请设置导出的起止日期缩小筛选范围后重试");
+        }
         List<AiGenerationLog> rows = logMapper.selectForReviewAll(reviewed, kp, fromTime, toTime,
-                scopedCourseIds());
+                courseIds);
         List<ReviewItemView> views = toViews(rows);
 
         List<List<String>> lines = new ArrayList<>(views.size());
@@ -238,9 +263,16 @@ public class TeacherReviewService {
         Set<String> logIds = rows.stream().map(AiGenerationLog::getLogId)
                 .filter(Objects::nonNull).filter(id -> !id.isBlank())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<String, StudentErrorRecord> errorById = logIds.isEmpty() ? Map.of()
-                : errorRecordMapper.selectBatchIds(logIds).stream()
-                .collect(Collectors.toMap(StudentErrorRecord::getLogId, r -> r, (a, b) -> a));
+        // 分块回查（每块 500）：导出可达数万行，一次性 IN 全部 logId 是无界查询（红线），
+        // 会撑大预编译参数与 SQL 文本；队列分页路径（≤50 行）只走一块，无额外开销
+        Map<String, StudentErrorRecord> errorById = new HashMap<>();
+        List<String> idList = new ArrayList<>(logIds);
+        for (int i = 0; i < idList.size(); i += ERROR_LOOKUP_CHUNK) {
+            List<String> chunk = idList.subList(i, Math.min(idList.size(), i + ERROR_LOOKUP_CHUNK));
+            for (StudentErrorRecord record : errorRecordMapper.selectBatchIds(chunk)) {
+                errorById.putIfAbsent(record.getLogId(), record);
+            }
+        }
 
         Set<String> kpIds = new LinkedHashSet<>();
         rows.forEach(row -> kpIds.addAll(parseSourceKpIds(row.getSourceIds())));
