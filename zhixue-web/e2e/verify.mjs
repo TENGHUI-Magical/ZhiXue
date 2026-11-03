@@ -262,6 +262,45 @@ async function mobileAudit(page) {
   })
 }
 
+async function teacherOverviewMetrics(page) {
+  return page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.error-row'))
+    const last = rows.at(-1)?.getBoundingClientRect()
+    const statRow = document.querySelector('.stat-row')
+    const statRowStyle = statRow ? getComputedStyle(statRow) : null
+    const statRowRect = statRow?.getBoundingClientRect()
+    const cards = Array.from(document.querySelectorAll('.stat-card')).map((card) => {
+      const rect = card.getBoundingClientRect()
+      return {
+        width: Math.ceil(rect.width),
+        height: Math.ceil(rect.height),
+        top: Math.ceil(rect.top),
+        left: Math.ceil(rect.left),
+        right: Math.ceil(rect.right)
+      }
+    })
+    return {
+      statCards: cards.length,
+      statCardHeights: cards.map((card) => card.height),
+      statCardWidths: cards.map((card) => card.width),
+      statCardGaps: cards.slice(1).map((card, index) => Math.ceil(
+        card.left - cards[index].right
+      )),
+      statRowMarginTop: statRowStyle ? parseFloat(statRowStyle.marginTop) : null,
+      statRowPaddingTop: statRowStyle ? parseFloat(statRowStyle.paddingTop) : null,
+      statRowHeight: statRowRect ? Math.ceil(statRowRect.height) : null,
+      errorRows: rows.length,
+      allErrorRowsVisible: rows.every((row) => {
+        const style = getComputedStyle(row)
+        return style.display !== 'none' && style.visibility !== 'hidden' && row.getBoundingClientRect().height > 0
+      }),
+      lastErrorBottom: last ? Math.ceil(last.bottom) : null,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight
+    }
+  })
+}
+
 async function axeScan(page) {
   // Vite 首次访问新依赖时可能整页 reload，导致执行上下文被销毁：重试两次
   let lastError
@@ -654,29 +693,35 @@ try {
   await open(tpage, '/teacher')
   await checkNext('教学概览：四张指标卡', async () => (await tpage.locator('.stat-card').count()) >= 4)
   await tpage.locator('.error-row').nth(4).waitFor({ timeout: 10000 })
-  const teacherOverviewLayout = await tpage.evaluate(() => {
-    const rows = Array.from(document.querySelectorAll('.error-row'))
-    const last = rows.at(-1)?.getBoundingClientRect()
-    return {
-      statCards: document.querySelectorAll('.stat-card').length,
-      errorRows: rows.length,
-      allErrorRowsVisible: rows.every((row) => {
-        const style = getComputedStyle(row)
-        return style.display !== 'none' && style.visibility !== 'hidden' && row.getBoundingClientRect().height > 0
-      }),
-      lastErrorBottom: last ? Math.ceil(last.bottom) : null,
-      viewportHeight: window.innerHeight
-    }
-  })
+  const teacherOverview900 = await teacherOverviewMetrics(tpage)
+  await tpage.screenshot({ path: path.join(OUT, 'teacher-overview-1440x900.png'), fullPage: true })
   check(
     '教学概览：900px 保留四卡与全部错因',
-    teacherOverviewLayout.statCards === 4
-      && teacherOverviewLayout.errorRows === 5
-      && teacherOverviewLayout.allErrorRowsVisible
-      && teacherOverviewLayout.lastErrorBottom !== null
-      && teacherOverviewLayout.lastErrorBottom <= 900,
-    JSON.stringify(teacherOverviewLayout)
+    teacherOverview900.statCards === 4
+      && teacherOverview900.errorRows === 5
+      && teacherOverview900.allErrorRowsVisible
+      && teacherOverview900.lastErrorBottom !== null
+      && teacherOverview900.lastErrorBottom <= 900
+      && teacherOverview900.statRowMarginTop === 12
+      && teacherOverview900.statRowPaddingTop === 8
+      && teacherOverview900.statCardHeights.every((height) => height === 77),
+    JSON.stringify(teacherOverview900)
   )
+  await tpage.setViewportSize({ width: 1920, height: 1080 })
+  await open(tpage, '/teacher')
+  await tpage.locator('.error-row').nth(4).waitFor({ timeout: 10000 })
+  const teacherOverview1080 = await teacherOverviewMetrics(tpage)
+  await tpage.screenshot({ path: path.join(OUT, 'teacher-overview-1920x1080.png'), fullPage: true })
+  check(
+    '教学概览：1080p 四卡保持未压缩间距与高度',
+    teacherOverview1080.statCards === 4
+      && teacherOverview1080.statRowMarginTop === 20
+      && teacherOverview1080.statRowPaddingTop === 16
+      && teacherOverview1080.statCardHeights.every((height) => height === 77)
+      && teacherOverview1080.statCardGaps.every((gap) => gap === 0),
+    JSON.stringify({ compressed900: teacherOverview900, uncompressed1080: teacherOverview1080 })
+  )
+  await tpage.setViewportSize({ width: 1440, height: 900 })
   await open(tpage, '/teacher/reviews')
   await checkNext('评阅：队列已渲染', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await tpage.getByRole('button', { name: '评阅' }).nth(1).click()
