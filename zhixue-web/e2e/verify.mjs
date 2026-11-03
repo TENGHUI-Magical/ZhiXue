@@ -320,7 +320,21 @@ async function newContext(browser, role, theme, viewport, options = {}) {
           }
         }
       }
-      if (route.request().method() === 'POST' && u.pathname === '/api/diagnosis/explain') {
+      if (route.request().method() === 'GET' && u.pathname === '/api/teacher/reviews/export') {
+        // 导出超限闭环：未设日期 → 40000 提示；设了起止日期 → 返回 CSV（证明提示可执行）
+        const hasRange = u.searchParams.get('from') && u.searchParams.get('to')
+        if (!hasRange) {
+          await route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({ code: 40000, message: '导出数据过大（50001 行，上限 50000），请设置导出的起止日期缩小筛选范围后重试', timestamp: Date.now() })
+          })
+        } else {
+          await route.fulfill({
+            status: 200, contentType: 'text/csv;charset=UTF-8',
+            body: '\uFEFF留痕ID,讲解ID\r\n1,EXP001\r\n'
+          })
+        }
+      } else if (route.request().method() === 'POST' && u.pathname === '/api/diagnosis/explain') {
         explainRequestCount += 1
         const body = [
           'event:meta\ndata:{"explainId":"EXPAUTO"}',
@@ -1193,6 +1207,18 @@ try {
     return await textarea.inputValue() === '请补充连接条件的书写' && !await textarea.isEditable()
   })
   await tpage.keyboard.press('Escape'); await sleep(300)
+
+  // 导出超限闭环（阻断1）：超限 → 提示"设置起止日期缩小范围" → 老师照做 → 成功导出
+  await tpage.getByRole('button', { name: '导出留痕' }).click()
+  await checkNext('评阅导出：超限提示可照做', async () =>
+    (await tpage.getByText('导出数据过大').count()) >= 1)
+  await tpage.locator('.export-date').nth(0).fill('2026-11-01')
+  await tpage.keyboard.press('Escape')
+  await tpage.locator('.export-date').nth(1).fill('2026-11-02')
+  await tpage.keyboard.press('Escape')
+  await tpage.getByRole('button', { name: '导出留痕' }).click()
+  await checkNext('评阅导出：按日期缩小后导出成功', async () =>
+    (await tpage.getByText('已导出评阅留痕 CSV').count()) >= 1)
 
   await open(tpage, '/teacher/class')
   await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)
