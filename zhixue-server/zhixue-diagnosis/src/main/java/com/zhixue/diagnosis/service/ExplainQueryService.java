@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.ExplainLogView;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
@@ -23,7 +24,8 @@ import java.util.Objects;
 /**
  * 讲解记录查询（契约 V2 §5.4：刷新页面后按 explainId 取已生成全文）。
  * <p>
- * 学生仅可查询本人记录；教师可查询评阅所需记录，避免 explainId 越权泄露。
+ * 学生仅可查询本人记录；教师仅可查询评阅所需记录（课程范围与写侧评阅同一口径，
+ * 避免 explainId 越权泄露）。
  */
 @Service
 public class ExplainQueryService {
@@ -36,13 +38,16 @@ public class ExplainQueryService {
     private final AiGenerationLogMapper logMapper;
     private final KnowledgePointService knowledgePointService;
     private final ObjectMapper objectMapper;
+    private final CourseService courseService;
 
     public ExplainQueryService(AiGenerationLogMapper logMapper,
                                KnowledgePointService knowledgePointService,
-                               ObjectMapper objectMapper) {
+                               ObjectMapper objectMapper,
+                               CourseService courseService) {
         this.logMapper = logMapper;
         this.knowledgePointService = knowledgePointService;
         this.objectMapper = objectMapper;
+        this.courseService = courseService;
     }
 
     /**
@@ -50,7 +55,8 @@ public class ExplainQueryService {
      *
      * @param explainId 讲解编号
      * @return 讲解全文与元信息
-     * @throws BizException 记录不存在或不属于当前用户时返回 40400
+     * @throws BizException 记录不存在或不属于当前用户时返回 40400；
+     *                      教师读取自己可管理课程之外的记录时返回 40300
      */
     public ExplainLogView get(String explainId) {
         boolean teacher = StpUtil.hasRole("TEACHER");
@@ -63,6 +69,7 @@ public class ExplainQueryService {
         if (row == null) {
             throw new BizException(ErrorCode.NOT_FOUND, "讲解记录不存在");
         }
+        checkTeacherScope(row, teacher);
         // 评阅回流三字段（05 §4.6）：该讲解自身的复核状态，实时读库不缓存
         return new ExplainLogView(
                 row.getExplainId(),
@@ -77,6 +84,27 @@ public class ExplainQueryService {
                 row.getReviewResult(),
                 row.getTeacherComment(),
                 row.getReviewedAt() == null ? null : row.getReviewedAt().format(DATE_TIME));
+    }
+
+    /**
+     * 教师读侧课程范围（与写侧 {@link TeacherReviewService#submit} 同一口径）：
+     * 课程来源用 {@link CourseService#listActiveCourseIdsByTeacher}，记录归属用
+     * {@link AiGenerationLogMapper#selectLinkedCourseIds}；记录可定位到登录教师
+     * 可管理课程之外 → 40300。归属不明（无错题关联/题库查不到课程）放行，
+     * 与评阅队列/导出同一口径（docs/01 §7.2 第 1、2 条：明确属于别人课程的不可见，
+     * 归属不明保留）。
+     */
+    private void checkTeacherScope(AiGenerationLog row, boolean teacher) {
+        if (!teacher) {
+            return;
+        }
+        List<Long> scope = courseService.listActiveCourseIdsByTeacher(StpUtil.getLoginIdAsLong());
+        for (Long courseId : logMapper.selectLinkedCourseIds(row.getLogId())) {
+            if (!scope.contains(courseId)) {
+                throw new BizException(ErrorCode.FORBIDDEN,
+                        "无权查看自己可管理课程之外的讲解: " + row.getExplainId());
+            }
+        }
     }
 
     /** source_ids 是 kp_id 数组 JSON；名称与页码从知识点表补齐，缺失时降级为 null。 */
