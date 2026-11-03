@@ -135,10 +135,11 @@ public class TeacherReviewService {
             "是否降级", "创建时间", "评阅结果", "教师评分", "教师评语", "评阅时间");
 
     /**
-     * 导出行数上限：全量结果一次性进内存（实体 + 视图 + CSV 三份，实测 5 万行约 210MB 堆峰），
-     * 超限拒绝并引导缩小筛选——不做截断：静默少行会让老师以为数据丢了，
+     * 导出行数上限：全量结果一次性进内存（实体 + 视图 + CSV 三份）。
+     * 超限拒绝并引导缩小日期范围——不做截断：静默少行会让老师以为数据丢了，
      * 与“证据列为空比整行消失诚实”（docs/01 §7.2）同一原则。
-     * 5 万 = 真实学期规模（单课程数百至数千行）的 10—50 倍余量，实测 3.6s/8.6MB 仍可用。
+     * 5 万 = 真实学期规模（单课程数百至数千行）的 10—50 倍余量；
+     * 实测过程与原始输出见 spark-output/review/export-perf-2026-11-03.md。
      */
     static final int MAX_EXPORT_ROWS = 50_000;
 
@@ -154,7 +155,11 @@ public class TeacherReviewService {
      * 评阅留痕 CSV 导出（学期材料）：筛选条件与队列完全一致（含课程范围），导出完整筛选结果而非当前分页。
      * 权限与队列一致（TEACHER + 登录教师可管理课程范围）；学生姓名脱敏（NameMasker，与班级学情同口径）；
      * UTF-8 + BOM、中文表头；不含讲解正文（正文在系统内按讲解 ID 可查）。
+     *
+     * <p>只读事务：COUNT 与取数在同一快照内，避免两次查询之间新增留痕导致
+     * "数过上限却取到更多行"（TOCTOU）；行数上限判定才会对实际取数有约束力。</p>
      */
+    @Transactional(readOnly = true)
     public byte[] exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
         StpUtil.checkRole("TEACHER");
         String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
@@ -175,7 +180,7 @@ public class TeacherReviewService {
         if (total > MAX_EXPORT_ROWS) {
             throw new BizException(ErrorCode.PARAM_ERROR,
                     "导出数据过大（" + total + " 行，上限 " + MAX_EXPORT_ROWS
-                            + "），请用 from/to 日期区间或知识点缩小筛选范围后重试");
+                            + "），请设置导出的起止日期缩小筛选范围后重试");
         }
         List<AiGenerationLog> rows = logMapper.selectForReviewAll(reviewed, kp, fromTime, toTime,
                 courseIds);

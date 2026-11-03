@@ -106,8 +106,8 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
 
     /**
      * 教师评阅留痕全量导出（CSV）：筛选条件（含课程范围）与 {@link #selectForReview} 完全一致，仅去掉分页。
-     * 导出量有界（scene=RAG 的讲解留痕，单课程试点规模 ≤ 千行级）；避免无界查询的红线
-     * 由调用方（TeacherReviewService.exportCsv）确认场景后使用。
+     * 导出量有界：调用方先 COUNT，超过 {@code TeacherReviewService.MAX_EXPORT_ROWS}（50,000）即拒绝并
+     * 提示缩小日期范围，确认未超限后才调用本方法——本方法本身不设 LIMIT，上限由调用方保证。
      */
     @Select("""
             <script>
