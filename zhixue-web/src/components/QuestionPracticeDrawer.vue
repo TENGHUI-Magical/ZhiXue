@@ -291,7 +291,9 @@ const reasonText = computed(() => {
   if (!result) return "";
   if (result.isCorrect) return "本次作答正确";
   const reason = ERROR_TYPE_OPTIONS.find((item) => item.value === result.errorType)?.label;
-  return `错因：${reason || "待接口返回"}`;
+  // 提交/打卡契约均不回传错因（客观题由服务端推断、主观题未选落 UNCLASSIFIED），
+  // 结果态不渲染内部话术，引导去错题本查看错因。
+  return reason ? `错因：${reason}` : "错因分析详见错题本";
 });
 
 const progressText = computed(() => {

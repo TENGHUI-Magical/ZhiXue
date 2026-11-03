@@ -83,6 +83,8 @@ let explainRequestCount = 0
 let mapRequestCount = 0
 let ocrConfidence = 0.95
 let recommendationDelayMs = 0
+// 打卡判分开关：回归“判错结果态不得出现内部占位文案”时置 false
+let checkinIsCorrect = true
 let lastPracticePayload = null
 let lastStartPayload = null
 let lastErrorRecordPayload = null
@@ -95,7 +97,7 @@ function reply(method, pathname, role, search = '') {
     return { code: 0, data: { practiceId: 777, duplicate: false, gradingMode: 'AUTO', isCorrect: true, costSeconds: 42 }, timestamp: Date.now() }
   }
   if (method === 'POST' && /^\/api\/plans\/\d+\/checkin$/.test(pathname)) {
-    return { code: 0, data: { practiceId: 778, duplicate: false, gradingMode: 'AUTO', isCorrect: true, verified: true }, timestamp: Date.now() }
+    return { code: 0, data: { practiceId: 778, duplicate: false, gradingMode: 'AUTO', isCorrect: checkinIsCorrect, verified: true }, timestamp: Date.now() }
   }
   if (method === 'POST' && pathname === '/api/error/upload') {
     return { code: 0, data: { taskId: 'OCR1' }, timestamp: Date.now() }
@@ -655,6 +657,22 @@ try {
     await page.locator('.practice-drawer.open').innerText().catch(() => '已全部完成并关闭')
   )
   await page.keyboard.press('Escape'); await sleep(300)
+
+  // 结果态占位文案回归：打卡判错时不得渲染“待接口返回”等内部术语（契约本就不回传错因）
+  checkinIsCorrect = false
+  await page.locator('.day-card').nth(4).getByRole('button', { name: '去打卡' }).first().click()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  const wrongResultText = await page.locator('.submission-result').innerText()
+  check(
+    '计划打卡：判错结果态无内部占位文案',
+    !/待接口返回|待接入|TODO|占位/.test(wrongResultText) && wrongResultText.includes('错因分析详见错题本'),
+    wrongResultText
+  )
+  await page.keyboard.press('Escape'); await sleep(300)
+  checkinIsCorrect = true
 
   await open(page, '/knowledge-graph')
   await checkNext('图谱：缩放控件 3 个', async () => (await page.locator('.graph-controls button').count()) === 3)
