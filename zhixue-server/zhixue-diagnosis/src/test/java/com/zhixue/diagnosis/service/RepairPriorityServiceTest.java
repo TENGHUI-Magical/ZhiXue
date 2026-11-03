@@ -1,11 +1,17 @@
 package com.zhixue.diagnosis.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.KnowledgePrereq;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.KpPracticeSignal;
+import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
+import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,15 +41,23 @@ class RepairPriorityServiceTest {
     @Mock
     private PracticeRecordMapper practiceRecordMapper;
     @Mock
+    private StudentErrorRecordMapper errorRecordMapper;
+    @Mock
     private CourseService courseService;
     @Mock
     private KnowledgePointService knowledgePointService;
 
     private RepairPriorityService service;
 
+    @BeforeAll
+    static void initTableInfo() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                StudentErrorRecord.class);
+    }
+
     @BeforeEach
     void setUp() {
-        service = new RepairPriorityService(practiceRecordMapper, courseService,
+        service = new RepairPriorityService(practiceRecordMapper, errorRecordMapper, courseService,
                 knowledgePointService, 30.0, 7);
         when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(
                 kp("KP0101", 1), kp("KP0102", 2), kp("KP0201", 3),
@@ -75,10 +89,11 @@ class RepairPriorityServiceTest {
         RepairPriorityService.RankedCourse ranked = service.rank(2L, 1L, NOW);
 
         RepairPriorityService.Priority prereq = ranked.priorityByKp().get("KP0101");
-        // 从未练习：紧迫度 1.0；无错因：可修复性 0.5；1 跳权重 1.0
-        assertThat(prereq.urgency()).isEqualTo(1.0);
+        // 从未作答（无任何证据）：紧迫度 0.8（低于“从未答对”的 1.0）；
+        // 无错因：可修复性 0.5；1 跳权重 1.0 → score=0.4
+        assertThat(prereq.urgency()).isEqualTo(0.8);
         assertThat(prereq.repairability()).isEqualTo(0.5);
-        assertThat(prereq.score()).isEqualTo(0.5);
+        assertThat(prereq.score()).isEqualTo(0.4);
 
         RepairPriorityService.Priority anchor = ranked.priorityByKp().get("KP0201");
         assertThat(anchor.repairability()).isEqualTo(1.0);
@@ -238,6 +253,57 @@ class RepairPriorityServiceTest {
         // “刚答错且正确证据已遗忘”必须排在“今天答对”之前
         assertThat(ranked.knowledgePoints()).extracting(KnowledgePoint::getKpId)
                 .startsWith("KP0501");
+    }
+
+    /**
+     * 边界：从未作答 ≠ 从未答对。
+     * 从未作答（无任何练习/错题证据）紧迫度 0.8；有错题证据但从未答对 1.0。
+     * 若不区分，新知识点会和真正漏洞一起挤在 1.0，排序失去解释力。
+     */
+    @Test
+    void neverAnsweredIsLessUrgentThanNeverCorrect() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(
+                kp("KP0601", 1), kp("KP0602", 2)));
+        when(practiceRecordMapper.selectKpSignals(anyLong(), anyLong())).thenReturn(List.of(
+                // 有错题证据、从未答对
+                signal("KP0602", 1, "CONCEPT_CONFUSION", null)));
+
+        RepairPriorityService.RankedCourse ranked = service.rank(2L, 1L, NOW);
+
+        assertThat(ranked.priorityByKp().get("KP0601").urgency()).isEqualTo(0.8);
+        assertThat(ranked.priorityByKp().get("KP0602").urgency()).isEqualTo(1.0);
+    }
+
+    /**
+     * 边界：PRP 纳入 CONFIRMED 上传错题（与掌握度同口径）。
+     * 只有上传错题、没有练习记录的 kp 也必须被视为“有证据但从未答对”；
+     * 已被练习覆盖的 qId 不重复计。
+     */
+    @Test
+    void confirmedUploadBecomesEvidenceButNotCorrect() {
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(
+                kp("KP0601", 1), kp("KP0602", 2)));
+        when(practiceRecordMapper.selectKpSignals(anyLong(), anyLong())).thenReturn(List.of());
+        StudentErrorRecord upload = new StudentErrorRecord();
+        upload.setLogId("11");
+        upload.setUserId(2L);
+        upload.setKpId("KP0602");
+        upload.setQId("Q_upload");
+        upload.setErrorType("CONCEPT_CONFUSION");
+        upload.setStatus("CONFIRMED");
+        upload.setConfirmedAt(NOW.minusDays(1));
+        upload.setCreatedAt(NOW.minusDays(1));
+        when(errorRecordMapper.selectList(any())).thenReturn(List.of(upload));
+        when(practiceRecordMapper.selectDistinctQidsByUser(2L)).thenReturn(List.of());
+
+        RepairPriorityService.RankedCourse ranked = service.rank(2L, 1L, NOW);
+
+        RepairPriorityService.Priority withUpload = ranked.priorityByKp().get("KP0602");
+        assertThat(withUpload.urgency()).isEqualTo(1.0);
+        assertThat(withUpload.daysSinceLastCorrect()).isNull();
+        assertThat(withUpload.repairability()).isEqualTo(1.0);
+        assertThat(withUpload.daysSinceLastPractice()).isEqualTo(1);
+        assertThat(ranked.priorityByKp().get("KP0601").urgency()).isEqualTo(0.8);
     }
 
     @Test

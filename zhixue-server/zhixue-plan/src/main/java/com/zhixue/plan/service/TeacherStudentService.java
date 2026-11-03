@@ -10,13 +10,12 @@ import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
-import com.zhixue.diagnosis.dto.UserKpAgg;
 import com.zhixue.diagnosis.dto.UserPracticeAgg;
 import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
-import com.zhixue.diagnosis.service.MasteryCalculator;
+import com.zhixue.diagnosis.service.MasteryAggregationService;
 import com.zhixue.common.util.CsvWriter;
 import com.zhixue.common.util.NameMasker;
 import com.zhixue.plan.dto.TeacherStudentViews;
@@ -67,9 +66,8 @@ public class TeacherStudentService {
     private final StudentErrorRecordMapper errorRecordMapper;
     private final StudyPlanMapper studyPlanMapper;
     private final UserQueryService userQueryService;
-    private final MasteryCalculator masteryCalculator;
+    private final MasteryAggregationService masteryAggregationService;
     private final int minSamples;
-    private final double halfLifeDays;
     /** 聚合时间窗（天）：与掌握度半衰期共用配置组，窗口外历史不实时算 */
     private final int aggregateWindowDays;
 
@@ -80,7 +78,7 @@ public class TeacherStudentService {
                                  StudentErrorRecordMapper errorRecordMapper,
                                  StudyPlanMapper studyPlanMapper,
                                  UserQueryService userQueryService,
-                                 @Value("${mastery.half-life-days:30}") double halfLifeDays,
+                                 MasteryAggregationService masteryAggregationService,
                                  @Value("${mastery.min-samples:3}") int minSamples,
                                  @Value("${mastery.aggregate-window-days:180}") int aggregateWindowDays) {
         this.courseService = courseService;
@@ -90,15 +88,14 @@ public class TeacherStudentService {
         this.errorRecordMapper = errorRecordMapper;
         this.studyPlanMapper = studyPlanMapper;
         this.userQueryService = userQueryService;
-        this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
-        this.masteryCalculator = new MasteryCalculator(this.halfLifeDays);
+        this.masteryAggregationService = masteryAggregationService;
         this.minSamples = Math.max(1, minSamples);
         this.aggregateWindowDays = Math.max(1, aggregateWindowDays);
     }
 
     /** 聚合窗口起点：教师端全课程聚合只扫窗口内记录，跨学年历史走快照。 */
-    private LocalDateTime aggregateSince() {
-        return LocalDateTime.now(ZONE).minusDays(aggregateWindowDays);
+    private LocalDateTime aggregateSince(LocalDateTime now) {
+        return now.minusDays(aggregateWindowDays);
     }
 
     /** 课程学生聚合列表。 */
@@ -159,18 +156,18 @@ public class TeacherStudentService {
         if (qIds.isEmpty()) {
             return List.of();
         }
+        LocalDateTime now = LocalDateTime.now(ZONE);
         List<UserPracticeAgg> aggregates = practiceRecordMapper.aggregateByUser(qIds, null,
-                aggregateSince());
+                aggregateSince(now));
         if (aggregates.isEmpty()) {
             return List.of();
         }
         Set<Long> userIds = aggregates.stream().map(UserPracticeAgg::getUserId)
                 .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
-        Map<Long, List<UserKpAgg>> kpByUser = practiceRecordMapper
-                .aggregateByUserKp(qIds, userIds, halfLifeDays, LocalDateTime.now(ZONE),
-                        aggregateSince()).stream()
-                .filter(item -> item.getUserId() != null)
-                .collect(Collectors.groupingBy(UserKpAgg::getUserId));
+        // 与学生端画像/班级画像同一聚合入口：practice_record + CONFIRMED 上传错题、同日同题去重
+        Map<Long, List<MasteryAggregationService.KpMastery>> kpByUser = masteryAggregationService
+                .courseMastery(qIds, courseKpIds(courseId), userIds, now, aggregateSince(now))
+                .byUser();
         Map<Long, int[]> planProgress = loadPlanProgress(userIds);
         Map<Long, String> names = userQueryService.findDisplayNames(userIds);
 
@@ -203,15 +200,17 @@ public class TeacherStudentService {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
         List<Long> single = List.of(userId);
+        LocalDateTime now = LocalDateTime.now(ZONE);
         List<UserPracticeAgg> aggregateList = practiceRecordMapper.aggregateByUser(qIds, single,
-                aggregateSince());
+                aggregateSince(now));
         if (aggregateList.isEmpty() || aggregateList.get(0).getPracticeCount() == null
                 || aggregateList.get(0).getPracticeCount() <= 0) {
             throw new BizException(ErrorCode.NOT_FOUND, "该学生在本课程暂无学习记录");
         }
         UserPracticeAgg aggregate = aggregateList.get(0);
-        List<UserKpAgg> kpAggs = practiceRecordMapper.aggregateByUserKp(
-                qIds, single, halfLifeDays, LocalDateTime.now(ZONE), aggregateSince());
+        List<MasteryAggregationService.KpMastery> kpAggs = masteryAggregationService
+                .studentCourseMastery(qIds, courseKpIds(courseId), userId, now, aggregateSince(now))
+                .kps();
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(courseKpIds(courseId));
         Map<Long, String> names = userQueryService.findDisplayNames(single);
         Map<Long, int[]> planProgress = loadPlanProgress(Set.of(userId));
@@ -303,7 +302,7 @@ public class TeacherStudentService {
     }
 
     private TeacherStudentViews.StudentItem buildItem(long userId, UserPracticeAgg aggregate,
-                                                      List<UserKpAgg> kpAggs,
+                                                      List<MasteryAggregationService.KpMastery> kpAggs,
                                                       String displayName, int[] plan) {
         int practiceCount = aggregate.getPracticeCount() == null ? 0 : aggregate.getPracticeCount();
         int wrongCount = aggregate.getWrongCount() == null ? 0 : aggregate.getWrongCount();
@@ -315,12 +314,9 @@ public class TeacherStudentService {
         Double avgMastery = null;
         if (!kpAggs.isEmpty()) {
             double sum = 0;
-            for (UserKpAgg kp : kpAggs) {
-                // 与学生端完全同源：SQL 已按 (user_id, kp_id) 逐事件衰减求和，
-                // 不再用 per-user lastActiveAt 当所有知识点的衰减锚。
-                sum += masteryCalculator.mastery(
-                        kp.getSuccessWeight() == null ? 0.0 : kp.getSuccessWeight(),
-                        kp.getSeveritySum() == null ? 0.0 : kp.getSeveritySum());
+            for (MasteryAggregationService.KpMastery kp : kpAggs) {
+                // 与学生端完全同源：MasteryAggregationService 统一聚合与计算
+                sum += kp.mastery();
             }
             avgMastery = round3(sum / kpAggs.size());
         }
@@ -355,24 +351,20 @@ public class TeacherStudentService {
         return result;
     }
 
-    private List<TeacherStudentViews.KpMastery> buildKpMastery(List<UserKpAgg> kpAggs,
-                                                               Map<String, KnowledgePoint> kpById) {
+    private List<TeacherStudentViews.KpMastery> buildKpMastery(
+            List<MasteryAggregationService.KpMastery> kpAggs,
+            Map<String, KnowledgePoint> kpById) {
         List<TeacherStudentViews.KpMastery> result = new ArrayList<>();
-        for (UserKpAgg aggregate : kpAggs) {
-            String kpId = aggregate.getKpId();
+        for (MasteryAggregationService.KpMastery aggregate : kpAggs) {
+            String kpId = aggregate.kpId();
             if (kpId == null || kpId.isBlank()) {
                 continue;
             }
             KnowledgePoint kp = kpById.get(kpId);
-            int events = aggregate.getEvents() == null ? 0 : aggregate.getEvents();
-            int errors = aggregate.getErrorCount() == null ? 0 : aggregate.getErrorCount();
-            // 与学生端 /api/portraits/me 同一入口：successWeight、severitySum 均由 SQL 逐事件衰减
+            // 与学生端 /api/portraits/me 同一入口（MasteryAggregationService）
             result.add(new TeacherStudentViews.KpMastery(kpId,
                     kp == null ? null : kp.getName(),
-                    round3(masteryCalculator.mastery(
-                            aggregate.getSuccessWeight() == null ? 0.0 : aggregate.getSuccessWeight(),
-                            aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum())),
-                    events, errors));
+                    round3(aggregate.mastery()), aggregate.events(), aggregate.errorCount()));
         }
         result.sort(Comparator.comparingDouble(TeacherStudentViews.KpMastery::mastery));
         return result;

@@ -1,11 +1,14 @@
 package com.zhixue.diagnosis.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.KnowledgePrereq;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.KpPracticeSignal;
+import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
+import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -31,8 +34,11 @@ import java.util.Set;
  * <ul>
  *   <li>先修权重：1 跳先修 = 1.0，2 跳 = 0.7，薄弱点本身 = 0.6，
  *       薄弱点直接后继 = 0.5，课程内其他点 = 0.2（保证周计划仍有覆盖）。</li>
- *   <li>遗忘紧迫度：1 - 0.5^(距上次<b>正确</b>作答天数 / half-life-days)，从未答对记 1.0。
- *       刚答错不代表没遗忘：锚点取最后一次正确作答，避免“昨天答错”被误判为不紧迫。</li>
+ *   <li>遗忘紧迫度：1 - 0.5^(距上次<b>正确</b>作答天数 / half-life-days)。
+ *       从未答对（有作答/错题证据但无正确）记 1.0；从未作答（无任何证据）记 0.8，
+ *       避免把“还没学”的新知识点当成最该补的漏（docs/05 §3.7）。</li>
+ *   <li>证据来源与掌握度同口径：practice_record + CONFIRMED 上传错题（qId 已被练习覆盖的不重复计），
+ *       上传错题只补“答错/练过”，不产生正确证据。</li>
  *   <li>错因可修复性：概念混淆 1.0、方法缺失 0.9、步骤遗漏 0.8、
  *       边界 0.7、计算 0.5、未归类/无错因 0.5。</li>
  *   <li>score = 先修权重 × 紧迫度 × 可修复性。</li>
@@ -86,7 +92,12 @@ public class RepairPriorityService {
                 errorType.trim().toUpperCase(Locale.ROOT), ERROR_STUDENT_PHRASE.get("UNCLASSIFIED"));
     }
 
+    private static final String STATUS_CONFIRMED = "CONFIRMED";
+    /** 从未作答（无任何练习/错题证据）的紧迫度：低于“从未答对”，高于“刚答对” */
+    private static final double NO_EVIDENCE_URGENCY = 0.8;
+
     private final PracticeRecordMapper practiceRecordMapper;
+    private final StudentErrorRecordMapper errorRecordMapper;
     private final CourseService courseService;
     private final KnowledgePointService knowledgePointService;
     private final double halfLifeDays;
@@ -94,11 +105,13 @@ public class RepairPriorityService {
     private final int cooldownDays;
 
     public RepairPriorityService(PracticeRecordMapper practiceRecordMapper,
+                                 StudentErrorRecordMapper errorRecordMapper,
                                  CourseService courseService,
                                  KnowledgePointService knowledgePointService,
                                  @Value("${mastery.half-life-days:30}") double halfLifeDays,
                                  @Value("${recommend.cooldown-days:7}") int cooldownDays) {
         this.practiceRecordMapper = practiceRecordMapper;
+        this.errorRecordMapper = errorRecordMapper;
         this.courseService = courseService;
         this.knowledgePointService = knowledgePointService;
         this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
@@ -127,7 +140,7 @@ public class RepairPriorityService {
 
     /**
      * 按补漏优先级排序课程内启用知识点。
-     * 固定 3 条 SQL：知识点、练习信号、先修边；不随知识点数量增长。
+     * 固定 4 条 SQL：知识点、练习信号、CONFIRMED 上传错题、先修边；不随知识点数量增长。
      *
      * @param now 当前时间，显式传入便于单测固定遗忘天数
      */
@@ -145,6 +158,7 @@ public class RepairPriorityService {
                 signalByKp.put(signal.getKpId(), signal);
             }
         }
+        mergeConfirmedUploads(userId, kpSet, signalByKp);
         List<KnowledgePrereq> edges = knowledgePointService.listPrereqEdges(kpIds);
 
         Set<String> anchors = new HashSet<>();
@@ -160,8 +174,12 @@ public class RepairPriorityService {
         Map<String, Priority> priorities = new HashMap<>();
         for (KnowledgePoint kp : kps) {
             KpPracticeSignal signal = signalByKp.get(kp.getKpId());
+            boolean hasEvidence = signal != null && signal.getTotalCount() != null
+                    && signal.getTotalCount() > 0;
             Integer days = daysSinceCorrect(signal == null ? null : signal.getLastCorrectAt(), now);
-            double urgency = days == null ? 1.0 : 1.0 - Math.pow(0.5, days / halfLifeDays);
+            // 从未作答（无证据）= 0.8；有证据但从未答对 = 1.0（docs/05 §3.7）
+            double urgency = !hasEvidence ? NO_EVIDENCE_URGENCY
+                    : days == null ? 1.0 : 1.0 - Math.pow(0.5, days / halfLifeDays);
             String errorType = signal == null ? null : signal.getLastErrorType();
             double repairability = repairability(errorType);
             int distance = prereqDistance.getOrDefault(kp.getKpId(), -1);
@@ -325,6 +343,64 @@ public class RepairPriorityService {
         String reason = builder.toString();
         return reason.length() <= MAX_FIRST_REASON_LENGTH ? reason
                 : reason.substring(0, MAX_FIRST_REASON_LENGTH - 1) + "…";
+    }
+
+    /**
+     * PRP 纳入 CONFIRMED 上传错题（docs/05 §3.7）：与掌握度同口径，qId 已被练习覆盖的不重复计；
+     * 同一题目同一自然日只取最后一次确认。上传错题只补“练过/答错”，不伪造正确证据。
+     */
+    private void mergeConfirmedUploads(long userId, Set<String> kpSet,
+                                       Map<String, KpPracticeSignal> signalByKp) {
+        List<StudentErrorRecord> records = errorRecordMapper.selectList(
+                new LambdaQueryWrapper<StudentErrorRecord>()
+                        .eq(StudentErrorRecord::getUserId, userId)
+                        .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
+                        .in(StudentErrorRecord::getKpId, kpSet)
+                        .select(StudentErrorRecord::getLogId, StudentErrorRecord::getQId,
+                                StudentErrorRecord::getKpId, StudentErrorRecord::getErrorType,
+                                StudentErrorRecord::getConfirmedAt, StudentErrorRecord::getCreatedAt));
+        if (records.isEmpty()) {
+            return;
+        }
+        Set<String> practicedQids = new HashSet<>(
+                practiceRecordMapper.selectDistinctQidsByUser(userId));
+        Map<String, StudentErrorRecord> perDay = new HashMap<>();
+        for (StudentErrorRecord record : records) {
+            if (record.getKpId() == null || !kpSet.contains(record.getKpId())) {
+                continue;
+            }
+            if (record.getQId() != null && !record.getQId().isBlank()
+                    && practicedQids.contains(record.getQId())) {
+                continue;
+            }
+            String key = (record.getQId() == null || record.getQId().isBlank()
+                    ? "log:" + record.getLogId() : record.getQId())
+                    + "|" + eventTime(record).toLocalDate();
+            StudentErrorRecord previous = perDay.get(key);
+            if (previous == null || eventTime(previous).isBefore(eventTime(record))) {
+                perDay.put(key, record);
+            }
+        }
+        for (StudentErrorRecord record : perDay.values()) {
+            KpPracticeSignal signal = signalByKp.computeIfAbsent(record.getKpId(), key -> {
+                KpPracticeSignal created = new KpPracticeSignal();
+                created.setKpId(key);
+                created.setTotalCount(0);
+                created.setWrongCount(0);
+                return created;
+            });
+            signal.setTotalCount((signal.getTotalCount() == null ? 0 : signal.getTotalCount()) + 1);
+            signal.setWrongCount((signal.getWrongCount() == null ? 0 : signal.getWrongCount()) + 1);
+            LocalDateTime at = eventTime(record);
+            if (signal.getLastPracticedAt() == null || signal.getLastPracticedAt().isBefore(at)) {
+                signal.setLastPracticedAt(at);
+                signal.setLastErrorType(record.getErrorType());
+            }
+        }
+    }
+
+    private LocalDateTime eventTime(StudentErrorRecord record) {
+        return record.getConfirmedAt() != null ? record.getConfirmedAt() : record.getCreatedAt();
     }
 
     /** 距最后一次正确作答的整天数；null 表示从未答对（紧迫度记 1.0，最该补）。 */
