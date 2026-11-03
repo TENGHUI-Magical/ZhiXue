@@ -257,25 +257,39 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
 
     /**
      * 错因分布（班级画像 errorDist / 学生画像 errorDist）：SQL GROUP BY error_type，
-     * 行数受错因类型数约束，只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
+     * 行数受错因类型数约束。只统计标注了知识点（kp_id 非空）且作答错误的记录，与掌握度事件口径一致。
+     * <p>
+     * 与 {@link #aggregateByUserKp} 共用“同日同题只取最优 1 次”的窗口去重：
+     * 先按 (user_id, q_id, 自然日) 选代表事件，再筛 is_correct=0。这样同日同题先错后对
+     * 不会再让错因分布与掌握度各说各话（错因分布少计该次错误）。
      * 历史 null/空错因统一归入 UNCLASSIFIED，避免老数据从分布里消失。
      * qIds 非空 = 课程维度（教师端）；userId 非空 = 单学生维度；两者互斥使用。
      * since 非空时只统计窗口内记录（跨学年历史走快照）。
      */
     @Select("""
             <script>
-            SELECT <if test="userId != null">/*+ INDEX(practice_record idx_user_window) */</if>
-                   COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED') AS errorType, COUNT(*) AS cnt
-            FROM practice_record
-            WHERE is_correct = 0
-              AND kp_id IS NOT NULL AND kp_id &lt;&gt; ''
-              <if test="qIds != null and qIds.size() > 0">
-                AND q_id IN
-                <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
-              </if>
-              <if test="userId != null">AND user_id = #{userId}</if>
-              <if test="since != null">AND created_at &gt;= #{since}</if>
-            GROUP BY COALESCE(NULLIF(error_type, ''), 'UNCLASSIFIED')
+            SELECT COALESCE(NULLIF(pr.error_type, ''), 'UNCLASSIFIED') AS errorType, COUNT(*) AS cnt
+            FROM (
+              SELECT <if test="userId != null">/*+ INDEX(practice_record idx_user_window) */</if>
+                     user_id, kp_id, q_id, is_correct, error_type, created_at, practice_id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY user_id, q_id, DATE(created_at)
+                       ORDER BY is_correct DESC,
+                                CASE WHEN is_correct = 1 THEN created_at END ASC,
+                                created_at DESC,
+                                practice_id DESC
+                     ) AS rn
+              FROM practice_record
+              WHERE kp_id IS NOT NULL AND kp_id &lt;&gt; ''
+                <if test="qIds != null and qIds.size() > 0">
+                  AND q_id IN
+                  <foreach collection="qIds" item="q" open="(" separator="," close=")">#{q}</foreach>
+                </if>
+                <if test="userId != null">AND user_id = #{userId}</if>
+                <if test="since != null">AND created_at &gt;= #{since}</if>
+            ) pr
+            WHERE pr.rn = 1 AND pr.is_correct = 0
+            GROUP BY COALESCE(NULLIF(pr.error_type, ''), 'UNCLASSIFIED')
             </script>
             """)
     List<ErrorTypeAgg> aggregateErrorType(@Param("qIds") List<String> qIds,
