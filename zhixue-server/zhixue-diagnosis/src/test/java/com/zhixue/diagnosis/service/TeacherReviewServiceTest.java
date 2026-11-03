@@ -2,6 +2,7 @@ package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
@@ -21,18 +22,27 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -227,6 +237,94 @@ class TeacherReviewServiceTest {
             assertTrue(ex.getMessage().contains("缩小筛选"));
         }
         verify(logMapper, never()).selectForReviewAll(any(), any(), any(), any(), any());
+    }
+
+    /** 同快照不能只靠数据库默认隔离级别：显式声明 REPEATABLE_READ，删掉注解参数即红。 */
+    @Test
+    void exportCsvDeclaresRepeatableReadIsolation() throws NoSuchMethodException {
+        Transactional tx = TeacherReviewService.class
+                .getMethod("exportCsv", String.class, String.class, LocalDate.class, LocalDate.class)
+                .getAnnotation(Transactional.class);
+        assertNotNull(tx);
+        assertTrue(tx.readOnly());
+        assertEquals(Isolation.REPEATABLE_READ, tx.isolation());
+    }
+
+    /** 上限边界放行：恰好 50,000 行必须导出成功，拒绝只发生在 50,001 行。 */
+    @Test
+    void exportCsvAllowsExactlyAtRowCap() {
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.countForReview(any(), any(), any(), any(), any()))
+                .thenReturn((long) TeacherReviewService.MAX_EXPORT_ROWS);
+        List<AiGenerationLog> rows = new ArrayList<>(TeacherReviewService.MAX_EXPORT_ROWS);
+        for (int i = 1; i <= TeacherReviewService.MAX_EXPORT_ROWS; i++) {
+            rows.add(exportRow(i));
+        }
+        when(logMapper.selectForReviewAll(any(), any(), any(), any(), any())).thenReturn(rows);
+        when(knowledgePointService.findByIds(any())).thenReturn(Map.of());
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(3L, "欧阳锋"));
+
+        byte[] csv;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            csv = service.exportCsv("ALL", null, null, null);
+        }
+
+        String text = new String(csv, StandardCharsets.UTF_8);
+        // 表头 1 行 + 恰好 50,000 行数据：上限本身放行，拒绝只在 50,001
+        assertEquals(TeacherReviewService.MAX_EXPORT_ROWS + 1,
+                text.split("\r\n", -1).length - 1);
+        verify(logMapper).selectForReviewAll(any(), any(), any(), any(), any());
+    }
+
+    /**
+     * reviewed_at 按上海时区入库，不随 JVM 默认时区漂移：测试内把默认时区拨到 UTC，
+     * 写出的评阅时间仍应与上海当前时间同窗（把 now(ZONE) 改回裸 now() 即红）。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void reviewedAtUsesShanghaiZoneRegardlessOfJvmDefault() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(10L);
+        log.setLogId("EL_10");
+        log.setScene("RAG");
+        when(logMapper.selectById(10L)).thenReturn(log);
+        when(logMapper.selectLinkedCourseIds("EL_10")).thenReturn(List.of());
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.update(isNull(), any())).thenReturn(1);
+
+        LocalDateTime shanghaiNow;
+        LocalDateTime written;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            shanghaiNow = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
+            try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                service.submit(10L, new ReviewSubmitRequest(5, "讲解清晰"));
+            }
+            ArgumentCaptor<LambdaUpdateWrapper<AiGenerationLog>> captor =
+                    ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+            verify(logMapper).update(isNull(), captor.capture());
+            written = captor.getValue().getParamNameValuePairs().values().stream()
+                    .filter(LocalDateTime.class::isInstance)
+                    .map(LocalDateTime.class::cast)
+                    .findFirst().orElseThrow();
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        assertTrue(Duration.between(shanghaiNow, written).abs().getSeconds() < 5);
+    }
+
+    private AiGenerationLog exportRow(long logPk) {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setLogPk(logPk);
+        row.setExplainId("EX_" + logPk);
+        row.setUserId(3L);
+        row.setScene("RAG");
+        row.setModel("deepseek-chat");
+        row.setIsDegraded(0);
+        row.setCreatedAt(LocalDateTime.of(2026, 10, 28, 20, 0, 0));
+        return row;
     }
 
     @Test

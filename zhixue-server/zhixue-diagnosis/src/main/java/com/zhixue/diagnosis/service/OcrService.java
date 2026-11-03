@@ -37,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +61,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class OcrService {
 
     private static final Logger log = LoggerFactory.getLogger(OcrService.class);
+    /** 统一时区口径：回收判定与任务时间戳不能随 JVM 默认时区漂移（docs/13 B 组） */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png");
     private static final String PENDING = "PENDING";
@@ -180,7 +183,7 @@ public class OcrService {
      */
     @Scheduled(fixedDelayString = "${zhixue.ocr.reclaim-interval-ms:60000}")
     public void reclaimStaleTasks() {
-        LocalDateTime deadline = LocalDateTime.now().minusSeconds(ocrTimeoutSeconds);
+        LocalDateTime deadline = LocalDateTime.now(ZONE).minusSeconds(ocrTimeoutSeconds);
         List<OcrTask> stale = ocrTaskMapper.selectList(new LambdaQueryWrapper<OcrTask>()
                 .in(OcrTask::getStatus, PENDING, RUNNING)
                 .lt(OcrTask::getUpdatedAt, deadline)
