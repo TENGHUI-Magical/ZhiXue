@@ -15,21 +15,21 @@ cd zhixue-server
 $env:JAVA_HOME='D:\jdk-21.0.13.0.3'
 mvn -B -ntp -DskipTests package
 java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar `
-  --spring.datasource.username=root --spring.datasource.password=123456
+  --spring.datasource.username=root --spring.datasource.password=<示例密码，勿用真实值>
 
 # 2. 前端
 cd zhixue-web
 npm run dev -- --port 5174
 ```
 
-种子账号口令见 `zhixue-server/sql/seed-dev-users.local.sql` 的生成说明；本地联调若重置过口令，以下示例使用 `123456`（**仅本地**）。
+种子账号口令见 `zhixue-server/sql/seed-dev-users.local.sql` 的生成说明；以下示例中的口令均为占位符 `<示例密码，勿用真实值>`，运行前替换为本地实际口令（**仅本地**）。
 
 ## 运行
 
 ```powershell
 cd zhixue-web
-$env:E2E_USER='student01'; $env:E2E_PASS='123456'
-$env:E2E_TEACHER_USER='teacher01'; $env:E2E_TEACHER_PASS='123456'
+$env:E2E_USER='student01'; $env:E2E_PASS='<示例密码，勿用真实值>'
+$env:E2E_TEACHER_USER='teacher01'; $env:E2E_TEACHER_PASS='<示例密码，勿用真实值>'
 npm run e2e:real
 npm run e2e:real:ui
 

@@ -184,9 +184,10 @@ class PlanServiceTest {
                     new CheckinRequest("Q_0201", "token-auto", true, "A", true, 10, null, null));
             assertFalse(result.isCorrect());
             assertEquals("AUTO", result.gradingMode());
+            // 计划打卡契约不含 startToken，客户端自报 10 秒不可信，服务端必须落 null
             org.mockito.Mockito.verify(practiceService)
                     .recordPlanCompletion(2L, "Q_0201", "KP0201", "token-auto", "A",
-                            false, 10, null);
+                            false, null, null);
         }
     }
 
@@ -229,8 +230,54 @@ class PlanServiceTest {
                     "A", false, 10, "CALCULATION_ERROR", null));
         }
 
+        // 客户端自报 10 秒同样不落库，错因推断不受影响
         org.mockito.Mockito.verify(practiceService).recordPlanCompletion(
-                2L, "Q_0201", "KP0201", "token-auto-err", "A", false, 10, "CONCEPT_CONFUSION");
+                2L, "Q_0201", "KP0201", "token-auto-err", "A", false, null, "CONCEPT_CONFUSION");
+    }
+
+    @Test
+    void planCheckinIgnoresClientReportedCostSeconds() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanCount(3);
+        plan.setDoneCount(0);
+        plan.setStatus("PENDING");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        StudyPlanItem item = new StudyPlanItem();
+        item.setItemId(5L);
+        item.setPlanId(1L);
+        item.setQId("Q_0201");
+        item.setKpId("KP0201");
+        item.setIsDone(0);
+        when(itemMapper.selectOne(any())).thenReturn(item);
+
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_0201");
+        question.setQuestionType("单选");
+        question.setAnswerText("A");
+        when(questionBankService.getById("Q_0201")).thenReturn(question);
+        when(practiceService.findCompletionByToken(2L, "token-cost")).thenReturn(null);
+        when(practiceService.recordPlanCompletion(anyLong(), any(), any(), any(), any(),
+                anyBoolean(), any(), any()))
+                .thenReturn(new PracticeService.PlanCompletion(
+                        57L, "Q_0201", "PLAN", false, true));
+        when(itemMapper.update(any(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            // 客户端谎报 123 秒：服务端仍按 null 落库，打卡成功与判分不受影响
+            com.zhixue.plan.dto.CheckinResult result = service.checkin(1L,
+                    new CheckinRequest("Q_0201", "token-cost", true, "A", true, 123, null, null));
+            assertEquals(true, result.verified());
+            assertEquals(true, result.isCorrect());
+            assertEquals(1, result.doneCount());
+            assertEquals(57L, result.practiceId());
+        }
+
+        org.mockito.Mockito.verify(practiceService).recordPlanCompletion(
+                2L, "Q_0201", "KP0201", "token-cost", "A", true, null, null);
     }
 
     @Test

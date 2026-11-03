@@ -42,8 +42,9 @@ import java.util.Set;
 /**
  * 学习计划服务：周计划生成、列表、打卡。
  * <p>
- * 生成算法为可解释 MVP：优先薄弱知识点（近阶段错题计数），不足时按章节/题号补题；
- * 同一周内尽量不重复题，题库不足时允许跨日重复。
+ * 选题顺序 = PRP 补漏排序（先修 1—2 跳 × 遗忘紧迫度 × 错因可修复性，05 §3.7，
+ * 与推荐共用 RepairPriorityService 同一口径）；课程题池仍不足时按题库既有顺序兜底；
+ * 同一周内尽量不重复题（冷却见 recommend.cooldown-days），题库不足时允许跨日重复。
  */
 @Service
 public class PlanService {
@@ -285,7 +286,9 @@ public class PlanService {
                     request.myAnswer(), grading.correct(), request.errorType(), item.getKpId());
             completion = practiceService.recordPlanCompletion(userId, item.getQId(), item.getKpId(),
                     request.clientToken(), request.myAnswer(), grading.correct(),
-                    request.costSeconds(), errorType);
+                    // 计划打卡契约不含 startToken（无服务端计时），客户端自报耗时不可信，一律落 null；
+                    // 打卡成功、幂等、判分与 errorType 推断不受影响，字段保留仅为兼容旧客户端。
+                    null, errorType);
         }
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())

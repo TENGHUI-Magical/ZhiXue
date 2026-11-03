@@ -5,7 +5,7 @@
     :class="result === 'RETURN' ? 'is-return' : 'is-pass'"
     :data-review-result="result"
   >
-    <template v-if="result === 'PASS'">老师已复核这条讲解</template>
+    <template v-if="result === 'PASS'">老师已复核这条讲解<template v-if="comment">：{{ comment }}</template></template>
     <template v-else>需要补充：{{ comment }}</template>
   </div>
 </template>

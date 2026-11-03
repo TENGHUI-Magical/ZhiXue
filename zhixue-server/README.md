@@ -34,7 +34,7 @@ entity      → @TableName 与 init-v2.sql 对齐
 # 演示库一条命令（第1—5章 + 演示账号 + 演示数据）；细节见 docs/13-演示库恢复.md
 pwsh -ExecutionPolicy Bypass -File ..\scripts\seed-demo.ps1
 mvn -q -DskipTests package
-DB_PASSWORD=123456 java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar
+DB_PASSWORD=<示例密码，勿用真实值> java -jar zhixue-bootstrap/target/zhixue-bootstrap-0.1.0-SNAPSHOT.jar
 # 验证分层示例：GET http://localhost:8080/api/course/kp/KP0201
 ```
 

@@ -33,7 +33,7 @@ const edges = nodes.slice(1).map((n, i) => ({ source: nodes[i].id, target: n.id,
 const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。'.repeat(80), misconception: '把笛卡儿积当连接\\n第二段仍应可见', textbookPage: 'P88', dimensionKey: 'sql' }
 const portrait = { statDate: '2026-10-29', dimensionScores: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }, weakestKps: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6 }, { kpId: 'KP0006', name: '函数依赖', mastery: 0.41, sampleCount: 8 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, totalPractice: 18, totalError: 12 }
 const errorPage = { page: 1, size: 10, total: 3, records: [
-  { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:00:00' },
+  { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: '讲解准确，可继续练习', reviewedAt: '2026-11-03 09:00:00' },
   { logId: 'LOG002', qId: null, kpId: 'KP0006', kpName: '函数依赖', status: 'DRAFT', errorType: 'STEP_OMISSION', createdAt: '2026-10-28T19:00:00', reviewResult: 'RETURN', reviewComment: '请补充连接条件的书写', reviewedAt: '2026-11-03 09:10:00' },
   { logId: 'LOG003', qId: 'Q_0303', kpId: 'KP0003', kpName: '连接查询', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '题干 3', createdAt: '2026-10-28T18:00:00', reviewResult: null, reviewComment: null, reviewedAt: null }
 ] }
@@ -320,7 +320,21 @@ async function newContext(browser, role, theme, viewport, options = {}) {
           }
         }
       }
-      if (route.request().method() === 'POST' && u.pathname === '/api/diagnosis/explain') {
+      if (route.request().method() === 'GET' && u.pathname === '/api/teacher/reviews/export') {
+        // 导出超限闭环：未设日期 → 40000 提示；设了起止日期 → 返回 CSV（证明提示可执行）
+        const hasRange = u.searchParams.get('from') && u.searchParams.get('to')
+        if (!hasRange) {
+          await route.fulfill({
+            status: 200, contentType: 'application/json',
+            body: JSON.stringify({ code: 40000, message: '导出数据过大（50001 行，上限 50000），请设置导出的起止日期缩小筛选范围后重试', timestamp: Date.now() })
+          })
+        } else {
+          await route.fulfill({
+            status: 200, contentType: 'text/csv;charset=UTF-8',
+            body: '\uFEFF留痕ID,讲解ID\r\n1,EXP001\r\n'
+          })
+        }
+      } else if (route.request().method() === 'POST' && u.pathname === '/api/diagnosis/explain') {
         explainRequestCount += 1
         const body = [
           'event:meta\ndata:{"explainId":"EXPAUTO"}',
@@ -625,13 +639,15 @@ try {
     const passText = await page.locator('.el-table__row').filter({ hasText: 'LOG001' }).locator('.review-status').innerText().catch(() => '')
     const returnText = await page.locator('.el-table__row').filter({ hasText: 'LOG002' }).locator('.review-status').innerText().catch(() => '')
     const pendingCount = await page.locator('.el-table__row').filter({ hasText: 'LOG003' }).locator('.review-status').count()
-    return rowCount >= 2 && passText === '老师已复核这条讲解' && returnText === '需要补充：请补充连接条件的书写' && pendingCount === 0
+    return rowCount >= 2 && passText === '老师已复核这条讲解：讲解准确，可继续练习' && returnText === '需要补充：请补充连接条件的书写' && pendingCount === 0
   })
+  const passCommentText = await page.locator('.el-table__row').filter({ hasText: 'LOG001' }).locator('.review-status').innerText().catch(() => '')
+  check('错题本：PASS 评语可见', passCommentText.includes('老师已复核这条讲解') && passCommentText.includes('讲解准确，可继续练习'), JSON.stringify({ passCommentText }))
   let detailsOk = false
   const detailLinksReady = await page.locator('.error-record-link').count() >= 3
   if (detailLinksReady) {
     detailsOk = true
-    for (const [logId, result, expected] of [['LOG001', 'PASS', '老师已复核这条讲解'], ['LOG002', 'RETURN', '需要补充：请补充连接条件的书写'], ['LOG003', null, '']]) {
+    for (const [logId, result, expected] of [['LOG001', 'PASS', '老师已复核这条讲解：讲解准确，可继续练习'], ['LOG002', 'RETURN', '需要补充：请补充连接条件的书写'], ['LOG003', null, '']]) {
       await page.locator('.el-table__row').filter({ hasText: logId }).locator('.error-record-link').click()
       await sleep(250)
       const drawer = page.locator('.error-record-drawer')
@@ -1021,7 +1037,7 @@ try {
   }
   ocrConfidence = 0.95
   let explainReviewOk = true
-  for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
+  for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解：讲解准确，可继续练习'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
     await open(page, `/diagnosis?explainId=${explainId}`)
     const status = page.locator('.explain-detail .review-status')
     if (result === null ? await status.count() !== 0 : (await status.innerText().catch(() => '')) !== expected) {
@@ -1048,7 +1064,7 @@ try {
     return result === null ? await explainStatus.count() === 0 : (await explainStatus.innerText().catch(() => '')) === expected
   }
   await checkNext('评阅回流：未评阅不渲染', async () => verifyReviewAcrossOutlets({ logId: 'LOG003', explainId: 'EXP003', result: null, expected: '' }))
-  await checkNext('评阅回流：PASS 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG001', explainId: 'EXP001', result: 'PASS', expected: '老师已复核这条讲解' }))
+  await checkNext('评阅回流：PASS 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG001', explainId: 'EXP001', result: 'PASS', expected: '老师已复核这条讲解：讲解准确，可继续练习' }))
   await checkNext('评阅回流：RETURN 三处一致', async () => verifyReviewAcrossOutlets({ logId: 'LOG002', explainId: 'EXP002', result: 'RETURN', expected: '需要补充：请补充连接条件的书写' }))
 
   // 未登录：回登录并保留站内 returnUrl
@@ -1193,6 +1209,18 @@ try {
     return await textarea.inputValue() === '请补充连接条件的书写' && !await textarea.isEditable()
   })
   await tpage.keyboard.press('Escape'); await sleep(300)
+
+  // 导出超限闭环（阻断1）：超限 → 提示"设置起止日期缩小范围" → 老师照做 → 成功导出
+  await tpage.getByRole('button', { name: '导出留痕' }).click()
+  await checkNext('评阅导出：超限提示可照做', async () =>
+    (await tpage.getByText('导出数据过大').count()) >= 1)
+  await tpage.locator('.export-date').nth(0).fill('2026-11-01')
+  await tpage.keyboard.press('Escape')
+  await tpage.locator('.export-date').nth(1).fill('2026-11-02')
+  await tpage.keyboard.press('Escape')
+  await tpage.getByRole('button', { name: '导出留痕' }).click()
+  await checkNext('评阅导出：按日期缩小后导出成功', async () =>
+    (await tpage.getByText('已导出评阅留痕 CSV').count()) >= 1)
 
   await open(tpage, '/teacher/class')
   await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)

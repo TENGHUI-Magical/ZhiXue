@@ -303,7 +303,7 @@ public class PracticeService {
 
     /**
      * 计划打卡写 practice_record（source=PLAN）。
-     * 2026-10-31 C1：按真实作答写入 is_correct（不再固定 1）。
+     * 按真实作答写入 is_correct（不固定 1）。
      * 仅“已作答”打卡才调用本方法；“仅记录进度”不写 practice_record。
      */
     public PlanCompletion recordPlanCompletion(long userId, String qId, String kpId,

@@ -209,6 +209,26 @@ class TeacherReviewServiceTest {
         }
     }
 
+    /**
+     * 超限行为（先 COUNT 后取数）：行数超过 MAX_EXPORT_ROWS 时拒绝并提示缩小筛选，
+     * 且不进入全量取数——拒绝优先于截断，避免老师拿到静默少行的文件以为数据丢了。
+     */
+    @Test
+    void exportCsvRejectsWhenRowCountExceedsCap() {
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.countForReview(any(), any(), any(), any(), any()))
+                .thenReturn((long) TeacherReviewService.MAX_EXPORT_ROWS + 1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.exportCsv("ALL", null, null, null));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+            assertTrue(ex.getMessage().contains(String.valueOf(TeacherReviewService.MAX_EXPORT_ROWS)));
+            assertTrue(ex.getMessage().contains("缩小筛选"));
+        }
+        verify(logMapper, never()).selectForReviewAll(any(), any(), any(), any(), any());
+    }
+
     @Test
     void submitWritesOnlyWhenReviewedAtIsNull() {
         AiGenerationLog log = new AiGenerationLog();
