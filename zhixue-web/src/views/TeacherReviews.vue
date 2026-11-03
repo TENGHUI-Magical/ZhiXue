@@ -622,7 +622,7 @@ onMounted(load);
   border-radius: 4px;
   font-size: 12px;
   color: var(--el-text-color-regular);
-  background: #fff;
+  background: var(--app-surface);
 }
 @media (max-width: 768px) {
   .export-date {

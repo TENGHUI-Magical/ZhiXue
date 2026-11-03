@@ -5,6 +5,7 @@ import com.zhixue.common.api.ApiResponse;
 import com.zhixue.user.entity.SysUser;
 import com.zhixue.user.service.AuthService;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -46,8 +47,11 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req) {
-        AuthService.AuthResult result = authService.login(req.username(), req.password());
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest req,
+                                            HttpServletRequest request) {
+        // 只取容器层 remoteAddr；不信任客户端可伪造的 X-Forwarded-For
+        AuthService.AuthResult result = authService.login(req.username(), req.password(),
+                request.getRemoteAddr());
         SysUser user = result.user();
         return ApiResponse.ok(new LoginResponse(result.token(), user.getUserId(),
                 user.getUsername(), user.getRole()));
