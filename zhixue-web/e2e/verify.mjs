@@ -28,8 +28,9 @@ const courses = [{ courseId: 1, courseName: '数据库系统概论', dimensionCo
 const kpNames = ['关系模型基本概念','关系代数','元组关系演算','关系完整性','规范化初步','函数依赖','范式判定','模式分解','视图与索引','关系模型小结','SQL 概述','连接查询']
 const nodes = kpNames.map((name, i) => ({ id: 'KP' + String(i + 1).padStart(4, '0'), name, chapterId: i < 6 ? 2 : 3 }))
 const edges = nodes.slice(1).map((n, i) => ({ source: nodes[i].id, target: n.id, relation: 'PREREQ' }))
-const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。'.repeat(80), misconception: `把笛卡儿积当连接
-第二段仍应可见`, textbookPage: 'P88', dimensionKey: 'sql' }
+// misconception 故意使用字面 \n（反斜杠+n 两个字符），与种子实际形态一致：
+// seed-kp-ch05.sql 的 KP0501 在 SQL 里写 '\\n'，MySQL 转义后入库即字面 \n，显示层必须归一化
+const kpDetail = { kpId: 'KP0012', courseId: 1, chapterId: 3, chapterName: 'SQL', name: '连接查询', conceptText: '连接查询把多张表按连接条件组合。'.repeat(80), misconception: '把笛卡儿积当连接\\n第二段仍应可见', textbookPage: 'P88', dimensionKey: 'sql' }
 const portrait = { statDate: '2026-10-29', dimensionScores: { concept: 0.72, sql: 0.55, schema: 0.61, transaction: 0.48, boundary: 0.66 }, weakestKps: [{ kpId: 'KP0012', name: '连接查询', mastery: 0.32, sampleCount: 6 }, { kpId: 'KP0006', name: '函数依赖', mastery: 0.41, sampleCount: 8 }], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3 }, totalPractice: 18, totalError: 12 }
 const errorPage = { page: 1, size: 10, total: 3, records: [
   { logId: 'LOG001', qId: 'Q_0201', kpId: 'KP0001', kpName: '关系模型基本概念', status: 'CONFIRMED', errorType: 'CONCEPT_CONFUSION', correctedText: '关系模型由数据结构、关系操作、完整性约束组成', createdAt: '2026-10-29T10:12:00', reviewResult: 'PASS', reviewComment: null, reviewedAt: '2026-11-03 09:00:00' },
@@ -798,6 +799,19 @@ try {
     }
     return await page.locator('.practice-drawer.open').isVisible()
   })
+  await page.keyboard.press('Escape'); await sleep(400)
+
+  // 回归：种子误区含字面 \n（如 seed-kp-ch05.sql 的 KP0501），显示层必须归一化为真实换行
+  await open(page, '/knowledge-graph?kpId=KP0012')
+  await waitFor(async () => await page.locator('.kp-drawer .kp-text.muted').isVisible())
+  const misconceptionText = await page.locator('.kp-drawer .kp-text.muted').innerText().catch(() => '')
+  check('图谱：误区字面换行符已归一化',
+    misconceptionText.includes('把笛卡儿积当连接') && !misconceptionText.includes('\\n'),
+    JSON.stringify(misconceptionText.slice(0, 160)))
+  const misconceptionLines = misconceptionText.split('\n').map((line) => line.trim())
+  check('图谱：误区分段多行可见',
+    misconceptionLines.some((line) => line.includes('把笛卡儿积当连接')) && misconceptionLines.includes('第二段仍应可见'),
+    JSON.stringify(misconceptionLines))
   await page.keyboard.press('Escape'); await sleep(400)
 
   // 回归：章节下拉与筛选说明必须显示教材章号（mock 中 chapterId 2→第1章、3→第2章）
