@@ -3,7 +3,8 @@
     <div class="page-head">
       <div>
         <h2>课程知识图谱</h2>
-        <p class="sub">节点按先修关系连接；红色标记当前画像中的薄弱知识点。</p>
+        <p class="sub">红色标记当前画像中的薄弱知识点。</p>
+        <p class="sub">这张图看的是知识点之间的先后关系，找题请用“找题练习”。</p>
       </div>
       <div class="graph-tools">
         <el-select
@@ -52,7 +53,7 @@
           :class="{ dragging }"
           viewBox="0 0 800 600"
           role="group"
-          aria-label="知识点先修关系图，完整名称见下方节点列表"
+          aria-label="知识点先后关系图，完整名称见下方节点列表"
           @wheel="onWheel"
           @pointerdown="onPointerDown"
           @pointermove="onPointerMove"
@@ -133,7 +134,7 @@
           <el-empty description="本章暂无知识点" :image-size="64" />
         </div>
         <div class="graph-note">
-          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先修关系<span v-if="chapterFilter != null">（已筛选{{ chapterNoLabel(chapterFilter) }}）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
+          点击节点查看详情；当前显示 {{ visibleNodes.length }} 个知识点、{{ edgeLines.length }} 条先后关系<span v-if="chapterFilter != null">（已筛选{{ chapterNoLabel(chapterFilter) }}）</span>。节点较多时可按章节筛选显示名称，完整名称见下方“知识点清单”。
           <a class="mobile-list-jump" href="#kp-list">节点太小？按清单浏览</a>
         </div>
       </el-card>

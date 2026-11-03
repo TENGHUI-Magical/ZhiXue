@@ -127,7 +127,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Stethoscope, Users } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Search, Stethoscope, Users } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
@@ -166,7 +166,8 @@ const baseMenus = [
   { path: "/error-book", label: "我的错题本", icon: BookOpen },
   { path: "/portrait", label: "学情画像看板", icon: Radar },
   { path: "/plan", label: "周计划与打卡", icon: CalendarCheck },
-  { path: "/knowledge-graph", label: "课程知识图谱", icon: Network }
+  { path: "/knowledge-graph", label: "课程知识图谱", icon: Network },
+  { path: "/practice", label: "找题练习", icon: Search }
 ];
 
 /** 教师端只展示已实现的教学入口；学生页面不再混进教师导航。 */
