@@ -20,7 +20,7 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * IN 集合随课程历史增长无上限，且会把排序/分页压力留在 JVM。
      * 所有条件参数绑定，分页 LIMIT/OFFSET 也由这里绑定，不拼接 SQL 字符串。</p>
      *
-     * <p>课程范围隔离（2026-11-03）：courseIds = 登录教师可管理课程；明确能定位到
+     * <p>课程范围隔离：courseIds = 登录教师可管理课程；明确能定位到
      * 其他教师课程的记录不可见；关联不到错题/题库（归属不明）的记录保留——
      * 行消失会被当成丢数据，证据列为空更诚实（docs/01 §7.2）。调用方保证
      * courseIds 非 null 且非空（无课程教师传哨兵 -1，即看不到任何有归属的记录）。</p>

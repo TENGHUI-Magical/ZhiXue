@@ -21,7 +21,12 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * 知识点服务：完整分层切片示例的 service 层。
+ * 知识点只读查询服务：按编号取实体/契约视图、课程级映射画像（概念+误区+关键词）、
+ * 先修边关系（1 跳先修/后继、批量边供 PRP 的 1—2 跳 BFS）。
+ * <p>
+ * 边界：不做知识点写入/导入（内容经 SQL 种子维护），不做章节与课程查询（CourseService），
+ * 不做题库（QuestionBankService），也不做映射打分（diagnosis 模块只经本服务取画像，
+ * 打分口径在 KpMappingService）。
  */
 @Service
 public class KnowledgePointService {

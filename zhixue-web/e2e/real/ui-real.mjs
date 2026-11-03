@@ -7,7 +7,7 @@
  *   - E2E_USER / E2E_PASS 为可登录的种子账号
  *
  * 用法（PowerShell）：
- *   $env:E2E_USER='student01'; $env:E2E_PASS='123456'; npm run e2e:real:ui
+ *   $env:E2E_USER='student01'; $env:E2E_PASS='<示例密码，勿用真实值>'; npm run e2e:real:ui
  *
  * 注意：会真实提交 1 条教师评阅（若队列有未评阅且有证据的记录）；仅用于本地/测试库。
  */
