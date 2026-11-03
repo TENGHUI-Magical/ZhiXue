@@ -1051,6 +1051,39 @@ try {
       && teacherOverviewLayout.lastErrorBottom <= 900,
     JSON.stringify(teacherOverviewLayout)
   )
+
+  // 1080p 守卫：答辩投影即 1920x1080，该高度不得命中压缩媒体查询（当前阈值 max-height:900px）。
+  // 断言用计算样式数值（基础间距 20/16/16/10，压缩后会变 12/8/8/6），不用像素截图，
+  // 避免 CI runner 字体/系统渲染差异造成抖动；与上方 900px 检查互为两侧守卫。
+  const guardCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1920, height: 1080 })
+  const guardPage = await guardCtx.newPage()
+  await open(guardPage, '/teacher')
+  await waitFor(async () => (await guardPage.locator('.stat-card').count()) >= 4)
+  await guardPage.locator('.error-row').nth(4).waitFor({ timeout: 10000 }).catch(() => {})
+  const guardLayout = await guardPage.evaluate(() => {
+    const px = (selector, property) => {
+      const element = document.querySelector(selector)
+      return element ? parseFloat(getComputedStyle(element)[property]) : null
+    }
+    return {
+      viewportHeight: window.innerHeight,
+      statRowMarginTop: px('.stat-row', 'marginTop'),
+      statRowPaddingTop: px('.stat-row', 'paddingTop'),
+      pageHeadMarginBottom: px('.page-head', 'marginBottom'),
+      errorBarsGap: px('.error-bars', 'rowGap')
+    }
+  })
+  check(
+    '教学概览：1080p 保持未压缩间距',
+    guardLayout.viewportHeight === 1080
+      && guardLayout.statRowMarginTop === 20
+      && guardLayout.statRowPaddingTop === 16
+      && guardLayout.pageHeadMarginBottom === 16
+      && guardLayout.errorBarsGap === 10,
+    JSON.stringify(guardLayout)
+  )
+  await guardCtx.close()
+
   await open(tpage, '/teacher/reviews')
   await checkNext('评阅：队列已渲染', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await tpage.getByRole('button', { name: '评阅' }).nth(1).click()
