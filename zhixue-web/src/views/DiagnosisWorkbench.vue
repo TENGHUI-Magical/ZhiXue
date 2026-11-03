@@ -149,7 +149,9 @@
                 <span class="card-sub">基于教材知识切片</span>
               </span>
               <span class="head-actions">
-                <el-tag v-if="degraded" type="warning">{{ degradeLabel }}</el-tag>
+                <el-tooltip v-if="degraded" :content="degradeTip" placement="top">
+                  <el-tag type="warning">{{ degradeLabel }}</el-tag>
+                </el-tooltip>
                 <el-tag v-if="blocked" type="danger">学术诚信拦截</el-tag>
                 <el-button
                   type="primary"
@@ -508,9 +510,18 @@ const loadLinkedQuestions = async () => {
   }
 };
 watch(selectedKpId, loadLinkedQuestions);
-const degradeLabel = computed(() =>
-  degradeLevel.value ? `降级 ${degradeLevel.value}` : "已降级"
-);
+// 降级标签用学生话术，不暴露 L2/L3 内部词；标签保留可读文本，释义放 tooltip。
+// L3=本地教材知识卡（未调用大模型）；L2=备用模型讲解（静态文案，本机无 L2 样本，未实测）。
+const degradeLabel = computed(() => {
+  if (degradeLevel.value === "L3") return "本地教材知识卡";
+  if (degradeLevel.value === "L2") return "备用模型讲解";
+  return "备用讲解";
+});
+const degradeTip = computed(() => {
+  if (degradeLevel.value === "L3") return "当前用教材原文作答，未调用大模型";
+  if (degradeLevel.value === "L2") return "主力模型暂不可用，已切换备用模型";
+  return "主力模型暂不可用，已切换备用讲解";
+});
 
 let recSeq = 0;
 let explainQuerySeq = 0;
