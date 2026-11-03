@@ -348,7 +348,7 @@ class IntegrationFlowTest {
         String token = login();
         String logId = createAndConfirm(token, "ct-answer-context");
         String qId = jdbcTemplate.queryForObject(
-                "SELECT q_id FROM question_bank WHERE kp_id = 'KP0201' ORDER BY q_id LIMIT 1",
+                "SELECT q_id FROM question_bank WHERE primary_kp_id = 'KP0201' ORDER BY q_id LIMIT 1",
                 String.class);
         assertThat(qId).isNotBlank();
         jdbcTemplate.update("UPDATE student_error_record SET q_id = ? WHERE log_id = ?", qId, logId);
