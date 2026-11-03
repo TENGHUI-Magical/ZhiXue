@@ -165,6 +165,7 @@
       mode="plan"
       :plan-id="planId"
       @completed="onPlanCheckinCompleted"
+      @next="onPlanNext"
     />
   </div>
 </template>
@@ -334,6 +335,22 @@ const startCheckin = (plan: StudyPlan, item: PlanItem) => {
   planKpId.value = item.kpId;
   actionError.value = "";
   planDrawerVisible.value = true;
+};
+
+const onPlanNext = async () => {
+  // 提交回执在关抽屉时才刷新父页；切下一题前必须主动取最新完成状态。
+  await loadPlans();
+  const currentPlan = plans.value.find((plan) => plan.planId === planId.value);
+  const items = currentPlan?.items ?? [];
+  const currentIndex = items.findIndex((item) => item.qId === planQId.value);
+  const next = items.slice(Math.max(0, currentIndex + 1)).find((item) => !item.isDone)
+    ?? items.find((item) => !item.isDone && item.qId !== planQId.value);
+  if (!next?.qId || !next.kpId) {
+    planDrawerVisible.value = false;
+    return;
+  }
+  planQId.value = next.qId;
+  planKpId.value = next.kpId;
 };
 
 const onPlanCheckinCompleted = async () => {

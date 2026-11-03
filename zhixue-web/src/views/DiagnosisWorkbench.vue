@@ -35,8 +35,11 @@
             <div class="upload-title">上传错题图片</div>
             <div class="upload-sub">JPG / PNG，单张不超过 5MB；识别结果可手动校正</div>
           </el-upload>
-          <div v-if="parsing" class="ocr-status">
+          <div v-if="parsing" class="ocr-status" role="status">
             <span class="ocr-dot" />正在识别，请稍候…
+          </div>
+          <div v-if="ocrFollowUp" class="ocr-status ocr-follow-up" role="status">
+            {{ ocrFollowUp }}
           </div>
           <el-alert
             v-if="lowConfidence"
@@ -234,26 +237,43 @@
         </div>
       </div>
       <div v-else>
-        <div v-for="question in questions" :key="question.qId" class="question">
-          <div class="q-head">
+        <button
+          v-for="question in questions"
+          :key="question.qId"
+          type="button"
+          class="question"
+          @click="openPractice(question)"
+        >
+          <span class="q-head">
             <el-tag size="small">{{ layerLabel(question.layer) }}</el-tag>
             <el-tag size="small" type="info">难度 {{ question.difficulty }}</el-tag>
             <span class="q-id">{{ question.qId }} · {{ question.reason }}</span>
-          </div>
-          <div class="q-text">{{ question.questionText }}</div>
-        </div>
+            <span class="q-action">开始练习</span>
+          </span>
+          <span class="q-text">{{ question.questionText }}</span>
+        </button>
       </div>
     </el-card>
+
+    <QuestionPracticeDrawer
+      v-model="practiceVisible"
+      :q-id="practiceQId"
+      :kp-id="selectedKpId"
+      :recommendation-id="practiceRecommendationId"
+      @completed="onPracticeCompleted"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@lucide/vue";
 import { ApiError } from "../api/request";
+import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import ReviewStatus from "../components/ReviewStatus.vue";
+import { getQuestionDetail } from "../api/questions";
 import { listQuestionsByKp, type QuestionBrief } from "../api/course";
 import {
   DEFAULT_COURSE_ID,
@@ -334,11 +354,15 @@ const draftLogId = ref("");
 const latencyMs = ref(0);
 const questions = ref<Recommendation[]>([]);
 const recommendLoading = ref(false);
+const practiceVisible = ref(false);
+const practiceQId = ref("");
+const practiceRecommendationId = ref<number | null>(null);
 const errorMsg = ref("");
 
 const parsing = ref(false);
 const lowConfidence = ref(false);
 const ocrError = ref("");
+const ocrFollowUp = ref("");
 let pollTimer: number | null = null;
 
 /** 与后端 zhixue.ocr.max-image-bytes（5MB）对齐，超限时上传前直接拦截 */
@@ -373,10 +397,36 @@ const pollTask = (taskId: string) => {
         stopPolling();
         parsing.value = false;
         const text = task.fields?.stem || task.fields?.rawText || "";
-        if (text) {
-          questionText.value = text;
-        }
         lowConfidence.value = (task.confidence ?? 0) < LOW_CONFIDENCE_THRESHOLD;
+        if (!text) {
+          ocrFollowUp.value = "未识别到题干，请手动输入后匹配知识点";
+          return;
+        }
+        questionText.value = text;
+        if (lowConfidence.value) {
+          ocrFollowUp.value = "识别完成。请先核对题干，再点击匹配知识点";
+          return;
+        }
+        ocrFollowUp.value = "识别完成，正在自动匹配知识点…";
+        await analyze();
+        if (errorMsg.value) {
+          ocrFollowUp.value = "自动匹配未完成，请调整题干后重试";
+          return;
+        }
+        if (mapResult.value?.decision === "AUTO" && selectedKpId.value) {
+          ocrFollowUp.value = `已自动确认 ${selectedKpId.value}，正在生成讲解…`;
+          await nextTick();
+          // 等待唯一题目关联完成，不能让 ensureRecord 抢先落一条缺 qId 的错题。
+          await loadLinkedQuestions();
+          await startExplain();
+          ocrFollowUp.value = explainText.value
+            ? "讲解已生成，可继续查看或开始分层练习"
+            : "自动生成未完成，请检查提示后重试";
+        } else if (mapResult.value?.decision === "CONFIRM") {
+          ocrFollowUp.value = "识别完成。请确认候选知识点，再生成讲解";
+        } else {
+          ocrFollowUp.value = "未匹配到可靠知识点，请改写题干后重试";
+        }
       } else if (task.status === "FAILED") {
         stopPolling();
         parsing.value = false;
@@ -395,6 +445,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
   parsing.value = false;
   lowConfidence.value = false;
   ocrError.value = "";
+  ocrFollowUp.value = "";
   // 拖拽上传不受 accept 限制，浏览器不会替我们过滤文件，先做与后端一致的预校验
   const file: File = options.file;
   if (file.size > MAX_UPLOAD_BYTES) {
@@ -622,16 +673,20 @@ const redirectIfUnauthorized = (raw: unknown) => {
   return false;
 };
 
+let explainRunSeq = 0;
 const startExplain = async () => {
   if (!selectedKpId.value || explaining.value) return;
+  const seq = ++explainRunSeq;
+  const streamController = new AbortController();
   controller?.abort();
-  controller = new AbortController();
+  controller = streamController;
   resetExplainState();
   explaining.value = true;
 
   try {
     // 契约前置：先落一条 CONFIRMED 错题记录，再请求讲解
     const recordId = await ensureRecord();
+    if (seq !== explainRunSeq) return;
     await streamExplain(
       {
         logId: recordId,
@@ -640,10 +695,13 @@ const startExplain = async () => {
         questionText: questionText.value,
         forceRefresh: false
       },
-      handleFrame,
-      controller.signal,
+      (event, payload) => {
+        if (seq === explainRunSeq) handleFrame(event, payload);
+      },
+      streamController.signal,
       redirectIfUnauthorized
     );
+    if (seq !== explainRunSeq) return;
     // 连接正常结束却没有 done：不能把半截讲解当成完整结果
     if (!doneSeen && !blocked.value && !errorMsg.value && !authExpired) {
       explainText.value = "";
@@ -653,16 +711,50 @@ const startExplain = async () => {
       errorMsg.value = "讲解生成中断，请重试";
     }
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
+    if (seq !== explainRunSeq || (error instanceof DOMException && error.name === "AbortError")) return;
     explainText.value = "";
     sources.value = [];
     explainId.value = "";
     latencyMs.value = 0;
     errorMsg.value = error instanceof Error ? error.message : "讲解失败，请稍后重试";
   } finally {
-    explaining.value = false;
+    if (seq === explainRunSeq) explaining.value = false;
   }
 };
+
+let autoExplainSeq = 0;
+watch(
+  () => [route.query.autoExplain, route.query.qId, route.query.kpId] as const,
+  async ([autoExplain, qId, kpId]) => {
+    const seq = ++autoExplainSeq;
+    explainRunSeq += 1;
+    controller?.abort();
+    controller = null;
+    explaining.value = false;
+    if (autoExplain !== "1" || typeof qId !== "string" || typeof kpId !== "string") return;
+    resetExplainState();
+    matching.value = true;
+    try {
+      const detail = await getQuestionDetail(qId);
+      if (seq !== autoExplainSeq) return;
+      questionText.value = detail.questionText || "";
+      selectedKpId.value = detail.kpId || kpId;
+      // 让常规“题干/知识点变化” watcher 先完成，再恢复本题关联并自动讲解。
+      await nextTick();
+      if (seq !== autoExplainSeq) return;
+      linkedQId.value = qId;
+      if (!questionText.value.trim()) throw new Error("题目缺少题干，无法生成讲解");
+      await startExplain();
+    } catch (error) {
+      if (seq === autoExplainSeq) {
+        errorMsg.value = error instanceof Error ? error.message : "本题讲解准备失败";
+      }
+    } finally {
+      if (seq === autoExplainSeq) matching.value = false;
+    }
+  },
+  { immediate: true }
+);
 
 /** 创建并确认错题记录：讲解必须基于 CONFIRMED 记录（契约前置）。
  *  create 成功但 confirm 失败时复用同一 DRAFT 重试确认，避免每次失败都多落一条孤儿草稿；
@@ -690,6 +782,17 @@ const ensureRecord = async (): Promise<string> => {
   });
   logId.value = confirmed ? confirmed.logId : draftLogId.value;
   return logId.value;
+};
+
+const openPractice = (question: Recommendation) => {
+  practiceQId.value = question.qId;
+  practiceRecommendationId.value = question.recommendationId ?? null;
+  practiceVisible.value = true;
+};
+
+const onPracticeCompleted = async () => {
+  practiceVisible.value = false;
+  await loadRecommend();
 };
 
 const loadRecommend = async () => {
@@ -732,6 +835,7 @@ watch(errorType, () => resetForChange(false));
 /** 用户在题干框手动输入 / 粘贴：视为完成人工核对，解除低置信禁止 */
 const onManualInput = () => {
   lowConfidence.value = false;
+  if (ocrFollowUp.value) ocrFollowUp.value = "题干已更新，请点击匹配知识点";
 };
 
 /** 低置信度不要求改写题干；显式确认“已核对”即可继续，符合契约人工核对要求 */
@@ -1062,8 +1166,24 @@ onBeforeUnmount(() => {
   line-height: 1.5;
 }
 .question {
-  padding: 12px 0;
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 8px;
+  border: 0;
   border-bottom: 1px dashed var(--app-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.question:hover {
+  background: var(--app-surface-muted);
+}
+.question:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
 }
 .question:last-child {
   border-bottom: none;
@@ -1078,7 +1198,14 @@ onBeforeUnmount(() => {
   font-size: var(--app-fs-xs);
   color: var(--app-text-muted);
 }
+.q-action {
+  margin-left: auto;
+  color: var(--app-primary);
+  font-size: var(--app-fs-sm);
+  white-space: nowrap;
+}
 .q-text {
+  display: block;
   margin-top: 8px;
   line-height: 1.7;
   overflow-wrap: anywhere;
