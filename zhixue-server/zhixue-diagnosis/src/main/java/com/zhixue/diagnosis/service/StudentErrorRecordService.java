@@ -347,7 +347,7 @@ public class StudentErrorRecordService {
     }
 
     private String nextLogId() {
-        return "EL_" + LocalDateTime.now().format(ID_FORMAT) + "_"
+        return "EL_" + LocalDateTime.now(ZONE).format(ID_FORMAT) + "_"
                 + String.format("%04x", (int) (System.nanoTime() & 0xffff));
     }
 }

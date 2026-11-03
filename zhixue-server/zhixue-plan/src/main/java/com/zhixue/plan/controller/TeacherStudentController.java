@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -26,6 +27,9 @@ import java.time.format.DateTimeFormatter;
 @RestController
 @RequestMapping("/api/teacher/students")
 public class TeacherStudentController {
+
+    /** 文件日期印章统一上海口径，不随 JVM 默认时区漂移（docs/13 B 组）。 */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private final TeacherStudentService teacherStudentService;
 
@@ -54,7 +58,7 @@ public class TeacherStudentController {
             @RequestParam(defaultValue = "lastActiveDesc") String sort) {
         byte[] csv = teacherStudentService.exportCsv(courseId, sort);
         String filename = "class-learning-" + courseId + "-"
-                + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + ".csv";
+                + LocalDate.now(ZONE).format(DateTimeFormatter.BASIC_ISO_DATE) + ".csv";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType("text", "csv", StandardCharsets.UTF_8));
         headers.setContentDisposition(ContentDisposition.attachment().filename(filename,
