@@ -108,4 +108,47 @@ export const api = {
   }
 }
 
+export interface CsvDownload {
+  blob: Blob
+  filename: string
+}
+
+/** CSV 使用 axios blob；业务错误仍是 HTTP 200，需要先解析 blob 中的统一信封。 */
+export async function downloadCsv(url: string, params?: object): Promise<CsvDownload> {
+  const response = await request.get<Blob>(url, { params, responseType: 'blob' })
+  const blob = response.data
+  const contentType = String(response.headers['content-type'] || blob.type || '')
+  if (contentType.toLowerCase().includes('application/json')) {
+    let body: ApiResponse<unknown>
+    try {
+      body = JSON.parse(await blob.text()) as ApiResponse<unknown>
+    } catch {
+      throw new ApiError(-1, '导出失败，请稍后重试')
+    }
+    if (body.code === 40100) redirectToLogin(body.message || '登录已过期，请重新登录')
+    throw new ApiError(body.code || -1, body.message || '导出失败')
+  }
+  const disposition = String(response.headers['content-disposition'] || '')
+  const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const plain = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+  let filename = 'teacher-export.csv'
+  try {
+    filename = decodeURIComponent(encoded || plain || filename)
+  } catch {
+    filename = plain || filename
+  }
+  return { blob, filename }
+}
+
+export function saveCsvDownload(download: CsvDownload) {
+  const url = URL.createObjectURL(download.blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = download.filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
 export default request

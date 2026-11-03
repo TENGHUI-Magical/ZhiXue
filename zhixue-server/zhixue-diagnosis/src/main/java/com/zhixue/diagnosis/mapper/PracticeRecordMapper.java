@@ -146,6 +146,21 @@ public interface PracticeRecordMapper extends BaseMapper<PracticeRecord> {
                                       @Param("now") LocalDateTime now,
                                       @Param("since") LocalDateTime since);
 
+    /**
+     * 教师课程作答完整导出：一行一条作答，无 LIMIT/OFFSET；仅包含当前启用题目与聚合窗口内记录。
+     * 学生排序由 Service 按班级全局聚合口径完成，这里只保证学生内作答时间倒序。
+     */
+    @Select("""
+            SELECT pr.*
+            FROM practice_record pr
+            JOIN question_bank qb ON qb.q_id = pr.q_id
+            WHERE qb.course_id = #{courseId} AND qb.is_active = 1
+              AND pr.created_at >= #{since}
+            ORDER BY pr.user_id, pr.created_at DESC, pr.practice_id DESC
+            """)
+    List<PracticeRecord> selectForCourseExport(@Param("courseId") long courseId,
+                                               @Param("since") LocalDateTime since);
+
     /** 单学生作答明细计数（C12 详情分页，参数绑定，不拼接 LIMIT）。 */
     @Select("""
             <script>

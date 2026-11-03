@@ -3,6 +3,8 @@ package com.zhixue.plan.service;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.csv.CsvExportFile;
+import com.zhixue.common.csv.CsvExportSupport;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
@@ -21,6 +23,8 @@ import com.zhixue.plan.dto.TeacherStudentViews;
 import com.zhixue.plan.dto.UserPlanAgg;
 import com.zhixue.plan.mapper.StudyPlanMapper;
 import com.zhixue.user.service.UserQueryService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -53,10 +57,14 @@ import java.util.stream.Collectors;
 @Service
 public class TeacherStudentService {
 
+    private static final Logger log = LoggerFactory.getLogger(TeacherStudentService.class);
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int ERROR_LIMIT = 20;
     private static final List<String> SORTS = List.of("lastActiveDesc", "masteryAsc", "practiceDesc");
+    private static final List<String> EXPORT_HEADERS = List.of(
+            "studentKey", "maskedName", "courseId", "practiceId", "qId", "kpId",
+            "kpName", "mastery", "errorType", "isCorrect", "createdAt");
 
     private final CourseService courseService;
     private final QuestionBankService questionBankService;
@@ -103,11 +111,7 @@ public class TeacherStudentService {
     public TeacherStudentViews.Page page(long courseId, int page, int size, String sort) {
         StpUtil.checkRole("TEACHER");
         validatePage(page, size);
-        String sortKey = sort == null || sort.isBlank() ? "lastActiveDesc" : sort.trim();
-        if (!SORTS.contains(sortKey)) {
-            throw new BizException(ErrorCode.PARAM_ERROR,
-                    "sort 仅允许 lastActiveDesc/masteryAsc/practiceDesc");
-        }
+        String sortKey = normalizeSort(sort);
         ensureOwnership(courseId);
         List<String> qIds = questionBankService.listQidsByCourse(courseId);
         if (qIds.isEmpty()) {
@@ -144,6 +148,120 @@ public class TeacherStudentService {
         int toIndex = Math.min(items.size(), fromIndex + size);
         return new TeacherStudentViews.Page(page, size, total,
                 new ArrayList<>(items.subList(fromIndex, toIndex)));
+    }
+
+    /** 课程作答完整导出：学生排序复用班级聚合口径，明细查询无分页。 */
+    public CsvExportFile exportCsv(long courseId, String sort) {
+        StpUtil.checkRole("TEACHER");
+        String sortKey = normalizeSort(sort);
+        ensureOwnership(courseId);
+        String summary = "courseId=" + courseId + ";sort=" + sortKey
+                + ";windowDays=" + aggregateWindowDays;
+        LocalDateTime since = aggregateSince();
+        List<String> qIds = questionBankService.listQidsByCourse(courseId);
+        if (qIds.isEmpty()) {
+            return finishExport(summary, List.of());
+        }
+        List<PracticeRecord> records = practiceRecordMapper.selectForCourseExport(courseId, since);
+        if (records.isEmpty()) {
+            return finishExport(summary, List.of());
+        }
+        Set<Long> userIds = records.stream().map(PracticeRecord::getUserId)
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, UserPracticeAgg> aggregateByUser = practiceRecordMapper
+                .aggregateByUser(qIds, userIds, since).stream()
+                .filter(item -> item.getUserId() != null)
+                .collect(Collectors.toMap(UserPracticeAgg::getUserId, item -> item, (a, b) -> a));
+        Map<Long, List<UserKpAgg>> kpByUser = practiceRecordMapper
+                .aggregateByUserKp(qIds, userIds, halfLifeDays, LocalDateTime.now(ZONE), since).stream()
+                .filter(item -> item.getUserId() != null)
+                .collect(Collectors.groupingBy(UserKpAgg::getUserId));
+        Map<UserKpKey, Double> masteryByUserKp = new HashMap<>();
+        Map<Long, Double> avgMastery = new HashMap<>();
+        for (Map.Entry<Long, List<UserKpAgg>> entry : kpByUser.entrySet()) {
+            double sum = 0;
+            int count = 0;
+            for (UserKpAgg aggregate : entry.getValue()) {
+                double mastery = masteryCalculator.mastery(
+                        aggregate.getSuccessWeight() == null ? 0.0 : aggregate.getSuccessWeight(),
+                        aggregate.getSeveritySum() == null ? 0.0 : aggregate.getSeveritySum());
+                masteryByUserKp.put(new UserKpKey(entry.getKey(), aggregate.getKpId()), round3(mastery));
+                sum += mastery;
+                count++;
+            }
+            if (count > 0) {
+                avgMastery.put(entry.getKey(), sum / count);
+            }
+        }
+        List<Long> orderedUsers = new ArrayList<>(userIds);
+        orderedUsers.sort(exportUserComparator(sortKey, aggregateByUser, avgMastery));
+        Map<Long, Integer> userOrder = new HashMap<>();
+        for (int i = 0; i < orderedUsers.size(); i++) {
+            userOrder.put(orderedUsers.get(i), i);
+        }
+        List<PracticeRecord> orderedRecords = new ArrayList<>(records);
+        orderedRecords.sort(Comparator
+                .comparing((PracticeRecord row) -> userOrder.getOrDefault(row.getUserId(), Integer.MAX_VALUE))
+                .thenComparing(PracticeRecord::getCreatedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder()))
+                .thenComparing(PracticeRecord::getPracticeId,
+                        Comparator.nullsLast(Comparator.reverseOrder())));
+
+        Set<String> kpIds = records.stream().map(PracticeRecord::getKpId)
+                .filter(Objects::nonNull).filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(kpIds);
+        Map<Long, String> usernames = userQueryService.findUsernames(userIds);
+        Map<Long, String> names = userQueryService.findDisplayNames(userIds);
+        List<List<?>> rows = new ArrayList<>(orderedRecords.size());
+        for (PracticeRecord row : orderedRecords) {
+            Long userId = row.getUserId();
+            String username = usernames.get(userId);
+            String studentKey = username == null || username.isBlank()
+                    ? userId == null ? "" : String.valueOf(userId) : username;
+            KnowledgePoint kp = row.getKpId() == null ? null : kpById.get(row.getKpId());
+            Double mastery = masteryByUserKp.get(new UserKpKey(userId, row.getKpId()));
+            rows.add(List.of(studentKey, mask(names.get(userId)), courseId,
+                    value(row.getPracticeId()), value(row.getQId()), value(row.getKpId()),
+                    kp == null ? "" : value(kp.getName()), mastery == null ? "" : mastery,
+                    value(row.getErrorType()),
+                    row.getIsCorrect() == null ? "" : row.getIsCorrect() == 1,
+                    row.getCreatedAt() == null ? "" : DATE_TIME.format(row.getCreatedAt())));
+        }
+        return finishExport(summary, rows);
+    }
+
+    private CsvExportFile finishExport(String summary, List<? extends List<?>> rows) {
+        CsvExportFile file = CsvExportSupport.create("teacher-students", summary, EXPORT_HEADERS, rows);
+        log.info("TEACHER_EXPORT_AUDIT teacherUserId={} exportedAt={} endpoint={} filters={} rowCount={}",
+                StpUtil.getLoginIdAsLong(), file.exportedAt(), "/api/teacher/students/export",
+                summary.replaceAll("[\\r\\n]+", " "), file.rowCount());
+        return file;
+    }
+
+    private Comparator<Long> exportUserComparator(
+            String sort, Map<Long, UserPracticeAgg> aggregateByUser, Map<Long, Double> avgMastery) {
+        Comparator<Long> comparator = switch (sort) {
+            case "masteryAsc" -> Comparator.comparing(avgMastery::get,
+                    Comparator.nullsLast(Double::compareTo));
+            case "practiceDesc" -> Comparator.comparing((Long userId) -> {
+                UserPracticeAgg aggregate = aggregateByUser.get(userId);
+                return aggregate == null || aggregate.getPracticeCount() == null
+                        ? 0 : aggregate.getPracticeCount();
+            }, Comparator.reverseOrder());
+            default -> Comparator.comparing((Long userId) -> {
+                UserPracticeAgg aggregate = aggregateByUser.get(userId);
+                return aggregate == null ? null : aggregate.getLastActiveAt();
+            }, Comparator.nullsLast(Comparator.reverseOrder()));
+        };
+        return comparator.thenComparingLong(Long::longValue);
+    }
+
+    private record UserKpKey(Long userId, String kpId) {
+    }
+
+    private static String value(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     /** 单个学生学习记录详情。 */
@@ -208,6 +326,15 @@ public class TeacherStudentService {
         return new TeacherStudentViews.LearningRecord(summary,
                 new TeacherStudentViews.PracticePage(page, size, total, practices),
                 errors, kpMastery);
+    }
+
+    private String normalizeSort(String sort) {
+        String sortKey = sort == null || sort.isBlank() ? "lastActiveDesc" : sort.trim();
+        if (!SORTS.contains(sortKey)) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "sort 仅允许 lastActiveDesc/masteryAsc/practiceDesc");
+        }
+        return sortKey;
     }
 
     private void validatePage(int page, int size) {

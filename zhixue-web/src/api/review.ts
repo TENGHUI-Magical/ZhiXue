@@ -1,5 +1,5 @@
 // 教师评阅（契约 teacher 组）：页面只经本文件调用。
-import { api } from "./request";
+import { api, downloadCsv } from "./request";
 
 export interface ReviewSource {
   kpId?: string;
@@ -58,3 +58,6 @@ export const submitReview = (
   logPk: number,
   payload: { score: number; comment: string; result?: "PASS" | "RETURN" }
 ) => api.post<null>(`/api/teacher/reviews/${logPk}`, payload);
+
+export const exportReviews = (params: Omit<ReviewQuery, "page" | "size"> & { courseId: number }) =>
+  downloadCsv("/api/teacher/reviews/export", params);

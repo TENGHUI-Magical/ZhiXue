@@ -11,6 +11,7 @@
           <el-option label="掌握度升序" value="masteryAsc" />
           <el-option label="练习量" value="practiceDesc" />
         </el-select>
+        <el-button class="desktop-only" :loading="exporting" @click="exportCsv">导出 CSV</el-button>
         <el-button :loading="loading" @click="load">刷新</el-button>
       </div>
     </div>
@@ -189,9 +190,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
+import { saveCsvDownload } from "../api/request";
 import {
+  exportCourseStudents,
   getStudentLearningRecords,
   listCourseStudents,
   type StudentLearningRecord,
@@ -204,6 +208,7 @@ const page = ref(1);
 const size = ref(10);
 const sort = ref("lastActiveDesc");
 const loading = ref(false);
+const exporting = ref(false);
 const error = ref("");
 
 const drawerVisible = ref(false);
@@ -281,6 +286,21 @@ const load = async () => {
   }
 };
 
+const exportCsv = async () => {
+  exporting.value = true;
+  try {
+    const download = await exportCourseStudents({
+      courseId: DEFAULT_COURSE_ID,
+      sort: sort.value
+    });
+    saveCsvDownload(download);
+    ElMessage.success(`CSV 已下载：${download.filename}`);
+  } catch (e) {
+    ElMessage.error((e as Error).message || "CSV 导出失败，请重试");
+  } finally {
+    exporting.value = false;
+  }
+};
 
 const loadDetail = async () => {
   if (selectedUserId.value == null) return;

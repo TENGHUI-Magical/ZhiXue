@@ -2,6 +2,7 @@ openapi: 3.1.0
 info:
   title: 智学领航 API
   version: 2.2.7
+  # VERSION_PLACEHOLDER: 教师 CSV 导出契约已加入，版本号由项目负责人统一递增，当前保留 2.2.7。
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -540,6 +541,52 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReviewQueueResponse' }
+  /api/teacher/reviews/export:
+    get:
+      tags: [teacher]
+      summary: 导出评阅记录 CSV（教师；当前筛选下完整结果）
+      description: |
+        courseId 必填，并复用评阅队列的 status/kpId/from/to 筛选与 createdAt 倒序口径，但不接收 page/size，不分页、不截断。
+        仅导出本人任教课程：SQL 通过 student_error_record→question_bank 的可靠课程证据同时限定 courseId 与 kpId；缺少该证据的旧日志保守排除。
+        成功返回 UTF-8 with BOM 的 text/csv：第一行是导出时间与筛选摘要，第二行是表头；单元格防公式注入并保留可读换行。
+        列依次为 logPk,explainId,studentKey,maskedName,qId,kpId,errorType,reviewResult,teacherScore,teacherComment,reviewedAt,model,degraded,createdAt。
+        合法筛选无数据时仍返回元信息与表头；非教师或课程越权返回 HTTP 200 + code=40300 的 JSON，绝不返回空 CSV。
+        导出成功写应用审计日志（teacherUserId、时间、端点、筛选条件、行数），不新建审计表。
+      parameters:
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: status
+          in: query
+          schema: { type: string, enum: [PENDING, REVIEWED, ALL], default: PENDING }
+        - name: kpId
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: 成功为 CSV；参数/权限等业务错误为统一 JSON 信封（HTTP 200 + code≠0）
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: attachment；ASCII 文件名含导出日期与筛选摘要
+            X-Exported-At:
+              schema: { type: string }
+              description: ASCII 安全的导出时间
+            X-Export-Filters:
+              schema: { type: string }
+              description: ASCII 安全的筛选摘要，非 ASCII 参数值采用百分号编码
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyResponse' }
   /api/teacher/reviews/{logPk}:
     post:
       tags: [teacher]
@@ -594,6 +641,43 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/TeacherStudentPageResponse' }
+  /api/teacher/students/export:
+    get:
+      tags: [teacher]
+      summary: 导出课程学生作答 CSV（教师；当前筛选下完整结果）
+      description: |
+        courseId/sort 与课程学生列表一致；学生按列表全局口径排序，每名学生一行一条作答，作答按 createdAt/practiceId 倒序。
+        不接收 page/size，不分页、不截断。作答明细与掌握度均复用班级列表的 aggregate-window-days 时间窗及 MasteryCalculator 口径。
+        成功返回 UTF-8 with BOM 的 text/csv：第一行是导出时间与筛选摘要（含 windowDays），第二行是表头；单元格防公式注入并保留可读换行。
+        列依次为 studentKey,maskedName,courseId,practiceId,qId,kpId,kpName,mastery,errorType,isCorrect,createdAt；studentKey 优先取 sys_user.username。
+        合法筛选无数据时仍返回元信息与表头；非教师或课程越权返回 HTTP 200 + code=40300 的 JSON，绝不返回空 CSV。
+        导出成功写应用审计日志（teacherUserId、时间、端点、筛选条件、行数），不新建审计表。
+      parameters:
+        - name: courseId
+          in: query
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [lastActiveDesc, masteryAsc, practiceDesc], default: lastActiveDesc }
+      responses:
+        '200':
+          description: 成功为 CSV；参数/权限等业务错误为统一 JSON 信封（HTTP 200 + code≠0）
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: attachment；ASCII 文件名含导出日期与筛选摘要
+            X-Exported-At:
+              schema: { type: string }
+              description: ASCII 安全的导出时间
+            X-Export-Filters:
+              schema: { type: string }
+              description: ASCII 安全的筛选摘要，非 ASCII 参数值采用百分号编码
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+            application/json:
+              schema: { $ref: '#/components/schemas/EmptyResponse' }
   /api/teacher/students/{userId}/learning-records:
     get:
       tags: [teacher]

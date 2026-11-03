@@ -1,5 +1,5 @@
 // 教师查看学生学习记录（契约 C12）
-import { api } from "./request";
+import { api, downloadCsv } from "./request";
 
 export interface TeacherStudentItem {
   userId?: number;
@@ -78,3 +78,6 @@ export const getStudentLearningRecords = (
   userId: number,
   params: { courseId: number; from?: string; to?: string; page: number; size: number }
 ) => api.get<StudentLearningRecord>(`/api/teacher/students/${userId}/learning-records`, params);
+
+export const exportCourseStudents = (params: { courseId: number; sort: string }) =>
+  downloadCsv("/api/teacher/students/export", params);

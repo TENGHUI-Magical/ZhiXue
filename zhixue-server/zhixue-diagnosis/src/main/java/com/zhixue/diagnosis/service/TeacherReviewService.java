@@ -3,9 +3,13 @@ package com.zhixue.diagnosis.service;
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.zhixue.common.api.ErrorCode;
+import com.zhixue.common.csv.CsvExportFile;
+import com.zhixue.common.csv.CsvExportSupport;
 import com.zhixue.common.exception.BizException;
+import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewItemView;
@@ -46,9 +50,15 @@ public class TeacherReviewService {
 
     private static final Logger log = LoggerFactory.getLogger(TeacherReviewService.class);
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final int EXPORT_BATCH_SIZE = 200;
+    private static final List<String> EXPORT_HEADERS = List.of(
+            "logPk", "explainId", "studentKey", "maskedName", "qId", "kpId", "errorType",
+            "reviewResult", "teacherScore", "teacherComment", "reviewedAt", "model",
+            "degraded", "createdAt");
 
     private final AiGenerationLogMapper logMapper;
     private final StudentErrorRecordMapper errorRecordMapper;
+    private final CourseService courseService;
     private final KnowledgePointService knowledgePointService;
     private final QuestionBankService questionBankService;
     private final UserQueryService userQueryService;
@@ -56,12 +66,14 @@ public class TeacherReviewService {
 
     public TeacherReviewService(AiGenerationLogMapper logMapper,
                                 StudentErrorRecordMapper errorRecordMapper,
+                                CourseService courseService,
                                 KnowledgePointService knowledgePointService,
                                 QuestionBankService questionBankService,
                                 UserQueryService userQueryService,
                                 ObjectMapper objectMapper) {
         this.logMapper = logMapper;
         this.errorRecordMapper = errorRecordMapper;
+        this.courseService = courseService;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
         this.userQueryService = userQueryService;
@@ -85,29 +97,157 @@ public class TeacherReviewService {
         if (size < 1 || size > 50) {
             throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
         }
-        String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
-        if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "status 仅允许 PENDING/REVIEWED/ALL");
-        }
-        // null=全部；true=已评阅；false=待评阅
-        Boolean reviewed = switch (st) {
-            case "REVIEWED" -> Boolean.TRUE;
-            case "ALL" -> null;
-            default -> Boolean.FALSE;
-        };
-        LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
-        LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
-        String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
-        long total = logMapper.countForReview(reviewed, kp, fromTime, toTime);
+        ReviewFilter filter = reviewFilter(status, kpId, from, to);
+        long total = logMapper.countForReview(filter.reviewed(), filter.kpId(),
+                filter.fromTime(), filter.toTime());
         List<AiGenerationLog> rows = total == 0 ? List.of()
-                : logMapper.selectForReview(reviewed, kp, fromTime, toTime,
-                size, (page - 1) * size);
+                : logMapper.selectForReview(filter.reviewed(), filter.kpId(),
+                filter.fromTime(), filter.toTime(), size, (page - 1) * size);
         return new ReviewPageView(page, size, total, toViews(rows));
     }
 
     /** 兼容旧调用：默认待评阅、无筛选。 */
     public ReviewPageView page(int page, int size) {
         return page(page, size, "PENDING", null, null, null);
+    }
+
+    /** 当前课程与筛选下完整评阅导出；只读现有证据关系，不进入单条评阅状态机。 */
+    public CsvExportFile exportCsv(long courseId, String status, String kpId,
+                                   LocalDate from, LocalDate to) {
+        StpUtil.checkRole("TEACHER");
+        ReviewFilter filter = reviewFilter(status, kpId, from, to);
+        ensureOwnership(courseId);
+        String summary = "courseId=" + courseId + ";status=" + filter.status()
+                + ";kpId=" + value(filter.kpId(), "all")
+                + ";from=" + (from == null ? "all" : from)
+                + ";to=" + (to == null ? "all" : to);
+        List<AiGenerationLog> logs = logMapper.selectForReviewExport(
+                courseId, filter.reviewed(), filter.kpId(), filter.fromTime(), filter.toTime());
+        Map<String, StudentErrorRecord> errorById = loadExportErrors(logs);
+        List<AiGenerationLog> courseLogs = filterToCourse(logs, errorById, courseId);
+        Set<Long> userIds = courseLogs.stream().map(AiGenerationLog::getUserId)
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, String> usernames = userQueryService.findUsernames(userIds);
+        Map<Long, String> names = userQueryService.findDisplayNames(userIds);
+        List<List<?>> rows = new ArrayList<>(courseLogs.size());
+        for (AiGenerationLog row : courseLogs) {
+            StudentErrorRecord error = errorById.get(row.getLogId());
+            Long userId = row.getUserId();
+            String username = usernames.get(userId);
+            String studentKey = username == null || username.isBlank()
+                    ? userId == null ? "" : String.valueOf(userId) : username;
+            rows.add(List.of(value(row.getLogPk()), value(row.getExplainId()), studentKey,
+                    mask(names.get(userId)), error == null ? "" : value(error.getQId()),
+                    error == null ? "" : value(error.getKpId()),
+                    error == null ? "" : value(error.getErrorType()), value(row.getReviewResult()),
+                    value(row.getTeacherScore()), value(row.getTeacherComment()),
+                    row.getReviewedAt() == null ? "" : DATE_TIME.format(row.getReviewedAt()),
+                    value(row.getModel()), Objects.equals(row.getIsDegraded(), 1),
+                    row.getCreatedAt() == null ? "" : DATE_TIME.format(row.getCreatedAt())));
+        }
+        CsvExportFile file = CsvExportSupport.create("teacher-reviews", summary, EXPORT_HEADERS, rows);
+        log.info("TEACHER_EXPORT_AUDIT teacherUserId={} exportedAt={} endpoint={} filters={} rowCount={}",
+                StpUtil.getLoginIdAsLong(), file.exportedAt(), "/api/teacher/reviews/export",
+                summary.replaceAll("[\\r\\n]+", " "), file.rowCount());
+        return file;
+    }
+
+    private void ensureOwnership(long courseId) {
+        if (courseId <= 0) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "courseId 非法");
+        }
+        Course course = courseService.getActiveById(courseId);
+        long teacherId = StpUtil.getLoginIdAsLong();
+        if (course.getTeacherId() != null && !Objects.equals(course.getTeacherId(), teacherId)) {
+            throw new BizException(ErrorCode.FORBIDDEN, "无权查看其他教师的课程");
+        }
+    }
+
+    /** 与 SQL 同口径的防御性过滤：他课程或无 error→question 可靠课程证据的旧日志均排除。 */
+    private List<AiGenerationLog> filterToCourse(List<AiGenerationLog> logs,
+                                                 Map<String, StudentErrorRecord> errorById,
+                                                 long courseId) {
+        if (logs.isEmpty()) {
+            return List.of();
+        }
+        Map<String, QuestionBank> questionById = loadExportQuestions(errorById);
+        List<AiGenerationLog> result = new ArrayList<>(logs.size());
+        for (AiGenerationLog row : logs) {
+            StudentErrorRecord error = errorById.get(row.getLogId());
+            QuestionBank question = error == null || error.getQId() == null
+                    ? null : questionById.get(error.getQId());
+            if (question != null && Objects.equals(question.getCourseId(), courseId)) {
+                result.add(row);
+            }
+        }
+        return result;
+    }
+
+    private Map<String, QuestionBank> loadExportQuestions(
+            Map<String, StudentErrorRecord> errorById) {
+        List<String> qIds = errorById.values().stream().map(StudentErrorRecord::getQId)
+                .filter(Objects::nonNull).filter(id -> !id.isBlank()).distinct().toList();
+        Map<String, QuestionBank> result = new java.util.HashMap<>();
+        for (int from = 0; from < qIds.size(); from += EXPORT_BATCH_SIZE) {
+            result.putAll(questionBankService.findByIds(
+                    qIds.subList(from, Math.min(qIds.size(), from + EXPORT_BATCH_SIZE))));
+        }
+        return result;
+    }
+
+    private Map<String, StudentErrorRecord> loadExportErrors(List<AiGenerationLog> logs) {
+        List<String> logIds = logs.stream().map(AiGenerationLog::getLogId)
+                .filter(Objects::nonNull).filter(id -> !id.isBlank()).distinct().toList();
+        Map<String, StudentErrorRecord> result = new java.util.HashMap<>();
+        for (int from = 0; from < logIds.size(); from += EXPORT_BATCH_SIZE) {
+            List<String> batch = logIds.subList(from, Math.min(logIds.size(), from + EXPORT_BATCH_SIZE));
+            for (StudentErrorRecord error : errorRecordMapper.selectBatchIds(batch)) {
+                result.putIfAbsent(error.getLogId(), error);
+            }
+        }
+        return result;
+    }
+
+    private ReviewFilter reviewFilter(String status, String kpId, LocalDate from, LocalDate to) {
+        String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
+        if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "status 仅允许 PENDING/REVIEWED/ALL");
+        }
+        Boolean reviewed = switch (st) {
+            case "REVIEWED" -> Boolean.TRUE;
+            case "ALL" -> null;
+            default -> Boolean.FALSE;
+        };
+        String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
+        return new ReviewFilter(st, reviewed, kp,
+                from == null ? null : from.atStartOfDay(),
+                to == null ? null : to.atTime(23, 59, 59));
+    }
+
+    private record ReviewFilter(String status, Boolean reviewed, String kpId,
+                                LocalDateTime fromTime, LocalDateTime toTime) {
+    }
+
+    private static String value(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String value(Object value, String fallback) {
+        return value == null || String.valueOf(value).isBlank() ? fallback : String.valueOf(value);
+    }
+
+    private static String mask(String name) {
+        if (name == null || name.isBlank()) {
+            return "学生";
+        }
+        String value = name.trim();
+        if (value.length() == 1) {
+            return value;
+        }
+        if (value.length() == 2) {
+            return value.charAt(0) + "*";
+        }
+        return value.charAt(0) + "*".repeat(value.length() - 2) + value.charAt(value.length() - 1);
     }
 
     /** 提交评阅：reviewed_at IS NULL 才允许写；重复/并发抢先返回 40900。 */

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ReviewPageView;
@@ -47,6 +48,8 @@ class TeacherReviewServiceTest {
     @Mock
     private StudentErrorRecordMapper errorRecordMapper;
     @Mock
+    private CourseService courseService;
+    @Mock
     private KnowledgePointService knowledgePointService;
     @Mock
     private QuestionBankService questionBankService;
@@ -63,8 +66,8 @@ class TeacherReviewServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new TeacherReviewService(logMapper, errorRecordMapper, knowledgePointService,
-                questionBankService, userQueryService, new ObjectMapper());
+        service = new TeacherReviewService(logMapper, errorRecordMapper, courseService,
+                knowledgePointService, questionBankService, userQueryService, new ObjectMapper());
     }
 
     @Test

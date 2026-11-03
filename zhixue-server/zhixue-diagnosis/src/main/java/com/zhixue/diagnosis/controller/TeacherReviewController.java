@@ -1,6 +1,7 @@
 package com.zhixue.diagnosis.controller;
 
 import com.zhixue.common.api.ApiResponse;
+import com.zhixue.common.csv.CsvExportSupport;
 import com.zhixue.diagnosis.dto.ReviewPageView;
 import com.zhixue.diagnosis.dto.ReviewSubmitRequest;
 import com.zhixue.diagnosis.service.TeacherReviewService;
@@ -8,6 +9,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,6 +46,20 @@ public class TeacherReviewController {
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return ApiResponse.ok(teacherReviewService.page(page, size, status, kpId, from, to));
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam long courseId,
+            @Parameter(schema = @Schema(allowableValues = {"PENDING", "REVIEWED", "ALL"}))
+            @RequestParam(defaultValue = "PENDING") String status,
+            @RequestParam(required = false) String kpId,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return CsvExportSupport.response(
+                teacherReviewService.exportCsv(courseId, status, kpId, from, to));
     }
 
     @PostMapping("/{logPk}")

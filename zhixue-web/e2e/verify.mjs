@@ -226,7 +226,7 @@ async function primaryButtonContrast(page) {
 }
 
 async function newContext(browser, role, theme, viewport, options = {}) {
-  const { token = true, storedRole = role, hasTouch = false } = options
+  const { token = true, storedRole = role, hasTouch = false, exportRequests = null, exportDenied = false } = options
   const ctx = await browser.newContext({ viewport, locale: 'zh-CN', hasTouch })
   await ctx.addInitScript(({ role, theme, token, storedRole }) => {
     if (token) localStorage.setItem('satoken', 'mock')
@@ -235,6 +235,51 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   }, { role, theme, token, storedRole })
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
+    const studentExport = u.pathname === '/api/teacher/students/export'
+    const reviewExport = u.pathname === '/api/teacher/reviews/export'
+    if (studentExport || reviewExport) {
+      const params = Object.fromEntries(u.searchParams.entries())
+      if (exportRequests) exportRequests.push({ pathname: u.pathname, params })
+      if (exportDenied) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ code: 40300, message: String(exportDenied), data: null, timestamp: Date.now() })
+        })
+        return
+      }
+      const exportedAt = '2026-11-03 12:00:00'
+      const filters = studentExport
+        ? `courseId=${params.courseId || '1'};sort=${params.sort || 'lastActiveDesc'};windowDays=180`
+        : `courseId=${params.courseId};status=${params.status || 'PENDING'};kpId=all;from=all;to=all`
+      const filename = studentExport
+        ? `teacher-students-20261103-courseId-1-sort-${params.sort || 'lastActiveDesc'}-windowDays-180.csv`
+        : `teacher-reviews-20261103-courseId-${params.courseId}-status-${params.status || 'PENDING'}-kpId-all-from-all-to-all.csv`
+      const header = studentExport
+        ? 'studentKey,maskedName,courseId,practiceId,qId,kpId,kpName,mastery,errorType,isCorrect,createdAt'
+        : 'logPk,explainId,studentKey,maskedName,qId,kpId,errorType,reviewResult,teacherScore,teacherComment,reviewedAt,model,degraded,createdAt'
+      const rows = studentExport
+        ? [
+            '20230003,李*,1,32,Q_3,KP01,关系模型,0.667,STEP_OMISSION,false,2026-11-01 10:00:00',
+            '20230002,张*,1,21,Q_2,KP01,关系模型,0.5,CONCEPT_CONFUSION,false,2026-11-01 09:00:00'
+          ]
+        : [
+            '10,EX_10,S002,张*,Q_10,KP01,CONCEPT_CONFUSION,PASS,5,"讲解清晰\n第二行",2026-11-02 10:00:00,deepseek-chat,false,2026-11-01 10:00:00',
+            '11,EX_11,S003,欧*锋,Q_11,KP01,CONCEPT_CONFUSION,PASS,5,讲解清晰,2026-11-02 11:00:00,deepseek-chat,false,2026-11-01 11:00:00'
+          ]
+      const csv = ['\uFEFF' + `导出时间=${exportedAt}; 筛选条件=${filters}`, header, ...rows].join('\r\n')
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/csv; charset=utf-8',
+        headers: {
+          'content-disposition': `attachment; filename="${filename}"`,
+          'x-exported-at': exportedAt,
+          'x-export-filters': encodeURIComponent(filters)
+        },
+        body: csv
+      })
+      return
+    }
     if (u.pathname.startsWith('/api/')) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(reply(route.request().method(), u.pathname, role)) })
     } else {
@@ -736,6 +781,103 @@ try {
   await checkNext('班级：学习记录抽屉', async () => await tpage.locator('.student-drawer').isVisible())
   await tpage.keyboard.press('Escape'); await sleep(400)
   await teacherCtx.close()
+
+  // ---------- 教师 CSV：独立权限与两类下载验收 ----------
+  const exportRequests = []
+  const exportCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 }, { exportRequests })
+  const exportPage = await exportCtx.newPage()
+  await open(exportPage, '/teacher/class')
+  await checkNext('CSV/班级：页面就绪', async () => (await exportPage.locator('.el-table__row').count()) >= 2)
+  await exportPage.locator('.sort-select').click()
+  await exportPage.locator('.el-select-dropdown__item:visible').filter({ hasText: '练习量' }).click()
+  const [studentDownload] = await Promise.all([
+    exportPage.waitForEvent('download'),
+    exportPage.getByRole('button', { name: '导出 CSV' }).click()
+  ]).catch(async (error) => {
+    console.log('CSV DEBUG student', JSON.stringify({
+      requests: exportRequests,
+      messages: await exportPage.locator('.el-message').allInnerTexts(),
+      bodyText: (await exportPage.locator('body').innerText()).slice(-1200)
+    }))
+    throw error
+  })
+  const studentCsv = fs.readFileSync(await studentDownload.path(), 'utf8')
+  const studentRequest = exportRequests.find((item) => item.pathname === '/api/teacher/students/export')
+  check(
+    'CSV/班级下载：排序筛选与附件名正确且不带分页',
+    studentDownload.suggestedFilename() === 'teacher-students-20261103-courseId-1-sort-practiceDesc-windowDays-180.csv'
+      && studentRequest?.params.courseId === '1'
+      && studentRequest?.params.sort === 'practiceDesc'
+      && !('page' in (studentRequest?.params || {}))
+      && !('size' in (studentRequest?.params || {})),
+    JSON.stringify(studentRequest)
+  )
+  check(
+    'CSV/班级下载：BOM、表头和全部学生作答可读',
+    studentCsv.charCodeAt(0) === 0xFEFF
+      && studentCsv.includes('studentKey,maskedName,courseId,practiceId,qId,kpId,kpName,mastery,errorType,isCorrect,createdAt')
+      && studentCsv.includes('20230002')
+      && studentCsv.includes('20230003')
+      && studentCsv.includes('关系模型')
+  )
+
+  await open(exportPage, '/teacher/reviews')
+  await exportPage.locator('.status-select').click()
+  await exportPage.locator('.el-select-dropdown__item:visible').filter({ hasText: '全部' }).click()
+  const [reviewDownload] = await Promise.all([
+    exportPage.waitForEvent('download'),
+    exportPage.getByRole('button', { name: '导出 CSV' }).click()
+  ])
+  const reviewCsv = fs.readFileSync(await reviewDownload.path(), 'utf8')
+  const reviewRequest = exportRequests.find((item) => item.pathname === '/api/teacher/reviews/export')
+  check(
+    'CSV/评阅下载：状态筛选与附件名正确且不带分页',
+    reviewDownload.suggestedFilename() === 'teacher-reviews-20261103-courseId-1-status-ALL-kpId-all-from-all-to-all.csv'
+      && reviewRequest?.params.courseId === '1'
+      && reviewRequest?.params.status === 'ALL'
+      && !('page' in (reviewRequest?.params || {}))
+      && !('size' in (reviewRequest?.params || {})),
+    JSON.stringify(reviewRequest)
+  )
+  check(
+    'CSV/评阅下载：BOM、全部评阅与多行评语可读',
+    reviewCsv.charCodeAt(0) === 0xFEFF
+      && reviewCsv.includes('logPk,explainId,studentKey,maskedName,qId,kpId,errorType,reviewResult,teacherScore,teacherComment,reviewedAt,model,degraded,createdAt')
+      && reviewCsv.includes('S002')
+      && reviewCsv.includes('S003')
+      && reviewCsv.includes('"讲解清晰\n第二行"')
+  )
+  await exportCtx.close()
+
+  const deniedCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 }, { exportDenied: '课程越权，禁止导出' })
+  const deniedPage = await deniedCtx.newPage()
+  let deniedDownloads = 0
+  deniedPage.on('download', () => { deniedDownloads += 1 })
+  await open(deniedPage, '/teacher/class')
+  await deniedPage.getByRole('button', { name: '导出 CSV' }).click()
+  await checkNext('CSV/权限：班级40300从blob解析并提示', async () => {
+    const messages = await deniedPage.locator('.el-message').allInnerTexts()
+    return messages.some((text) => text.includes('课程越权，禁止导出'))
+  })
+  await open(deniedPage, '/teacher/reviews')
+  await deniedPage.getByRole('button', { name: '导出 CSV' }).click()
+  await checkNext('CSV/权限：评阅40300从blob解析并提示', async () => {
+    const messages = await deniedPage.locator('.el-message').allInnerTexts()
+    return messages.some((text) => text.includes('课程越权，禁止导出'))
+  })
+  await sleep(300)
+  check('CSV/权限：两类40300均不触发空文件下载', deniedDownloads === 0, `downloads=${deniedDownloads}`)
+  await deniedCtx.close()
+
+  const exportMobileCtx = await newContext(browser, 'TEACHER', 'glass', { width: 390, height: 844 })
+  const exportMobilePage = await exportMobileCtx.newPage()
+  const mobileExportVisible = []
+  for (const pathname of ['/teacher/class', '/teacher/reviews']) {
+    await open(exportMobilePage, pathname)
+    mobileExportVisible.push(await exportMobilePage.getByRole('button', { name: '导出 CSV' }).isVisible())
+  }
+  check('CSV/移动端：两类导出按钮均隐藏', mobileExportVisible.every((visible) => !visible), JSON.stringify(mobileExportVisible))
+  await exportMobileCtx.close()
 
   // ---------- 移动端 ----------
   const mobileCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })

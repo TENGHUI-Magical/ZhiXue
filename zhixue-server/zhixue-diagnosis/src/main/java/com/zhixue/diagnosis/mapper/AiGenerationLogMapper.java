@@ -81,6 +81,38 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                                           @Param("offset") int offset);
 
     /**
+     * 教师评阅完整导出：筛选与分页队列一致并强制课程证据，禁止 LIMIT/OFFSET。
+     * courseId/kpId 在同一个 EXISTS 中生效；没有 error→question 可靠课程证据的旧日志保守排除。
+     */
+    @Select("""
+            <script>
+            SELECT l.*
+            FROM ai_generation_log l
+            WHERE l.scene = 'RAG'
+              <if test="reviewed != null">
+                <choose>
+                  <when test="reviewed">AND l.reviewed_at IS NOT NULL</when>
+                  <otherwise>AND l.reviewed_at IS NULL</otherwise>
+                </choose>
+              </if>
+              <if test="from != null">AND l.created_at &gt;= #{from}</if>
+              <if test="to != null">AND l.created_at &lt;= #{to}</if>
+              AND EXISTS (SELECT 1 FROM student_error_record e
+                          JOIN question_bank qb ON qb.q_id = e.q_id
+                          WHERE e.log_id = l.log_id AND qb.course_id = #{courseId}
+                          <if test="kpId != null and kpId != ''">
+                            AND e.kp_id = #{kpId}
+                          </if>)
+            ORDER BY l.created_at DESC, l.log_pk DESC
+            </script>
+            """)
+    List<AiGenerationLog> selectForReviewExport(@Param("courseId") long courseId,
+                                                @Param("reviewed") Boolean reviewed,
+                                                @Param("kpId") String kpId,
+                                                @Param("from") LocalDateTime from,
+                                                @Param("to") LocalDateTime to);
+
+    /**
      * 学生端评阅回流（05 §4.6）：按学生 + 错题编号集合取已评阅讲解。
      * 一条错题可能多次生成讲解（缓存回放/重新生成各落一行），调用方按 logId 分组
      * 取 reviewed_at 最大的一条作为该错题的复核结论。

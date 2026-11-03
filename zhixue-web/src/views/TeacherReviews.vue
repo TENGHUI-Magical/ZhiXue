@@ -11,6 +11,7 @@
           <el-option label="已评阅" value="REVIEWED" />
           <el-option label="全部" value="ALL" />
         </el-select>
+        <el-button class="desktop-only" :loading="exporting" @click="exportCsv">导出 CSV</el-button>
         <el-button :loading="loading" @click="load">刷新队列</el-button>
       </div>
     </div>
@@ -217,9 +218,9 @@
 import { computed, onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
-import { getExplain } from "../api/diagnosis";
-import { listReviews, submitReview, type ReviewItem } from "../api/review";
-import { ApiError } from "../api/request";
+import { DEFAULT_COURSE_ID, getExplain } from "../api/diagnosis";
+import { exportReviews, listReviews, submitReview, type ReviewItem } from "../api/review";
+import { ApiError, saveCsvDownload } from "../api/request";
 
 const records = ref<ReviewItem[]>([]);
 const total = ref(0);
@@ -227,6 +228,7 @@ const page = ref(1);
 const size = ref(10);
 const statusFilter = ref<"PENDING" | "REVIEWED" | "ALL">("PENDING");
 const loading = ref(false);
+const exporting = ref(false);
 const error = ref("");
 const drawerVisible = ref(false);
 const selected = ref<ReviewItem | null>(null);
@@ -333,6 +335,21 @@ const load = async () => {
   }
 };
 
+const exportCsv = async () => {
+  exporting.value = true;
+  try {
+    const download = await exportReviews({
+      courseId: DEFAULT_COURSE_ID,
+      status: statusFilter.value
+    });
+    saveCsvDownload(download);
+    ElMessage.success(`CSV 已下载：${download.filename}`);
+  } catch (e) {
+    ElMessage.error((e as Error).message || "CSV 导出失败，请重试");
+  } finally {
+    exporting.value = false;
+  }
+};
 
 let openReviewSeq = 0;
 const openReview = async (row: ReviewItem) => {

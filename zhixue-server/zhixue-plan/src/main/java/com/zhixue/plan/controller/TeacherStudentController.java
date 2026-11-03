@@ -1,11 +1,13 @@
 package com.zhixue.plan.controller;
 
 import com.zhixue.common.api.ApiResponse;
+import com.zhixue.common.csv.CsvExportSupport;
 import com.zhixue.plan.dto.TeacherStudentViews;
 import com.zhixue.plan.service.TeacherStudentService;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +37,14 @@ public class TeacherStudentController {
             @Parameter(schema = @Schema(allowableValues = {"lastActiveDesc", "masteryAsc", "practiceDesc"}))
             @RequestParam(defaultValue = "lastActiveDesc") String sort) {
         return ApiResponse.ok(teacherStudentService.page(courseId, page, size, sort));
+    }
+
+    @GetMapping("/export")
+    public ResponseEntity<byte[]> export(
+            @RequestParam long courseId,
+            @Parameter(schema = @Schema(allowableValues = {"lastActiveDesc", "masteryAsc", "practiceDesc"}))
+            @RequestParam(defaultValue = "lastActiveDesc") String sort) {
+        return CsvExportSupport.response(teacherStudentService.exportCsv(courseId, sort));
     }
 
     @GetMapping("/{userId}/learning-records")
