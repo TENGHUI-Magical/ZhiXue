@@ -17,6 +17,7 @@ import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import com.zhixue.user.service.UserQueryService;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,8 +29,11 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -161,7 +165,7 @@ class TeacherReviewServiceTest {
         reviewed.setTeacherComment("讲解清晰");
         reviewed.setReviewedAt(LocalDateTime.of(2026, 10, 29, 9, 0, 0));
         when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
-        when(logMapper.selectForReviewAll(any(), any(), any(), any(), any()))
+        when(logMapper.selectForReviewExport(any(), any(), any(), any(), any()))
                 .thenReturn(List.of(reviewed));
 
         StudentErrorRecord error = new StudentErrorRecord();
@@ -171,11 +175,7 @@ class TeacherReviewServiceTest {
         error.setQId("Q_0201");
         when(errorRecordMapper.selectBatchIds(any())).thenReturn(List.of(error));
 
-        KnowledgePoint kp = new KnowledgePoint();
-        kp.setKpId("KP0201");
-        kp.setName("关系模型");
-        kp.setTextbookPage("P34");
-        when(knowledgePointService.findByIds(any())).thenReturn(Map.of("KP0201", kp));
+        // 导出只取 CSV 列，不再构造含正文的视图，故不查询知识点详情/教材页
         com.zhixue.course.entity.QuestionBank question = new com.zhixue.course.entity.QuestionBank();
         question.setQId("Q_0201");
         question.setQuestionText("求闭包");
@@ -184,7 +184,7 @@ class TeacherReviewServiceTest {
 
         byte[] csv;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
-            csv = service.exportCsv("REVIEWED", null, null, null);
+            csv = renderCsv(service.exportCsv("REVIEWED", null, null, null));
         }
 
         String text = new String(csv, StandardCharsets.UTF_8);
@@ -197,7 +197,7 @@ class TeacherReviewServiceTest {
         // 正文是系统内可查的字段，不进学期材料导出
         assertFalse(text.contains("正文不进导出"));
         // 全量查询（无分页参数），且带登录教师的课程范围
-        verify(logMapper).selectForReviewAll(any(), any(), any(), any(), eq(List.of(1L)));
+        verify(logMapper).selectForReviewExport(any(), any(), any(), any(), eq(List.of(1L)));
     }
 
     /** 课程范围（队列与导出同口径）：无课程教师传哨兵 -1（看不到任何有归属的记录）；有课程教师传自己的课程集。 */
@@ -236,7 +236,7 @@ class TeacherReviewServiceTest {
             assertTrue(ex.getMessage().contains(String.valueOf(TeacherReviewService.MAX_EXPORT_ROWS)));
             assertTrue(ex.getMessage().contains("缩小筛选"));
         }
-        verify(logMapper, never()).selectForReviewAll(any(), any(), any(), any(), any());
+        verify(logMapper, never()).selectForReviewExport(any(), any(), any(), any(), any());
     }
 
     /** 同快照不能只靠数据库默认隔离级别：显式声明 REPEATABLE_READ，删掉注解参数即红。 */
@@ -260,20 +260,52 @@ class TeacherReviewServiceTest {
         for (int i = 1; i <= TeacherReviewService.MAX_EXPORT_ROWS; i++) {
             rows.add(exportRow(i));
         }
-        when(logMapper.selectForReviewAll(any(), any(), any(), any(), any())).thenReturn(rows);
-        when(knowledgePointService.findByIds(any())).thenReturn(Map.of());
+        when(logMapper.selectForReviewExport(any(), any(), any(), any(), any())).thenReturn(rows);
         when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(3L, "欧阳锋"));
 
         byte[] csv;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
-            csv = service.exportCsv("ALL", null, null, null);
+            csv = renderCsv(service.exportCsv("ALL", null, null, null));
         }
 
         String text = new String(csv, StandardCharsets.UTF_8);
         // 表头 1 行 + 恰好 50,000 行数据：上限本身放行，拒绝只在 50,001
         assertEquals(TeacherReviewService.MAX_EXPORT_ROWS + 1,
                 text.split("\r\n", -1).length - 1);
-        verify(logMapper).selectForReviewAll(any(), any(), any(), any(), any());
+        verify(logMapper).selectForReviewExport(any(), any(), any(), any(), any());
+    }
+
+    /**
+     * 导出 OOM 红检（2026-11-03）：导出专用投影查询不得出现 {@code content_text}，
+     * 也不得用 {@code SELECT l.*}。正文单行可达 20,000 字符，50,000 行全量入堆实测 187MB。
+     * 把 {@code selectForReviewExport} 改回 {@code SELECT l.*}（即 {@code content_text}）即红。
+     */
+    @Test
+    void exportProjectionExcludesContentText() throws NoSuchMethodException {
+        String sql = AiGenerationLogMapper.class.getMethod("selectForReviewExport",
+                        Boolean.class, String.class, LocalDateTime.class, LocalDateTime.class,
+                        List.class)
+                .getAnnotation(Select.class).value()[0];
+        String normalized = sql.replaceAll("\\s+", " ");
+        assertFalse(normalized.contains("content_text"), "导出投影不得包含正文列: " + normalized);
+        assertFalse(normalized.contains("l.*"), "导出投影不得使用 SELECT l.*: " + normalized);
+        // CSV 用到的列必须都在投影里，否则只是把 OOM 换成空列
+        for (String column : List.of("log_pk", "log_id", "explain_id", "user_id", "source_ids",
+                "model", "is_degraded", "created_at", "review_result", "teacher_score",
+                "teacher_comment", "reviewed_at")) {
+            assertTrue(normalized.contains(column), "投影缺列 " + column + ": " + normalized);
+        }
+    }
+
+    /** 把流式响应体渲染成字节，供既有断言按整份 CSV 文本检查（真实写出路径同 Controller）。 */
+    private static byte[] renderCsv(StreamingResponseBody body) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            body.writeTo(out);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+        return out.toByteArray();
     }
 
     /**

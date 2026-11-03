@@ -108,10 +108,16 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * 教师评阅留痕全量导出（CSV）：筛选条件（含课程范围）与 {@link #selectForReview} 完全一致，仅去掉分页。
      * 导出量有界：调用方先 COUNT，超过 {@code TeacherReviewService.MAX_EXPORT_ROWS}（50,000）即拒绝并
      * 提示缩小日期范围，确认未超限后才调用本方法——本方法本身不设 LIMIT，上限由调用方保证。
+     *
+     * <p>投影列**不含 {@code content_text}**：CSV 不输出讲解正文，SELECT l.* 会把每行最多
+     * 20,000 字符的正文全量拉进堆（50,000 行 × ≥10KB 正文实测 187MB 峰值）。这里只取
+     * CSV 用到的 12 列，正文在系统内按讲解 ID 可查。</p>
      */
     @Select("""
             <script>
-            SELECT l.*
+            SELECT l.log_pk, l.log_id, l.explain_id, l.user_id, l.source_ids, l.model,
+                   l.is_degraded, l.created_at, l.review_result, l.teacher_score,
+                   l.teacher_comment, l.reviewed_at
             FROM ai_generation_log l
             WHERE l.scene = 'RAG'
               <if test="reviewed != null">
@@ -137,11 +143,11 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
             ORDER BY l.created_at DESC, l.log_pk DESC
             </script>
             """)
-    List<AiGenerationLog> selectForReviewAll(@Param("reviewed") Boolean reviewed,
-                                             @Param("kpId") String kpId,
-                                             @Param("from") LocalDateTime from,
-                                             @Param("to") LocalDateTime to,
-                                             @Param("courseIds") List<Long> courseIds);
+    List<AiGenerationLog> selectForReviewExport(@Param("reviewed") Boolean reviewed,
+                                                @Param("kpId") String kpId,
+                                                @Param("from") LocalDateTime from,
+                                                @Param("to") LocalDateTime to,
+                                                @Param("courseIds") List<Long> courseIds);
 
     /**
      * 解析单条评阅留痕的课程归属（写侧范围校验专用，2026-11-03）：

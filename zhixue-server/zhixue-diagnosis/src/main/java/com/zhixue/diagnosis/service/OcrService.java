@@ -131,7 +131,7 @@ public class OcrService {
         // 契约 V2 §4：data/upload/{userId}/{yyyyMM}/{uuid}.{ext}
         Path directory = Paths.get(saveDir).toAbsolutePath().normalize()
                 .resolve(String.valueOf(userId))
-                .resolve(LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMM")));
+                .resolve(LocalDate.now(ZONE).format(DateTimeFormatter.ofPattern("yyyyMM")));
         Path target = directory.resolve(taskId + "." + extension);
         try {
             Files.createDirectories(directory);
