@@ -171,8 +171,8 @@
           开始练习
         </el-button>
         <p class="kp-text">{{ detail.conceptText || "暂无概念切片" }}</p>
-        <p v-if="detail.misconception" class="kp-text muted">
-          <strong>常见误区：</strong>{{ detail.misconception }}
+        <p v-if="misconceptionText" class="kp-text muted">
+          <strong>常见误区：</strong>{{ misconceptionText }}
         </p>
       </template>
     </el-drawer>
@@ -205,6 +205,7 @@ import {
   type KnowledgePointDetail
 } from "../api/course";
 import { getPortrait } from "../api/portrait";
+import { normalizeLineBreaks } from "../utils/text";
 
 const router = useRouter();
 const route = useRoute();
@@ -494,6 +495,9 @@ const adjacentIds = computed(() => {
   }
   return result;
 });
+
+/** 种子误区可能含字面 \n（如 KP0501），归一化为真实换行后再渲染（见 utils/text） */
+const misconceptionText = computed(() => normalizeLineBreaks(detail.value?.misconception));
 
 watch(chapterFilter, () => {
   activeId.value = "";
