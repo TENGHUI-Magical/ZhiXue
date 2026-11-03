@@ -1306,9 +1306,11 @@ class IntegrationFlowTest {
         Thread.sleep(1200);   // 让服务端耗时有 1 秒以上的可断言区间
 
         // 提交带 startToken 且谎报 costSeconds=999：服务端计时必须覆盖客户端自报
-        String payload = "{\"qId\":\"%s\",\"kpId\":\"KP0201\",\"isCorrect\":true,\"myAnswer\":\"B\","
-                + "\"costSeconds\":999,\"startToken\":\"cost-tk-1\",\"clientToken\":\"cost-ct-1\"}"
-                .formatted(qIds.get(0));
+        // （payload 用拼接而非 .formatted：跨行 "a" + "b".formatted(x) 的格式化只作用于
+        //  最后一个字面量，%s 不会被替换，CI 首轮即以此抓出 qId=%s 的 40400）
+        String payload = "{\"qId\":\"" + qIds.get(0) + "\",\"kpId\":\"KP0201\",\"isCorrect\":true,"
+                + "\"myAnswer\":\"B\",\"costSeconds\":999,\"startToken\":\"cost-tk-1\","
+                + "\"clientToken\":\"cost-ct-1\"}";
         HttpResponse<String> first = postJson("/api/practices", payload, token);
         assertThat(code(first)).isZero();
         assertThat((Boolean) JsonPath.read(body(first), "$.data.duplicate")).isFalse();
@@ -1329,8 +1331,8 @@ class IntegrationFlowTest {
 
         // 未 begin 打点：costSeconds 为 null（进步证据缺证据时诚实留空，不用客户端自报顶替）
         HttpResponse<String> noStart = postJson("/api/practices",
-                "{\"qId\":\"%s\",\"kpId\":\"KP0201\",\"isCorrect\":true,\"myAnswer\":\"B\","
-                        + "\"costSeconds\":999,\"clientToken\":\"cost-ct-2\"}".formatted(qIds.get(1)), token);
+                "{\"qId\":\"" + qIds.get(1) + "\",\"kpId\":\"KP0201\",\"isCorrect\":true,"
+                        + "\"myAnswer\":\"B\",\"costSeconds\":999,\"clientToken\":\"cost-ct-2\"}", token);
         assertThat(code(noStart)).isZero();
         assertThat((Object) JsonPath.read(body(noStart), "$.data.costSeconds")).isNull();
         assertThat(jdbcTemplate.queryForObject(
