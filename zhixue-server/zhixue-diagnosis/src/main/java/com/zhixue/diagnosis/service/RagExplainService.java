@@ -893,7 +893,7 @@ public class RagExplainService {
 
     /** UUID 后缀保证同一秒内并发讲解不撞号（explain_id 无唯一键，靠生成侧避免歧义） */
     private String nextExplainId() {
-        return "EX_" + LocalDateTime.now().format(ID_FORMAT) + "_"
+        return "EX_" + LocalDateTime.now(ZONE).format(ID_FORMAT) + "_"
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 

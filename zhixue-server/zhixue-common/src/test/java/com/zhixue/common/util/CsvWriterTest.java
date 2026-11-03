@@ -61,6 +61,29 @@ class CsvWriterTest {
                 CsvWriter.escape("=HYPERLINK(\"A1\",\"B1\")"));
     }
 
+    /**
+     * 换行开头与全角前缀（2026-11-03，OWASP《CSV Injection》补齐）：
+     * LF(0x0A) 开头的单元格同样可被表格软件当作新行公式注入，必须先中和；
+     * 全角 ＝＋－＠ 经中文输入法/表格软件折叠后仍按公式解析，一并中和。
+     * 从 FORMULA_PREFIXES 删掉 {@code \n} 或任一全角字符即红。
+     */
+    @Test
+    void neutralizesNewlineAndFullwidthFormulaPrefixes() {
+        // LF 开头：先前置 '，再因含 LF 走 RFC 4180 包裹
+        assertEquals("\"'\ncmd\"", CsvWriter.escape("\ncmd"));
+        for (String prefix : List.of("＝", "＋", "－", "＠")) {
+            assertEquals("'" + prefix + "SUM(A1)", CsvWriter.escape(prefix + "SUM(A1)"));
+        }
+    }
+
+    /** 正常文本逐字节不变：没有中和前缀、没有转义字符时，输出就是原样 UTF-8（外加 CRLF）。 */
+    @Test
+    void normalTextIsByteIdentical() {
+        byte[] csv = CsvWriter.write(List.of("表头"), List.of(List.of("中文abc-123")));
+        assertEquals("\uFEFF表头\r\n中文abc-123\r\n", new String(csv, StandardCharsets.UTF_8));
+        assertEquals("中文abc-123", CsvWriter.escape("中文abc-123"));
+    }
+
     /** 正常单元格（中文/数字/日期/逗号包裹）不受中和影响；BOM 仍只在流头加一次。 */
     @Test
     void normalCellsUnchangedAndBomWrittenOnce() {

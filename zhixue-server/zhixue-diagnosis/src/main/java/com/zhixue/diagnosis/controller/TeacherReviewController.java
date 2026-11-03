@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 /**
@@ -31,6 +33,9 @@ import java.time.format.DateTimeFormatter;
 @RestController
 @RequestMapping("/api/teacher/reviews")
 public class TeacherReviewController {
+
+    /** 文件日期印章统一上海口径，不随 JVM 默认时区漂移（docs/13 B 组）。 */
+    private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
 
     private final TeacherReviewService teacherReviewService;
 
@@ -57,7 +62,7 @@ public class TeacherReviewController {
      * 权限与队列一致（TEACHER，service 内校验）；学生姓名脱敏、UTF-8 + BOM、中文表头。
      */
     @GetMapping(value = "/export", produces = "text/csv;charset=UTF-8")
-    public ResponseEntity<byte[]> export(
+    public ResponseEntity<StreamingResponseBody> export(
             @Parameter(schema = @Schema(allowableValues = {"PENDING", "REVIEWED", "ALL"}))
             @RequestParam(defaultValue = "PENDING") String status,
             @RequestParam(required = false) String kpId,
@@ -65,14 +70,14 @@ public class TeacherReviewController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
-        byte[] csv = teacherReviewService.exportCsv(status, kpId, from, to);
-        String filename = "review-log-" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
+        String filename = "review-log-" + LocalDate.now(ZONE).format(DateTimeFormatter.BASIC_ISO_DATE)
                 + ".csv";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType("text", "csv", StandardCharsets.UTF_8));
         headers.setContentDisposition(ContentDisposition.attachment().filename(filename,
                 StandardCharsets.UTF_8).build());
-        return ResponseEntity.ok().headers(headers).body(csv);
+        return ResponseEntity.ok().headers(headers)
+                .body(teacherReviewService.exportCsv(status, kpId, from, to));
     }
 
     @PostMapping("/{logPk}")

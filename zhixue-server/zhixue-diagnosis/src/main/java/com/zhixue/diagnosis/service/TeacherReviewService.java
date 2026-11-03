@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -139,7 +140,7 @@ public class TeacherReviewService {
             "是否降级", "创建时间", "评阅结果", "教师评分", "教师评语", "评阅时间");
 
     /**
-     * 导出行数上限：全量结果一次性进内存（实体 + 视图 + CSV 三份）。
+     * 导出行数上限：导出结果常驻内存为投影行 + 关联映射（流式写出，不再有实体/视图/整份字节副本）。
      * 超限拒绝并引导缩小日期范围——不做截断：静默少行会让老师以为数据丢了，
      * 与“证据列为空比整行消失诚实”（docs/01 §7.2）同一原则。
      * 5 万 = 真实学期规模（单课程数百至数千行）的 10—50 倍余量；
@@ -164,7 +165,7 @@ public class TeacherReviewService {
      * REPEATABLE_READ，保证"数过上限却取到更多行"（TOCTOU）不会因部署环境默认值不同而失效。</p>
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public byte[] exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
+    public StreamingResponseBody exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
         StpUtil.checkRole("TEACHER");
         String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
         if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
@@ -186,29 +187,58 @@ public class TeacherReviewService {
                     "导出数据过大（" + total + " 行，上限 " + MAX_EXPORT_ROWS
                             + "），请设置导出的起止日期缩小筛选范围后重试");
         }
-        List<AiGenerationLog> rows = logMapper.selectForReviewAll(reviewed, kp, fromTime, toTime,
+        // 投影查询不含 content_text（见 Mapper 注释）：COUNT 与取数在同一个 REPEATABLE_READ 快照内。
+        List<AiGenerationLog> rows = logMapper.selectForReviewExport(reviewed, kp, fromTime, toTime,
                 courseIds);
-        List<ReviewItemView> views = toViews(rows);
+        Map<String, StudentErrorRecord> errorById = loadErrors(rows);
+        Set<String> qIds = errorById.values().stream()
+                .map(StudentErrorRecord::getQId)
+                .filter(Objects::nonNull).filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<String, QuestionBank> questionById = qIds.isEmpty() ? Map.of()
+                : questionBankService.findByIds(qIds);
+        Set<Long> userIds = rows.stream().map(AiGenerationLog::getUserId)
+                .filter(Objects::nonNull).collect(Collectors.toCollection(LinkedHashSet::new));
+        Map<Long, String> userNameById = userQueryService.findDisplayNames(userIds);
 
-        List<List<String>> lines = new ArrayList<>(views.size());
-        for (ReviewItemView view : views) {
-            lines.add(List.of(
-                    String.valueOf(view.logPk()),
-                    view.explainId() == null ? "" : view.explainId(),
-                    NameMasker.mask(view.userName()),
-                    view.kpId() == null ? "" : view.kpId(),
-                    view.errorType() == null ? "" : ERROR_TYPE_ZH.getOrDefault(view.errorType(), view.errorType()),
-                    view.questionText() == null ? "" : view.questionText(),
-                    view.model() == null ? "" : view.model(),
-                    view.degraded() ? "是" : "否",
-                    view.createdAt() == null ? "" : view.createdAt(),
-                    "PASS".equals(view.reviewResult()) ? "通过"
-                            : "RETURN".equals(view.reviewResult()) ? "退回" : "",
-                    view.teacherScore() == null ? "" : String.valueOf(view.teacherScore()),
-                    view.teacherComment() == null ? "" : view.teacherComment(),
-                    view.reviewedAt() == null ? "" : view.reviewedAt()));
-        }
-        return CsvWriter.write(REVIEW_CSV_HEADER, lines);
+        // 响应在事务结束后才写出：只保留投影行与关联映射（无正文、无 View/行列表/byte[] 副本），
+        // 逐行转义写 OutputStream，50,000 行的内存占用不再随正文长度线性膨胀。
+        return out -> {
+            CsvWriter.writeHeader(out, REVIEW_CSV_HEADER);
+            for (AiGenerationLog row : rows) {
+                CsvWriter.writeRow(out, exportLine(row, errorById, questionById, userNameById));
+            }
+        };
+    }
+
+    /** 导出单行：只用 CSV 需要的列与关联，不构造含正文/选项/解析的 ReviewItemView。 */
+    private List<String> exportLine(AiGenerationLog row,
+                                    Map<String, StudentErrorRecord> errorById,
+                                    Map<String, QuestionBank> questionById,
+                                    Map<Long, String> userNameById) {
+        StudentErrorRecord error = errorById.get(row.getLogId());
+        QuestionBank question = error == null || error.getQId() == null
+                ? null : questionById.get(error.getQId());
+        List<String> sourceKpIds = parseSourceKpIds(row.getSourceIds());
+        String kpId = error != null && error.getKpId() != null ? error.getKpId()
+                : sourceKpIds.isEmpty() ? null : sourceKpIds.get(0);
+        String userName = userNameById.getOrDefault(row.getUserId(), "用户" + row.getUserId());
+        return List.of(
+                String.valueOf(row.getLogPk()),
+                row.getExplainId() == null ? "" : row.getExplainId(),
+                NameMasker.mask(userName),
+                kpId == null ? "" : kpId,
+                error == null || error.getErrorType() == null ? ""
+                        : ERROR_TYPE_ZH.getOrDefault(error.getErrorType(), error.getErrorType()),
+                question == null || question.getQuestionText() == null ? "" : question.getQuestionText(),
+                row.getModel() == null ? "" : row.getModel(),
+                Objects.equals(row.getIsDegraded(), 1) ? "是" : "否",
+                row.getCreatedAt() == null ? "" : DATE_TIME.format(row.getCreatedAt()),
+                "PASS".equals(row.getReviewResult()) ? "通过"
+                        : "RETURN".equals(row.getReviewResult()) ? "退回" : "",
+                row.getTeacherScore() == null ? "" : String.valueOf(row.getTeacherScore()),
+                row.getTeacherComment() == null ? "" : row.getTeacherComment(),
+                row.getReviewedAt() == null ? "" : DATE_TIME.format(row.getReviewedAt()));
     }
 
     /**
@@ -260,15 +290,11 @@ public class TeacherReviewService {
         }
     }
 
-    private List<ReviewItemView> toViews(List<AiGenerationLog> rows) {
-        if (rows.isEmpty()) {
-            return List.of();
-        }
+    /** 按 logIds 分块回查错题记录（每块 500）：导出可达数万行，一次性 IN 全部 logId 是无界查询（红线）。 */
+    private Map<String, StudentErrorRecord> loadErrors(List<AiGenerationLog> rows) {
         Set<String> logIds = rows.stream().map(AiGenerationLog::getLogId)
                 .filter(Objects::nonNull).filter(id -> !id.isBlank())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        // 分块回查（每块 500）：导出可达数万行，一次性 IN 全部 logId 是无界查询（红线），
-        // 会撑大预编译参数与 SQL 文本；队列分页路径（≤50 行）只走一块，无额外开销
         Map<String, StudentErrorRecord> errorById = new HashMap<>();
         List<String> idList = new ArrayList<>(logIds);
         for (int i = 0; i < idList.size(); i += ERROR_LOOKUP_CHUNK) {
@@ -277,6 +303,14 @@ public class TeacherReviewService {
                 errorById.putIfAbsent(record.getLogId(), record);
             }
         }
+        return errorById;
+    }
+
+    private List<ReviewItemView> toViews(List<AiGenerationLog> rows) {
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        Map<String, StudentErrorRecord> errorById = loadErrors(rows);
 
         Set<String> kpIds = new LinkedHashSet<>();
         rows.forEach(row -> kpIds.addAll(parseSourceKpIds(row.getSourceIds())));
