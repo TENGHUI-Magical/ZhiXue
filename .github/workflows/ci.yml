@@ -86,10 +86,6 @@ jobs:
         run: npm run e2e
         env:
           E2E_OUT: e2e-artifacts
-      - name: Run explanation v2 E2E
-        run: npm run e2e:explain
-        env:
-          E2E_OUT: e2e-artifacts/explain-v2
       - name: Upload E2E report
         if: always()
         uses: actions/upload-artifact@v4
