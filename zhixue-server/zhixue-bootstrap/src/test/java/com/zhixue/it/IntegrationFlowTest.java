@@ -1015,7 +1015,9 @@ class IntegrationFlowTest {
         String studentToken = login();
         String teacherToken = login("it_teacher");
         long userId = userIdOf("it_user");
-        String logId = createAndConfirm(studentToken, "ct-review-back");
+        // P1-6：评阅只对“可归属”到教师课程的记录开放，测试错题需带真实 q_id（课程 1）
+        String logId = createAndConfirmWithQid(studentToken, "ct-review-back", "KP0201",
+                courseQids(1).get(0), "补充连接条件");
 
         // 讲解 #1：真实生成并落库
         String sse1 = body(explain(studentToken, logId));
@@ -1441,7 +1443,9 @@ class IntegrationFlowTest {
 
         // 评阅留痕：一条已评阅记录 → 导出含脱敏姓名与结论/评分/评语
         String studentToken = login();
-        String logId = createAndConfirm(studentToken, "csv-review");
+        // P1-6：评阅导出只含可归属记录，测试错题需带真实 q_id（课程 1）
+        String logId = createAndConfirmWithQid(studentToken, "csv-review", "KP0201",
+                courseQids(1).get(0), "");
         String sse = body(explain(studentToken, logId));
         assertThat(sse).contains("event:done");
         String explainId = explainIdFromSse(sse);
