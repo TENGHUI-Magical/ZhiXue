@@ -1636,8 +1636,9 @@ class IntegrationFlowTest {
         long u2 = userIdOf("it_user2");
         long u3 = userIdOf("it_user3");
 
-        // KP0201：u1 10 次 1 错、u2 1 次 1 错（均今日）；Beta 后验宏平均，
-        // 期望值由 MasteryCalculator 同源计算，避免把公式数值写死在测试里。
+        // KP0201：u1 9 次正确 + 1 次错误（全部今日；错误与 qIds[0] 的正确作答同日同题，
+        // 按“同日同题只取最优 1 次”去重后错误事件被正确覆盖），u2 1 次错误（N_k=1 < 3 不达标）。
+        // 因此 KP0201 去重后 errorCount=0，不再进入薄弱点。
         for (int i = 0; i < 9; i++) {
             insertPractice(u1, "cp-u1-ok-" + i, qIds.get(i % qIds.size()), true, 20, 0, null);
         }
@@ -1658,25 +1659,19 @@ class IntegrationFlowTest {
         assertThat(number(json, "$.data.activeRate").doubleValue()).isEqualTo(1.0);
 
         List<Map<String, Object>> top = JsonPath.read(json, "$.data.weakestKpTop");
-        assertThat(top).hasSize(2);
+        assertThat(top).hasSize(1);
         MasteryCalculator calculator = new MasteryCalculator(30);
-        double u1Mastery = calculator.estimate(9.0, 1.0).mean();
-        double u2Mastery = calculator.estimate(0.0, 1.0).mean();
-        double expectedMacro = (u1Mastery + u2Mastery) / 2;
-        // KP0202：2 次正确（今日）+ 30 天前错误（SQL 半衰后严重度 0.5）
+        // KP0202：2 次正确（今日，两个不同 qId）+ 30 天前错误（SQL 半衰后严重度 0.5）
         double expectedKp0202 = calculator.estimate(2.0, 0.5).mean();
 
-        assertThat(top.get(0).get("kpId")).isEqualTo("KP0201");
+        assertThat(top.get(0).get("kpId")).isEqualTo("KP0202");
         assertThat(((Number) top.get(0).get("avgMastery")).doubleValue())
-                .isCloseTo(expectedMacro, within(0.002));
-        assertThat(((Number) top.get(0).get("errorCount")).intValue()).isEqualTo(2);
-
-        assertThat(top.get(1).get("kpId")).isEqualTo("KP0202");
-        assertThat(((Number) top.get(1).get("avgMastery")).doubleValue())
                 .isCloseTo(expectedKp0202, within(0.002));
-        assertThat(((Number) top.get(1).get("errorCount")).intValue()).isEqualTo(1);
+        assertThat(((Number) top.get(0).get("errorCount")).intValue()).isEqualTo(1);
 
-        assertThat(number(json, "$.data.errorDist.CONCEPT_CONFUSION").intValue()).isEqualTo(3);
+        // 错因分布同样按同日同题去重：u1 的“同日同题先错后对”被正确覆盖，
+        // 只剩 u2 与 u3 的两条错误事件。
+        assertThat(number(json, "$.data.errorDist.CONCEPT_CONFUSION").intValue()).isEqualTo(2);
     }
 
     /**
