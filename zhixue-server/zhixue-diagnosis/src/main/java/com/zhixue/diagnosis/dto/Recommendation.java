@@ -13,9 +13,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
  * @param difficulty       难度 1—3
  * @param isAdopted        是否已被作答
  * @param questionText     题干
+ * @param top1Reason       “为什么排第一”一句话（05 §3.7，三因子确定性生成，≤100 字）；
+ *                         仅补漏重排后的第一条非空，其余条与题量不足的兜底场景为 null
  */
 public record Recommendation(Long recommendationId, String qId,
                              @Schema(allowableValues = {"CONSOLIDATE", "VARIANT", "ADVANCE"}) String layer,
                              String reason,
-                             Integer difficulty, boolean isAdopted, String questionText) {
+                             Integer difficulty, boolean isAdopted, String questionText,
+                             @Schema(maxLength = 100) String top1Reason) {
 }

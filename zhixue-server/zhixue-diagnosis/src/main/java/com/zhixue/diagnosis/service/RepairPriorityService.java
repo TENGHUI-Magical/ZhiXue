@@ -68,21 +68,30 @@ public class RepairPriorityService {
     private final CourseService courseService;
     private final KnowledgePointService knowledgePointService;
     private final double halfLifeDays;
+    /** 冷却天数（recommend.cooldown-days，与推荐/计划/到期复习共用）：firstReason 的“刚练过”判定 */
+    private final int cooldownDays;
 
     public RepairPriorityService(PracticeRecordMapper practiceRecordMapper,
                                  CourseService courseService,
                                  KnowledgePointService knowledgePointService,
-                                 @Value("${mastery.half-life-days:30}") double halfLifeDays) {
+                                 @Value("${mastery.half-life-days:30}") double halfLifeDays,
+                                 @Value("${recommend.cooldown-days:7}") int cooldownDays) {
         this.practiceRecordMapper = practiceRecordMapper;
         this.courseService = courseService;
         this.knowledgePointService = knowledgePointService;
         this.halfLifeDays = halfLifeDays <= 0 ? 30.0 : halfLifeDays;
+        this.cooldownDays = Math.max(1, cooldownDays);
     }
 
-    /** 单个知识点的补漏评分与理由素材；daysSinceLastCorrect 为距上次正确作答天数，null=从未答对。 */
+    /**
+     * 单个知识点的补漏评分与理由素材。
+     * daysSinceLastCorrect 为距上次正确作答天数，null=从未答对；
+     * daysSinceLastPractice 为距上次任意作答天数（firstReason 的“冷却期内刚练过”判定），null=无记录。
+     */
     public record Priority(String kpId, double score, int prereqDistance, boolean successor,
                            double urgency, double repairability,
-                           String lastErrorType, Integer daysSinceLastCorrect) {
+                           String lastErrorType, Integer daysSinceLastCorrect,
+                           Integer daysSinceLastPractice) {
     }
 
     /** 课程排序结果：knowledgePoints 已按补漏优先级降序，priorityByKp 供推荐列表复用。 */
@@ -136,8 +145,10 @@ public class RepairPriorityService {
             int distance = prereqDistance.getOrDefault(kp.getKpId(), -1);
             boolean successor = successors.contains(kp.getKpId());
             double weight = prereqWeight(distance, successor);
+            Integer daysPracticed = daysSinceCorrect(
+                    signal == null ? null : signal.getLastPracticedAt(), now);
             priorities.put(kp.getKpId(), new Priority(kp.getKpId(), weight * urgency * repairability,
-                    distance, successor, urgency, repairability, errorType, days));
+                    distance, successor, urgency, repairability, errorType, days, daysPracticed));
         }
 
         List<KnowledgePoint> ordered = new ArrayList<>(kps);
@@ -222,6 +233,66 @@ public class RepairPriorityService {
 
     private String label(String errorType) {
         return errorLabel(errorType);
+    }
+
+    /** firstReason 上限（top1Reason 契约 maxLength=100 对齐） */
+    private static final int MAX_FIRST_REASON_LENGTH = 100;
+
+    /**
+     * “为什么排第一”一句话（05 §3.7，算法创新评审 2026-11-03 唯一采纳项）：由现有三因子
+     * （先修权重 / 遗忘紧迫度 / 错因可修复性）确定性模板拼接，不新增模型、不调 LLM、不改分数，
+     * 同一输入永远同一句话，可单测。与 {@link #explain} 的分工：explain 是每条推荐的逐条
+     * 简短理由；firstReason 是重排后第一名的叙事句，面向教师与答辩演示。
+     * <p>四种退化边界各有固定文案：无先修关系、证据不足（从未答对）、错因未归类、
+     * 冷却期内刚练过仍排第一（薄弱未消除）。</p>
+     */
+    public String firstReason(String kpName, Priority priority, String fallback) {
+        if (priority == null) {
+            return fallback == null || fallback.isBlank() ? "按补漏优先级常规推荐" : fallback;
+        }
+        String name = kpName == null || kpName.isBlank() ? priority.kpId() : kpName;
+        StringBuilder builder = new StringBuilder("先补").append(name).append("：");
+        // 因子一：先修关系（无先修关系时按“最薄弱”叙事，不编造关联）
+        if (priority.prereqDistance() == 1) {
+            builder.append("它是当前错题知识点的直接先修");
+        } else if (priority.prereqDistance() == 2) {
+            builder.append("它是当前错题知识点的二级先修");
+        } else if (priority.prereqDistance() == 0) {
+            builder.append("它正是当前出错的知识点");
+        } else if (priority.successor()) {
+            builder.append("它衔接着当前知识点的后续内容");
+        } else {
+            builder.append("它是当前课程中最薄弱的环节");
+        }
+        // 因子二：遗忘紧迫度（从未答对 = 证据不足，如实说）
+        if (priority.daysSinceLastCorrect() == null) {
+            builder.append("，至今尚未答对过");
+        } else if (priority.daysSinceLastCorrect() == 0) {
+            builder.append("，今日刚答对过");
+        } else {
+            builder.append("，已 ").append(priority.daysSinceLastCorrect()).append(" 天未答对");
+        }
+        // 因子三：错因可修复性（未归类时如实说，不猜）
+        String errorType = priority.lastErrorType();
+        if (errorType != null && !errorType.isBlank()) {
+            if ("UNCLASSIFIED".equals(errorType.trim().toUpperCase(Locale.ROOT))) {
+                builder.append("，错因待归类");
+            } else {
+                builder.append("，").append(label(errorType)).append("型错误")
+                        .append(priority.repairability() >= 0.8 ? "，属可修复" : "，需专项练习");
+            }
+        }
+        // 冷却边界：冷却期内刚练过仍排第一 → 薄弱未消除，趁热补
+        if (priority.daysSinceLastPractice() != null
+                && priority.daysSinceLastPractice() < cooldownDays) {
+            builder.append("；该点 ").append(priority.daysSinceLastPractice())
+                    .append(" 天内刚练过仍排第一，薄弱未消除，趁热补最有效");
+        } else {
+            builder.append("；综合先修、遗忘与错因三因子，它当前补漏优先级最高");
+        }
+        String reason = builder.toString();
+        return reason.length() <= MAX_FIRST_REASON_LENGTH ? reason
+                : reason.substring(0, MAX_FIRST_REASON_LENGTH - 1) + "…";
     }
 
     /** 距最后一次正确作答的整天数；null 表示从未答对（紧迫度记 1.0，最该补）。 */
