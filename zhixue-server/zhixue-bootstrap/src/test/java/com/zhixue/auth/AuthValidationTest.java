@@ -31,6 +31,7 @@ class AuthValidationTest {
 
     @Test
     void usernameLongerThanDatabaseColumnIsRejected() throws Exception {
+        // 口令为测试固定值（满足 6—64 长度即可），非生产示例
         String body = "{\"username\":\"" + "x".repeat(51) + "\",\"password\":\"123456\"}";
         MvcResult result = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON).content(body))

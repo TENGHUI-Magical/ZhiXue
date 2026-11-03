@@ -1,5 +1,5 @@
 // 主题注册与持久化：只切换 html[data-theme] 与 dark 类，不动组件逻辑
-// 2026-10-31 收敛：仅保留 glass（浅）+ glass-dark（深）两套（裁决 V3.0 §3 D2）；
+// 主题收敛：仅保留 glass（浅）+ glass-dark（深）两套（裁决 V3.0 §3 D2）；
 // 旧 academic/ink/paper/mono 已删除；历史 localStorage 值经 isThemeKey 校验失败后自动回退 glass。
 export type ThemeKey = "glass" | "glass-dark";
 

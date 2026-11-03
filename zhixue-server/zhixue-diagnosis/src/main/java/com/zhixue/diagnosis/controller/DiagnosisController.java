@@ -131,7 +131,7 @@ public class DiagnosisController {
 
     /**
      * 三层推荐：CONSOLIDATE / VARIANT / ADVANCE 各 1 题。
-     * 契约参数为 logId；竖切阶段允许用 kpId 兜底，直到错题记录模块接入。
+     * 契约参数以 logId（CONFIRMED 错题记录）为主；无记录时才允许退回 kpId，两者至少传一个。
      */
     @GetMapping("/recommendations")
     public ApiResponse<List<Recommendation>> recommendations(

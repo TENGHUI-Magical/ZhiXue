@@ -9,8 +9,10 @@ MasteryCalculator 的参数（错因严重度 1.0/1.0/0.8/0.6/0.8、半衰 30 �
 
 方法
 ----
-1. 按公式复刻：mastery = clamp01(1 - Σ(severity_i × 0.5^(d_i/H)) / max(1, N))，
-   与 MasteryCalculator.java 逐项一致；
+1. 按公式复刻：mastery = clamp01(1 - Σ(severity_i × 0.5^(d_i/H)) / max(1, N))。
+   注意（2026-11-03 核对）：这是已被替换的旧公式；当前 MasteryCalculator.java
+   使用 Beta 后验 + 双侧时间衰减 + 90% 分位区间（见其类注释）。本脚本仅用于
+   历史敏感性对照，不代表生产口径，结论不得外推到现行掌握度；
 2. 合成事件集：每轮为 20 个知识点各生成随机事件序列（条数 2—30、错因按五种
    随机、发生时间 0—60 天前，固定种子可复现）。**合成序列用于刻画公式结构，
    不代表真实学生数据，禁止把结果当对外效果数字**；
@@ -49,7 +51,7 @@ BASE_HALF_LIFE = 30.0
 
 def mastery(kp_events: list[tuple[str, int]], severity: dict[str, float],
             half_life: float) -> float:
-    """复刻 MasteryCalculator：events=[(错因, 天数前)]。"""
+    """旧公式复刻（历史对照用，非现行 Beta 后验口径）：events=[(错因, 天数前)]。"""
     n = len(kp_events)
     if n == 0:
         return 0.0
