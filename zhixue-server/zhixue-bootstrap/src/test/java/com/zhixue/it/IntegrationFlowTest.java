@@ -313,6 +313,50 @@ class IntegrationFlowTest {
         assertThat(AI_CALLS.get()).isEqualTo(1);
     }
 
+    /**
+     * 缓存回放逐字节一致：同一请求第二次必须命中缓存，且正文与首次完全相同（含空白与换行）。
+     * <p>
+     * 守的真实风险：Redis 快照在回放时被二次加工——页码清洗若非幂等会改写正文、
+     * 或快照被截断/编码漂移——导致学生刷新后看到与首次不同的讲解。首次正文已经过
+     * AI 侧页码白名单与答案泄露过滤后落库，回放对同一知识点白名单的清洗必须幂等。
+     */
+    @Test
+    void cacheReplayReturnsByteIdenticalContent() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-replay-bytes");
+
+        String first = body(explain(token, logId));
+        assertThat(first).doesNotContain("\"cached\":true");
+        String firstText = concatDeltaText(first);
+        assertThat(firstText).isNotBlank();
+
+        String second = body(explain(token, logId));
+        assertThat(second).contains("\"model\":\"cache\"", "\"cached\":true");
+        assertThat(concatDeltaText(second)).isEqualTo(firstText);
+        assertThat(AI_CALLS.get()).isEqualTo(1);
+    }
+
+    /** 按帧序提取 SSE 正文里的全部 delta 文本并拼接，供逐字节比较。 */
+    private String concatDeltaText(String sse) throws Exception {
+        StringBuilder text = new StringBuilder();
+        for (String frame : sse.split("\n\n")) {
+            if (!frame.contains("event:delta")) {
+                continue;
+            }
+            for (String line : frame.split("\n")) {
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                Map<?, ?> data = objectMapper.readValue(line.substring(5).trim(), Map.class);
+                Object part = data.get("text");
+                if (part != null) {
+                    text.append(part);
+                }
+            }
+        }
+        return text.toString();
+    }
+
     @Test
     void conceptTextChangeInvalidatesPreviousExplanationCache() throws Exception {
         String token = login();
@@ -1005,6 +1049,22 @@ class IntegrationFlowTest {
         return logPk;
     }
 
+    private long logPkByLogId(String logId) {
+        Long logPk = jdbcTemplate.queryForObject(
+                "SELECT log_pk FROM ai_generation_log WHERE log_id = ?", Long.class, logId);
+        assertThat(logPk).isNotNull();
+        return logPk;
+    }
+
+    /** 已评阅判定（写路径范围校验用例：确认 40300 后未发生写入）。 */
+    private int reviewedCount(long logPk) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM ai_generation_log WHERE log_pk = ? AND reviewed_at IS NOT NULL",
+                Integer.class, logPk);
+        assertThat(count).isNotNull();
+        return count;
+    }
+
     /**
      * CSV 导出越权（P0 立项三条要求之一）：学生调两个导出端点必须 40300，
      * 非课程教师调班级学情导出必须 40300，未登录 40100——证明导出不泄漏学生数据。
@@ -1144,6 +1204,90 @@ class IntegrationFlowTest {
         } finally {
             jdbcTemplate.update("DELETE FROM ai_generation_log WHERE explain_id LIKE 'PERF_IT_EX_%'");
             jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id LIKE 'PERF_IT_EL_%'");
+        }
+    }
+
+    /**
+     * 评阅提交写路径的课程范围校验（2026-11-03 补写侧数据范围级越权）：
+     * submit 与读侧队列/导出同一口径（scopedCourseIds）。教师 B 不能对教师 A 课程的
+     * 记录写评语（40300，且未写入）；教师 A 自己的课程可写；反向（A→B）同样拦截，
+     * 双向各验一次，且双方各自课程都能成功提交。
+     */
+    @Test
+    void reviewSubmitIsScopedToTeacherCourses() throws Exception {
+        long teacher2 = userIdOf("it_teacher2");
+        long student = userIdOf("it_user");
+        List<String> qIds = courseQids(1);
+
+        jdbcTemplate.update(
+                "INSERT INTO course (course_id, course_name, teacher_id, is_active) "
+                        + "VALUES (98, '写范围隔离课程', ?, 1)", teacher2);
+        jdbcTemplate.update(
+                "INSERT INTO course_chapter (course_id, chapter_no, title) VALUES (98, 1, '写隔离章节')");
+        Long chapter98 = jdbcTemplate.queryForObject(
+                "SELECT chapter_id FROM course_chapter WHERE course_id = 98", Long.class);
+        jdbcTemplate.update(
+                "INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, textbook_page, "
+                        + "dimension_key, sort_no, created_by, is_active) "
+                        + "VALUES ('KPWSUB98', 98, ?, '写隔离知识点', 'P1', 'concept', 1, 1, 1)", chapter98);
+        jdbcTemplate.update(
+                "INSERT INTO question_bank (q_id, course_id, primary_kp_id, question_type, "
+                        + "question_text, answer_text, difficulty, is_active) "
+                        + "VALUES ('Q_WSUB_98', 98, 'KPWSUB98', '单选', '写隔离课程题目', 'A', 1, 1)");
+        try {
+            // 两条真实讲解留痕：A 属 course 1（it_teacher），B 属 course 98（it_teacher2）
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_WSUB_A', ?, 'wsub-a', ?, 'KP0201', 'CONFIRMED', "
+                            + "'CONCEPT_CONFUSION', '写范围A')", student, qIds.get(0));
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_WSUB_B', ?, 'wsub-b', 'Q_WSUB_98', 'KPWSUB98', "
+                            + "'CONFIRMED', 'CONCEPT_CONFUSION', '写范围B')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_WSUB_A', 'EX_WSUB_A', 'TR_WSUB_A', ?, 'RAG', "
+                            + "'deepseek-chat', 'A课程的讲解')", student);
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_WSUB_B', 'EX_WSUB_B', 'TR_WSUB_B', ?, 'RAG', "
+                            + "'deepseek-chat', 'B课程的讲解')", student);
+            long pkA = logPkByLogId("EL_WSUB_A");
+            long pkB = logPkByLogId("EL_WSUB_B");
+            String teacherA = login("it_teacher");
+            String teacherB = login("it_teacher2");
+            String payload = "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}";
+
+            // ① 教师 B 提交属于教师 A 课程的记录 → 40300，且未写入
+            assertThat(code(postJson("/api/teacher/reviews/" + pkA, payload, teacherB)))
+                    .isEqualTo(40300);
+            assertThat(reviewedCount(pkA)).isZero();
+
+            // ② 教师 A 提交自己课程的记录 → 成功
+            assertThat(code(postJson("/api/teacher/reviews/" + pkA, payload, teacherA))).isZero();
+            assertThat(reviewedCount(pkA)).isEqualTo(1);
+
+            // ③ 反向：教师 A 提交属于教师 B 课程的记录 → 40300，且未写入
+            assertThat(code(postJson("/api/teacher/reviews/" + pkB, payload, teacherA)))
+                    .isEqualTo(40300);
+            assertThat(reviewedCount(pkB)).isZero();
+
+            // ④ 教师 B 提交自己课程的记录 → 成功（双向验证，不是只挡一边）
+            assertThat(code(postJson("/api/teacher/reviews/" + pkB, payload, teacherB))).isZero();
+            assertThat(reviewedCount(pkB)).isEqualTo(1);
+        } finally {
+            jdbcTemplate.update(
+                    "DELETE FROM ai_generation_log WHERE log_id IN ('EL_WSUB_A', 'EL_WSUB_B')");
+            jdbcTemplate.update(
+                    "DELETE FROM student_error_record WHERE log_id IN ('EL_WSUB_A', 'EL_WSUB_B')");
+            jdbcTemplate.update("DELETE FROM question_bank WHERE q_id = 'Q_WSUB_98'");
+            jdbcTemplate.update("DELETE FROM knowledge_point WHERE kp_id = 'KPWSUB98'");
+            jdbcTemplate.update("DELETE FROM course_chapter WHERE course_id = 98");
+            jdbcTemplate.update("DELETE FROM course WHERE course_id = 98");
         }
     }
 

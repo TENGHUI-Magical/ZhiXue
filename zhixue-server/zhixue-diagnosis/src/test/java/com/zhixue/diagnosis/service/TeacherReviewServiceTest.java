@@ -42,6 +42,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -269,6 +270,50 @@ class TeacherReviewServiceTest {
                     () -> service.submit(10L, new ReviewSubmitRequest(3, "  ", "RETURN")));
             assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
             verify(logMapper, never()).update(any(), any());
+        }
+    }
+
+    /** 写侧课程范围（与读侧同一口径）：记录可定位到登录教师范围外课程 → 40300，且不发生写入。 */
+    @Test
+    void submitRejectsRecordScopedToOtherTeachersCourse() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(10L);
+        log.setLogId("EL_10");
+        log.setScene("RAG");
+        when(logMapper.selectById(10L)).thenReturn(log);
+        when(logMapper.selectLinkedCourseIds("EL_10")).thenReturn(List.of(99L));
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.submit(10L, new ReviewSubmitRequest(5, "讲解清晰")));
+            assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+            verify(logMapper, never()).update(any(), any());
+        }
+    }
+
+    /** 写侧课程范围：自己课程的记录放行；归属不明（解析不到课程）按读侧同口径放行，不误伤。 */
+    @Test
+    void submitAllowsOwnCourseAndUnknownAttribution() {
+        AiGenerationLog own = new AiGenerationLog();
+        own.setLogPk(11L);
+        own.setLogId("EL_11");
+        own.setScene("RAG");
+        when(logMapper.selectById(11L)).thenReturn(own);
+        when(logMapper.selectLinkedCourseIds("EL_11")).thenReturn(List.of(1L));
+        AiGenerationLog unknown = new AiGenerationLog();
+        unknown.setLogPk(12L);
+        unknown.setLogId("EL_12");
+        unknown.setScene("RAG");
+        when(logMapper.selectById(12L)).thenReturn(unknown);
+        when(logMapper.selectLinkedCourseIds("EL_12")).thenReturn(List.of());
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.update(isNull(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            service.submit(11L, new ReviewSubmitRequest(5, "讲解清晰"));
+            service.submit(12L, new ReviewSubmitRequest(5, "讲解清晰"));
+            verify(logMapper, times(2)).update(isNull(), any());
         }
     }
 }

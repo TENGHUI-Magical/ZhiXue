@@ -40,7 +40,8 @@ import java.util.stream.Collectors;
 
 /**
  * 教师评阅：待评阅队列 + 提交评阅。
- * 待评阅口径：scene=RAG 且 reviewed_at IS NULL；重复评阅 40900，非教师 40300。
+ * 待评阅口径：scene=RAG 且 reviewed_at IS NULL；重复评阅 40900，非教师 40300，
+ * 提交评阅超出登录教师可管理课程范围 40300（读写同口径 scopedCourseIds）。
  *
  * <p>2026-10-31 C3：队列补评阅证据（题干/题型/选项/参考答案/解析/学生笔记/等待时长），
  * 支持 status / kpId / from / to 筛选。</p>
@@ -201,13 +202,26 @@ public class TeacherReviewService {
         return CsvWriter.write(REVIEW_CSV_HEADER, lines);
     }
 
-    /** 提交评阅：reviewed_at IS NULL 才允许写；重复/并发抢先返回 40900。 */
+    /**
+     * 提交评阅：课程范围与读侧队列/导出同一口径（{@link #scopedCourseIds()}，勿另造口径）；
+     * reviewed_at IS NULL 才允许写；重复/并发抢先返回 40900。
+     */
     @Transactional
     public void submit(long logPk, ReviewSubmitRequest request) {
         StpUtil.checkRole("TEACHER");
         AiGenerationLog row = logMapper.selectById(logPk);
         if (row == null || !"RAG".equals(row.getScene())) {
             throw new BizException(ErrorCode.NOT_FOUND, "评阅记录不存在: " + logPk);
+        }
+        // 写侧课程范围校验（2026-11-03）：记录可定位到登录教师可管理课程之外 → 40300。
+        // 先于 reviewed_at 检查，避免向范围外教师泄漏评阅状态；归属不明（无错题关联/
+        // 题库查不到课程）按读侧同口径放行，不误伤（诚实留行原则，docs/01 §7.2）。
+        List<Long> scope = scopedCourseIds();
+        for (Long courseId : logMapper.selectLinkedCourseIds(row.getLogId())) {
+            if (!scope.contains(courseId)) {
+                throw new BizException(ErrorCode.FORBIDDEN,
+                        "不能评阅自己可管理课程之外的记录: " + logPk);
+            }
         }
         if (row.getReviewedAt() != null) {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该讲解已评阅: " + logPk);
