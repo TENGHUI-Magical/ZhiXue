@@ -19,6 +19,7 @@ param(
     [string]$AiBase = 'http://127.0.0.1:8000',
     [string]$FrontendUrl = 'http://localhost:5173',
     [string]$IndexDir = (Join-Path $PSScriptRoot '..\zhixue-ai\data\vector_index'),
+    [string]$ContentRoot = (Join-Path $PSScriptRoot '..\..\spark-output\content'),
     [string]$DemoUsername = 'demo_stu01',
     [string]$DemoPassword = 'Demo@2026',
     [switch]$SkipAiLive
@@ -70,6 +71,21 @@ SELECT
             Add-Result 'OK' '主库计数' $detail
         } else {
             Add-Result 'FAIL' '主库计数' "$detail（低于演示下限 8/80/200/80）" '重跑 scripts/seed-demo.ps1 -Database zhixue'
+        }
+        $csvFiles = @(Get-ChildItem -Path $ContentRoot -Directory -Filter 'ch*' -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-ChildItem $_.FullName -Filter '*questions.csv' -File -ErrorAction SilentlyContinue })
+        if ($csvFiles.Count -eq 0) {
+            Add-Result 'FAIL' '题数一致' "未在 $ContentRoot 找到 *questions.csv" '用 -ContentRoot 指定 CSV 内容目录'
+        } else {
+            $csvQuestionCount = 0
+            foreach ($file in $csvFiles) {
+                $csvQuestionCount += @(Import-Csv $file.FullName).Count
+            }
+            if ($questions -eq $csvQuestionCount) {
+                Add-Result 'OK' '题数一致' "库内 = CSV = $questions"
+            } else {
+                Add-Result 'FAIL' '题数一致' "库内 $questions ≠ CSV $csvQuestionCount" '重跑 build-seed-all.ps1 后用单一路径 seed-demo.ps1 重建'
+            }
         }
         if ($users -ge 13) {
             Add-Result 'OK' '演示账号' "$users 个账号"
