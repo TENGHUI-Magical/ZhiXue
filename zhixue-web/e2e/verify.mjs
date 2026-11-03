@@ -273,9 +273,38 @@ async function axeScan(page) {
         // @ts-ignore
         return await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa'] })
       })
-      return result.violations
-        .filter(v => ['serious', 'critical'].includes(v.impact))
-        .map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }))
+      const violations = result.violations.filter(v => ['serious', 'critical'].includes(v.impact))
+      if (violations.length === 0) return []
+      const readiness = await page.evaluate(() => {
+        const animations = document.getAnimations()
+        return {
+          documentReadyState: document.readyState,
+          fontsReady: document.fonts.status === 'loaded',
+          animationCount: animations.length,
+          animationsFinished: animations.every(animation => animation.playState === 'finished'),
+          skeletonEnded: !document.querySelector('.el-skeleton')
+        }
+      })
+      const pageName = new URL(page.url()).pathname.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'root'
+      const screenshot = `axe-${pageName}-${Date.now()}.png`
+      await page.screenshot({ path: path.join(OUT, screenshot), fullPage: true })
+      return violations.map(v => ({
+        id: v.id,
+        impact: v.impact,
+        description: v.description,
+        help: v.help,
+        helpUrl: v.helpUrl,
+        nodes: v.nodes.length,
+        details: v.nodes.map(n => ({
+          target: n.target,
+          html: n.html,
+          failureSummary: n.failureSummary,
+          any: n.any,
+          all: n.all,
+          none: n.none
+        })),
+        evidence: { screenshot, readiness }
+      }))
     } catch (e) {
       lastError = e
       // 页面被 reload 后重新等待内容挂载，避免扫到空白页
@@ -289,6 +318,27 @@ async function axeScan(page) {
 
 const server = await ensureServer()
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
+
+// 单例复现模式只用于诊断；正常 npm run e2e 的全量用例与断言不变。
+if (process.env.TEACHER_AXE_ONLY === '1') {
+  const targetA11y = []
+  const teacherAxeCtx = await newContext(browser, 'TEACHER', 'glass', { width: 390, height: 844 })
+  const teacherAxePage = await teacherAxeCtx.newPage()
+  await open(teacherAxePage, '/teacher')
+  await sleep(300)
+  const violations = await axeScan(teacherAxePage)
+  targetA11y.push({ theme: 'glass', page: 'mobile-teacher-overview', violations })
+  check('a11y/mobile/teacher-overview', violations.length === 0, JSON.stringify(violations))
+  fs.writeFileSync(path.join(OUT, 'e2e-report.json'), JSON.stringify({ base: BASE, results, a11y: targetA11y }, null, 2), 'utf8')
+  const failed = results.filter(r => !r.pass)
+  console.log(`E2E: ${results.length - failed.length}/${results.length} passed`)
+  console.log(`a11y: ${targetA11y.filter(a => a.violations.length === 0).length}/${targetA11y.length} pages clean`)
+  console.log('REPORT:', path.join(OUT, 'e2e-report.json'))
+  await teacherAxeCtx.close()
+  await browser.close()
+  if (server) server.kill()
+  process.exit(failed.length ? 1 : 0)
+}
 
 try {
   // ---------- 学生桌面 ----------
