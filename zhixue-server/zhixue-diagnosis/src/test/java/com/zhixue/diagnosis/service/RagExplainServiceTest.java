@@ -116,7 +116,8 @@ class RagExplainServiceTest {
     @Test
     void cacheHitReplaysFullContentWithoutCallingUpstream() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "关系模型", "关系模型的核心概念", null, "P34",
+                "CONCEPT_CONFUSION", "求闭包（校正）", "B")).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "缓存中的完整讲解", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -146,7 +147,8 @@ class RagExplainServiceTest {
     @Test
     void cacheHitSanitizesPagesOutsideKnowledgePointWhitelist() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "关系模型", "关系模型的核心概念", null, "P34",
+                "CONCEPT_CONFUSION", "求闭包（校正）", "B")).thenReturn("k1");
         when(explainCacheService.get("k1")).thenReturn(new ExplainCacheService.Cached(
                 "参见教材P999，合法 P34。", "deepseek-chat", "v1",
                 List.of(new ExplainCacheService.Source("KP0201", "P34", "关系模型")),
@@ -170,7 +172,8 @@ class RagExplainServiceTest {
     @Test
     void forceRefreshSkipsCacheRead() throws Exception {
         stubRecordAndKp("关系模型的核心概念");
-        when(explainCacheService.key("KP0201", "CONCEPT_CONFUSION", "求闭包（校正）", "关系模型的核心概念")).thenReturn("k1");
+        when(explainCacheService.key("KP0201", "关系模型", "关系模型的核心概念", null, "P34",
+                "CONCEPT_CONFUSION", "求闭包（校正）", "B")).thenReturn("k1");
 
         String body = BODY.replace("\"questionText\"", "\"forceRefresh\":true,\"questionText\"");
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {

@@ -357,6 +357,47 @@ class IntegrationFlowTest {
         assertThat(rejected.headers().firstValue("Retry-After").orElse("")).isNotBlank();
     }
 
+    /**
+     * 讲解缓存键覆盖全部 prompt 材料（ExplainCacheService contextHash）：
+     * 题库标准答案或知识点误区变化后，即使 kp/错因/题干完全相同也不再命中旧缓存——
+     * “生成依据”与“缓存键依据”必须是同一份材料（05 §1.3 讲解链路的缓存一致性）。
+     */
+    @Test
+    void explainCacheKeyCoversAllPromptMaterials() throws Exception {
+        String token = login();
+        // 前置判别：两题标准答案必须不同，否则本用例失去判别力（种子变化时此处显式红提示换题）
+        List<String> answers = jdbcTemplate.queryForList(
+                "SELECT answer_text FROM question_bank WHERE q_id IN ('Q_0201','Q_0202') ORDER BY q_id",
+                String.class);
+        assertThat(answers).hasSize(2);
+        assertThat(answers.get(0)).isNotEqualTo(answers.get(1));
+
+        // 两条错题：同 kp、同错因、同校正题干，仅 qId 不同（→ 题库标准答案不同，均进 prompt）
+        String logA = createAndConfirmWithQid(token, "ctx-ans-a", "KP0201", "Q_0201", "笔记A");
+        String logB = createAndConfirmWithQid(token, "ctx-ans-b", "KP0201", "Q_0202", "笔记B");
+
+        assertThat(body(explain(token, logA))).contains("event:done");
+        assertThat(AI_CALLS.get()).isEqualTo(1);
+
+        // 旧键（kp+错因+题干+concept）相同会命中；新键含标准答案 → 必须真调
+        assertThat(body(explain(token, logB))).contains("event:done");
+        assertThat(AI_CALLS.get()).isEqualTo(2);
+
+        // 知识点误区维护（内容线日常操作）：材料变化 → 同一条错题也不再命中
+        String original = jdbcTemplate.queryForObject(
+                "SELECT misconception FROM knowledge_point WHERE kp_id = 'KP0201'", String.class);
+        try {
+            jdbcTemplate.update(
+                    "UPDATE knowledge_point SET misconception = ? WHERE kp_id = 'KP0201'",
+                    "缓存键覆盖材料用误区（临时）");
+            assertThat(body(explain(token, logA))).contains("event:done");
+            assertThat(AI_CALLS.get()).isEqualTo(3);
+        } finally {
+            jdbcTemplate.update(
+                    "UPDATE knowledge_point SET misconception = ? WHERE kp_id = 'KP0201'", original);
+        }
+    }
+
     @Test
     void ocrReclaimKeepsCompletedTaskAndFailsStaleTask() throws Exception {
         Long userId = jdbcTemplate.queryForObject(

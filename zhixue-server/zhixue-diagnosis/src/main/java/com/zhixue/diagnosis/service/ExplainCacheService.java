@@ -14,7 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 
 /**
- * 讲解结果缓存（契约 V2 §6）：key = sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天。
+ * 讲解结果缓存（契约 V2 §6）：key = promptVersion + contextHash（全部 prompt 组装材料），TTL 7 天。
  * <p>
  * 只缓存 L1 正常完成、未拦截、有正文的结果；Redis 不可用时跳过缓存直调模型，绝不返回 500。
  */
@@ -28,6 +28,13 @@ public class ExplainCacheService {
 
     private static final String KEY_PREFIX = "zhixue:explain:cache:";
 
+    /**
+     * 讲解上下文缓存键版本：prompt 材料集合或组装语义变化时 bump（ctx-v1 → ctx-v2），
+     * 旧缓存整代失效（TTL 7 天兜底清空，无需迁移）。与上游返回的 promptVersion（模型模板版本，
+     * 记录在缓存值与 ai_generation_log）职责不同：这里管的是 Java → Python 的材料契约。
+     */
+    static final String CONTEXT_VERSION = "ctx-v1";
+
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
 
@@ -37,23 +44,36 @@ public class ExplainCacheService {
     }
 
     /**
-     * 计算契约缓存 key：sha256(kpId + errorType + correctedText)。
+     * 计算缓存键：sha256(版本 + 全部 prompt 组装材料)。
+     * 材料与 {@code RagExplainService#buildUpstreamPayload} 一一对应（traceId/logId/forceRefresh
+     * 等非语义字段除外）——保证“生成依据”与“缓存键依据”是同一份材料，
+     * 任一材料变化（concept_text 勘误、misconception 维护、题库标准答案更新、页码勘误）即失效。
      *
      * @param kpId         知识点编号
+     * @param kpName       知识点名称（进 prompt）
+     * @param conceptText  概念切片
+     * @param misconception 常见误区（内容线维护）
+     * @param textbookPage 教材页码
      * @param errorType    五类错因之一
      * @param questionText 学生题干（契约 correctedText）
+     * @param answerText   题目标准答案（题库维护）
      * @return Redis 键
      */
-    public String key(String kpId, String errorType, String questionText) {
-        String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText);
-        return KEY_PREFIX + sha256(raw);
+    public String key(String kpId, String kpName, String conceptText, String misconception,
+                      String textbookPage, String errorType, String questionText, String answerText) {
+        return key(CONTEXT_VERSION, kpId, kpName, conceptText, misconception,
+                textbookPage, errorType, questionText, answerText);
     }
 
-    /** 概念原文参与版本计算：concept_text 改变后，旧 key 不再命中。 */
-    public String key(String kpId, String errorType, String questionText, String conceptText) {
-        String raw = nullToEmpty(kpId) + nullToEmpty(errorType) + nullToEmpty(questionText)
-                + "|concept:" + sha256(nullToEmpty(conceptText));
-        return KEY_PREFIX + sha256(raw);
+    /** 带版本的键计算（包私有供单测验证版本参与；线上入口固定用 {@link #CONTEXT_VERSION}）。 */
+    static String key(String version, String kpId, String kpName, String conceptText,
+                      String misconception, String textbookPage, String errorType,
+                      String questionText, String answerText) {
+        String contextHash = sha256(String.join("\u0001",
+                nullToEmpty(kpId), nullToEmpty(kpName), nullToEmpty(conceptText),
+                nullToEmpty(misconception), nullToEmpty(textbookPage), nullToEmpty(errorType),
+                nullToEmpty(questionText), nullToEmpty(answerText)));
+        return KEY_PREFIX + version + ":" + sha256(version + ":" + contextHash);
     }
 
     /**
@@ -89,7 +109,7 @@ public class ExplainCacheService {
         }
     }
 
-    private String sha256(String raw) {
+    private static String sha256(String raw) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(raw.getBytes(StandardCharsets.UTF_8)));
@@ -98,7 +118,7 @@ public class ExplainCacheService {
         }
     }
 
-    private String nullToEmpty(String value) {
+    private static String nullToEmpty(String value) {
         return value == null ? "" : value;
     }
 

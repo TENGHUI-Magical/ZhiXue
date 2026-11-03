@@ -202,11 +202,13 @@ public class RagExplainService {
 
         String answerText = resolveAnswerText(record);
 
-        // 契约 §6：sha256(kpId + errorType + correctedText + conceptHash)，TTL 7 天；forceRefresh 跳过读缓存。
+        // 契约 §6：缓存键 = contextVersion + sha256(全部 prompt 材料)，TTL 7 天；forceRefresh 跳过读缓存。
         // correctedText 取 CONFIRMED 记录（学生校正后的题干），缺省回退请求的 questionText；
-        // 同一份文本同时用于缓存键和上游 prompt，避免“按 A 生成、按 B 缓存”。
+        // 键覆盖 buildUpstreamPayload 的全部语义材料（含 misconception 与题库标准答案），
+        // 材料任一变化即失效，保证“生成依据”与“缓存键依据”一致。
         String cacheText = resolveCacheText(record, request);
-        String cacheKey = explainCacheService.key(kp.getKpId(), errorType, cacheText, kp.getConceptText());
+        String cacheKey = explainCacheService.key(kp.getKpId(), kp.getName(), kp.getConceptText(),
+                kp.getMisconception(), kp.getTextbookPage(), errorType, cacheText, answerText);
         if (!Boolean.TRUE.equals(request.getForceRefresh())) {
             ExplainCacheService.Cached cached = explainCacheService.get(cacheKey);
             if (cached != null && cached.content() != null && !cached.content().isBlank()) {
