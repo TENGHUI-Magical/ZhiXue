@@ -1292,6 +1292,67 @@ class IntegrationFlowTest {
     }
 
     /**
+     * 已评阅记录 + 外课程教师提交：仍须 40300（不是 40900）。
+     * <p>锁死 #41 的检查顺序——课程范围校验必须排在 reviewed_at 判重之前；
+     * 若顺序被换回，外课程教师会先拿到 40900，可反推出"这条记录已被评过"（评阅状态泄漏）。
+     * 既有 4 条越权 IT 都只用未评阅记录，顺序被换回仍会全绿，故单列本条。</p>
+     */
+    @Test
+    void reviewedRecordStillRejectsOutsiderBeforeDuplicationCheck() throws Exception {
+        long teacher2 = userIdOf("it_teacher2");
+        long student = userIdOf("it_user");
+        List<String> qIds = courseQids(1);
+
+        jdbcTemplate.update(
+                "INSERT INTO course (course_id, course_name, teacher_id, is_active) "
+                        + "VALUES (97, '已评阅隔离课程', ?, 1)", teacher2);
+        jdbcTemplate.update(
+                "INSERT INTO course_chapter (course_id, chapter_no, title) VALUES (97, 1, '隔离章节')");
+        Long chapter97 = jdbcTemplate.queryForObject(
+                "SELECT chapter_id FROM course_chapter WHERE course_id = 97", Long.class);
+        jdbcTemplate.update(
+                "INSERT INTO knowledge_point (kp_id, course_id, chapter_id, name, textbook_page, "
+                        + "dimension_key, sort_no, created_by, is_active) "
+                        + "VALUES ('KPOREV97', 97, ?, '已评阅知识点', 'P1', 'concept', 1, 1, 1)", chapter97);
+        jdbcTemplate.update(
+                "INSERT INTO question_bank (q_id, course_id, primary_kp_id, question_type, "
+                        + "question_text, answer_text, difficulty, is_active) "
+                        + "VALUES ('Q_OREV_97', 97, 'KPOREV97', '单选', '已评阅题目', 'A', 1, 1)");
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                            + "status, error_type, corrected_text) "
+                            + "VALUES ('EL_OREV_A', ?, 'orev-a', ?, 'KP0201', 'CONFIRMED', "
+                            + "'CONCEPT_CONFUSION', '已评阅记录')", student, qIds.get(0));
+            jdbcTemplate.update(
+                    "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                            + "model, content_text) "
+                            + "VALUES ('EL_OREV_A', 'EX_OREV_A', 'TR_OREV_A', ?, 'RAG', "
+                            + "'deepseek-chat', '已评阅讲解')", student);
+            long pk = logPkByLogId("EL_OREV_A");
+            String payload = "{\"score\":5,\"comment\":\"讲解清晰\",\"result\":\"PASS\"}";
+
+            // 本课程教师先评（记录此后为“已评阅”）
+            String teacherA = login("it_teacher");
+            assertThat(code(postJson("/api/teacher/reviews/" + pk, payload, teacherA))).isZero();
+            assertThat(reviewedCount(pk)).isEqualTo(1);
+
+            // 外课程教师再提交：范围校验在前 → 40300；若先判重会是 40900
+            String teacherB = login("it_teacher2");
+            assertThat(code(postJson("/api/teacher/reviews/" + pk, payload, teacherB)))
+                    .isEqualTo(40300);
+            assertThat(reviewedCount(pk)).isEqualTo(1);
+        } finally {
+            jdbcTemplate.update("DELETE FROM ai_generation_log WHERE log_id = 'EL_OREV_A'");
+            jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id = 'EL_OREV_A'");
+            jdbcTemplate.update("DELETE FROM question_bank WHERE q_id = 'Q_OREV_97'");
+            jdbcTemplate.update("DELETE FROM knowledge_point WHERE kp_id = 'KPOREV97'");
+            jdbcTemplate.update("DELETE FROM course_chapter WHERE course_id = 97");
+            jdbcTemplate.update("DELETE FROM course WHERE course_id = 97");
+        }
+    }
+
+    /**
      * CSV 导出内容（P0 立项三条要求之二、之三）：BOM + 中文表头、完整筛选结果
      * 而非当前分页（size=1 列表只回 1 条但导出 3 行）、姓名脱敏（不出原始名）、
      * 评阅留痕带结论/评分/评语且与队列筛选同口径。
