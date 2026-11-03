@@ -313,6 +313,50 @@ class IntegrationFlowTest {
         assertThat(AI_CALLS.get()).isEqualTo(1);
     }
 
+    /**
+     * 缓存回放逐字节一致：同一请求第二次必须命中缓存，且正文与首次完全相同（含空白与换行）。
+     * <p>
+     * 守的真实风险：Redis 快照在回放时被二次加工——页码清洗若非幂等会改写正文、
+     * 或快照被截断/编码漂移——导致学生刷新后看到与首次不同的讲解。首次正文已经过
+     * AI 侧页码白名单与答案泄露过滤后落库，回放对同一知识点白名单的清洗必须幂等。
+     */
+    @Test
+    void cacheReplayReturnsByteIdenticalContent() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-replay-bytes");
+
+        String first = body(explain(token, logId));
+        assertThat(first).doesNotContain("\"cached\":true");
+        String firstText = concatDeltaText(first);
+        assertThat(firstText).isNotBlank();
+
+        String second = body(explain(token, logId));
+        assertThat(second).contains("\"model\":\"cache\"", "\"cached\":true");
+        assertThat(concatDeltaText(second)).isEqualTo(firstText);
+        assertThat(AI_CALLS.get()).isEqualTo(1);
+    }
+
+    /** 按帧序提取 SSE 正文里的全部 delta 文本并拼接，供逐字节比较。 */
+    private String concatDeltaText(String sse) throws Exception {
+        StringBuilder text = new StringBuilder();
+        for (String frame : sse.split("\n\n")) {
+            if (!frame.contains("event:delta")) {
+                continue;
+            }
+            for (String line : frame.split("\n")) {
+                if (!line.startsWith("data:")) {
+                    continue;
+                }
+                Map<?, ?> data = objectMapper.readValue(line.substring(5).trim(), Map.class);
+                Object part = data.get("text");
+                if (part != null) {
+                    text.append(part);
+                }
+            }
+        }
+        return text.toString();
+    }
+
     @Test
     void conceptTextChangeInvalidatesPreviousExplanationCache() throws Exception {
         String token = login();
