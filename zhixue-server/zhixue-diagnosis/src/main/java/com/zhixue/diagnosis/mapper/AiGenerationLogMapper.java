@@ -53,9 +53,6 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
-                AND EXISTS (SELECT 1 FROM student_error_record e
-                            JOIN question_bank q ON q.q_id = e.q_id
-                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
@@ -92,9 +89,6 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
-                AND EXISTS (SELECT 1 FROM student_error_record e
-                            JOIN question_bank q ON q.q_id = e.q_id
-                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
@@ -143,9 +137,6 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
-                AND EXISTS (SELECT 1 FROM student_error_record e
-                            JOIN question_bank q ON q.q_id = e.q_id
-                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
