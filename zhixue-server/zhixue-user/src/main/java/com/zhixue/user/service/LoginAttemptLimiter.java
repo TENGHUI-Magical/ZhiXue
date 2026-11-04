@@ -55,10 +55,16 @@ public class LoginAttemptLimiter {
      * @return 拒绝时 retryAfterSeconds 为剩余锁定秒数
      */
     public Decision check(String username, String clientIp) {
-        long accountLock = ttlSeconds(ACCOUNT_LOCK_PREFIX + username);
-        long ipLock = ttlSeconds(IP_LOCK_PREFIX + clientIp);
-        long retryAfter = Math.max(accountLock, ipLock);
-        return retryAfter > 0 ? Decision.blocked(retryAfter) : Decision.allow();
+        try {
+            long accountLock = ttlSeconds(ACCOUNT_LOCK_PREFIX + username);
+            long ipLock = ttlSeconds(IP_LOCK_PREFIX + clientIp);
+            long retryAfter = Math.max(accountLock, ipLock);
+            return retryAfter > 0 ? Decision.blocked(retryAfter) : Decision.allow();
+        } catch (Exception e) {
+            log.warn("登录前检查 Redis 不可用，降级放行 username={} ip={} reason={}",
+                    username, clientIp, e.toString());
+            return Decision.allow();
+        }
     }
 
     /**
