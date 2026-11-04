@@ -12,12 +12,18 @@ import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.lang.reflect.Method;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -75,7 +82,7 @@ class RecommendationServiceTest {
         kp.setKpId("KP0201");
         kp.setName("关系模型");
         kp.setCourseId(1L);
-        when(knowledgePointService.getById("KP0201")).thenReturn(kp);
+        lenient().when(knowledgePointService.getById("KP0201")).thenReturn(kp);
     }
 
     @Test
@@ -223,6 +230,32 @@ class RecommendationServiceTest {
                 .isEqualTo("先练关系模型：这道题要用到它，先练它见效最快");
         assertThat(result.get(1).top1Reason()).isNull();
         assertThat(result.get(2).top1Reason()).isNull();
+    }
+
+    /**
+     * 冷却窗口 cutoff 按上海时区计算：把 JVM 默认时区拨到 UTC 后，传给练习记录查询的下界
+     * 仍应为上海当前时间减 7 天。把 {@code now(ZONE)} 回退成裸 {@code now()} 即红（差 8 小时）。
+     */
+    @Test
+    void practicedCutoffUsesShanghaiZoneRegardlessOfJvmDefault() throws Exception {
+        Method practicedQids = RecommendationService.class
+                .getDeclaredMethod("practicedQids", long.class, long.class, int.class);
+        practicedQids.setAccessible(true);
+
+        LocalDateTime shanghaiNow;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            shanghaiNow = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
+            practicedQids.invoke(service, 2L, 1L, 7);
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        ArgumentCaptor<LocalDateTime> captor = ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(practiceRecordMapper).selectPracticedQids(eq(2L), eq(1L), captor.capture());
+        assertThat(Duration.between(shanghaiNow.minusDays(7), captor.getValue()).abs().getSeconds())
+                .isLessThan(5);
     }
 
     private RepairPriorityService.Priority priority(String kpId, double score, int distance) {

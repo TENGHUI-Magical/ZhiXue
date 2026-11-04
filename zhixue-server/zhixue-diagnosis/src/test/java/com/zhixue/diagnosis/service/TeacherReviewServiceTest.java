@@ -348,6 +348,45 @@ class TeacherReviewServiceTest {
         assertTrue(Duration.between(shanghaiNow, written).abs().getSeconds() < 5);
     }
 
+    /**
+     * 等待时长按上海时区计算：把 JVM 默认时区拨到 UTC 后，30 秒前创建的记录仍应显示约 30 秒等待。
+     * 把 {@code now(ZONE)} 回退成裸 {@code now()} 即红——UTC 与上海差 8 小时，等待时长会被夹到 0。
+     */
+    @Test
+    void waitingSecondsUsesShanghaiZoneRegardlessOfJvmDefault() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(10L);
+        log.setExplainId("EX_1");
+        log.setUserId(2L);
+        log.setLogId("EL_1");
+        log.setScene("RAG");
+        log.setModel("deepseek-chat");
+        log.setIsDegraded(0);
+        log.setSourceIds("[]");
+        log.setContentText("讲解正文");
+
+        long waitingSeconds;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            log.setCreatedAt(LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusSeconds(30));
+            when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+            when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(1L);
+            when(logMapper.selectForReview(any(), any(), any(), any(), any(), anyInt(), anyInt()))
+                    .thenReturn(List.of(log));
+            when(errorRecordMapper.selectBatchIds(any())).thenReturn(List.of());
+            when(knowledgePointService.findByIds(any())).thenReturn(Map.of());
+            when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "学生A"));
+            try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                waitingSeconds = service.page(1, 10).records().get(0).waitingSeconds();
+            }
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        assertTrue(waitingSeconds >= 25 && waitingSeconds <= 40, "waitingSeconds=" + waitingSeconds);
+    }
+
     private AiGenerationLog exportRow(long logPk) {
         AiGenerationLog row = new AiGenerationLog();
         row.setLogPk(logPk);

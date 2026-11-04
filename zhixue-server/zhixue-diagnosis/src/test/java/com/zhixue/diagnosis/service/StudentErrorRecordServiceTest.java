@@ -2,6 +2,8 @@ package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
@@ -27,9 +29,12 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -215,6 +220,49 @@ class StudentErrorRecordServiceTest {
         assertThat(view.kpName()).isEqualTo("关系模型");
         assertThat(view.confirmedAt()).isEqualTo("2026-10-26 12:00:00");
         verify(mapper).update(isNull(), any());
+    }
+
+    /**
+     * 确认时间按上海时区写入：把 JVM 默认时区拨到 UTC 后，确认更新里的 confirmed_at
+     * 仍应与上海当前时间同窗。把 {@code now(ZONE)} 回退成裸 {@code now()} 即红（差 8 小时）。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void confirmedAtUsesShanghaiZoneRegardlessOfJvmDefault() {
+        StudentErrorRecord draft = record("EL_1", "DRAFT");
+        draft.setKpId("KP0201");
+        StudentErrorRecord confirmed = record("EL_1", "CONFIRMED");
+        confirmed.setKpId("KP0201");
+        when(mapper.selectById("EL_1")).thenReturn(draft, confirmed);
+        when(mapper.update(isNull(), any())).thenReturn(1);
+        when(knowledgePointService.getById("KP0201")).thenReturn(kp());
+        when(knowledgePointService.findById("KP0201")).thenReturn(kp());
+
+        LocalDateTime shanghaiNow;
+        LocalDateTime written;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            shanghaiNow = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
+            try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+                service.confirm("EL_1", confirmRequest());
+            }
+
+            ArgumentCaptor<Wrapper<StudentErrorRecord>> captor =
+                    ArgumentCaptor.forClass(Wrapper.class);
+            verify(mapper).update(isNull(), captor.capture());
+            AbstractWrapper<?, ?, ?> wrapper = (AbstractWrapper<?, ?, ?>) captor.getValue();
+            wrapper.getSqlSegment();
+            written = wrapper.getParamNameValuePairs().values().stream()
+                    .filter(LocalDateTime.class::isInstance)
+                    .map(LocalDateTime.class::cast)
+                    .findFirst().orElseThrow();
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        assertThat(Duration.between(shanghaiNow, written).abs().getSeconds()).isLessThan(5);
     }
 
     @Test

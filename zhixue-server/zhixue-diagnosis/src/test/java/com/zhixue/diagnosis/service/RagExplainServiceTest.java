@@ -31,17 +31,25 @@ import tools.jackson.databind.ObjectMapper;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -543,6 +551,41 @@ class RagExplainServiceTest {
             result = mvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
         }
         return result.getResponse().getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 缓存 createdAt 按上海时区生成：把 JVM 默认时区拨到 UTC 后，写入缓存的 ISO 时间
+     * 仍应与上海当前时间同窗。把 {@code now(ZONE)} 回退成裸 {@code now()} 即红（差 8 小时）。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void cacheCreatedAtUsesShanghaiZoneRegardlessOfJvmDefault() throws Exception {
+        Method saveCache = RagExplainService.class.getDeclaredMethod("saveCache",
+                String.class, KnowledgePoint.class, StringBuffer.class,
+                AtomicReference.class, AtomicReference.class, AtomicBoolean.class, AtomicBoolean.class);
+        saveCache.setAccessible(true);
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setKpId("KP0201");
+        kp.setTextbookPage("P34");
+        kp.setName("关系模型");
+
+        LocalDateTime shanghaiNow;
+        TimeZone original = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            shanghaiNow = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
+            saveCache.invoke(service, "k1", kp, new StringBuffer("正文"),
+                    new AtomicReference<>("deepseek-chat"), new AtomicReference<>("v2"),
+                    new AtomicBoolean(false), new AtomicBoolean(false));
+        } finally {
+            TimeZone.setDefault(original);
+        }
+
+        ArgumentCaptor<ExplainCacheService.Cached> captor =
+                ArgumentCaptor.forClass(ExplainCacheService.Cached.class);
+        verify(explainCacheService).put(eq("k1"), captor.capture());
+        LocalDateTime written = LocalDateTime.parse(captor.getValue().createdAt());
+        assertThat(Duration.between(shanghaiNow, written).abs().getSeconds()).isLessThan(5);
     }
 
     private void stubRecordAndKp(String conceptText) {

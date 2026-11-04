@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build && node perf/bench/bundle-budget.mjs",
+    "test:unit": "node --test test/filenameDate.test.mjs",
     "perf:bundle": "node perf/bench/bundle-budget.mjs",
     "e2e": "node e2e/verify.mjs",
     "preview": "vite preview",
