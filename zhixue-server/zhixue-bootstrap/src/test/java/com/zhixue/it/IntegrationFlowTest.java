@@ -1015,7 +1015,9 @@ class IntegrationFlowTest {
         String studentToken = login();
         String teacherToken = login("it_teacher");
         long userId = userIdOf("it_user");
-        String logId = createAndConfirm(studentToken, "ct-review-back");
+        // P1-6：评阅只对“可归属”到教师课程的记录开放，测试错题需带真实 q_id（课程 1）
+        String logId = createAndConfirmWithQid(studentToken, "ct-review-back", "KP0201",
+                courseQids(1).get(0), "补充连接条件");
 
         // 讲解 #1：真实生成并落库
         String sse1 = body(explain(studentToken, logId));
@@ -1214,6 +1216,52 @@ class IntegrationFlowTest {
             jdbcTemplate.update("DELETE FROM knowledge_point WHERE kp_id = 'KPSCOPE99'");
             jdbcTemplate.update("DELETE FROM course_chapter WHERE course_id = 99");
             jdbcTemplate.update("DELETE FROM course WHERE course_id = 99");
+        }
+    }
+
+    /**
+     * P1-6：归属不明记录不进入教师评阅队列 / COUNT / CSV 导出（DB 级，非 mock）。
+     * 两条留痕同一学生：A 的错题 q_id 指向课程 1 的真实题目（可归属），
+     * U 的错题 q_id 为 NULL（无法定位课程 → 归属不明）。
+     * 断言：队列 total=1 且只含 A、导出只含 A 不含 U。
+     * 改前（Mapper 没有 EXISTS 可归属守卫）本用例必红：total=2，且导出会带 EX_UNATTR_U。
+     */
+    @Test
+    void unattributedReviewLogExcludedFromQueueAndExport() throws Exception {
+        long student = userIdOf("it_user");
+        String qId = courseQids(1).get(0);
+        jdbcTemplate.update(
+                "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                        + "status, error_type, corrected_text) "
+                        + "VALUES ('EL_UNATTR_A', ?, 'unattr-a', ?, 'KP0201', 'CONFIRMED', "
+                        + "'CONCEPT_CONFUSION', '可归属')", student, qId);
+        // q_id 为 NULL：selectLinkedCourseIds 返回空 → 归属不明
+        jdbcTemplate.update(
+                "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                        + "status, error_type, corrected_text) "
+                        + "VALUES ('EL_UNATTR_U', ?, 'unattr-u', NULL, 'KP0201', 'CONFIRMED', "
+                        + "'CONCEPT_CONFUSION', '归属不明')", student);
+        jdbcTemplate.update(
+                "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                        + "model, content_text) VALUES ('EL_UNATTR_A', 'EX_UNATTR_A', 'TR_UNATTR_A', "
+                        + "?, 'RAG', 'deepseek-chat', '可归属讲解')", student);
+        jdbcTemplate.update(
+                "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                        + "model, content_text) VALUES ('EL_UNATTR_U', 'EX_UNATTR_U', 'TR_UNATTR_U', "
+                        + "?, 'RAG', 'deepseek-chat', '归属不明讲解')", student);
+        try {
+            String teacher = login("it_teacher");
+            String queue = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacher));
+            assertThat((Object) JsonPath.read(queue, "$.data.total")).isEqualTo(1);
+            assertThat(queue).contains("EX_UNATTR_A").doesNotContain("EX_UNATTR_U");
+
+            String csv = body(getJson("/api/teacher/reviews/export?status=ALL", teacher));
+            assertThat(csv).contains("EX_UNATTR_A").doesNotContain("EX_UNATTR_U");
+            // COUNT / 分页 / 导出同一口径：CSV 数据行数 = 队列 total
+            assertThat(csv.lines().filter(line -> line.contains("EX_UNATTR_")).count()).isEqualTo(1);
+        } finally {
+            jdbcTemplate.update("DELETE FROM ai_generation_log WHERE log_id LIKE 'EL_UNATTR_%'");
+            jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id LIKE 'EL_UNATTR_%'");
         }
     }
 
@@ -1441,7 +1489,9 @@ class IntegrationFlowTest {
 
         // 评阅留痕：一条已评阅记录 → 导出含脱敏姓名与结论/评分/评语
         String studentToken = login();
-        String logId = createAndConfirm(studentToken, "csv-review");
+        // P1-6：评阅导出只含可归属记录，测试错题需带真实 q_id（课程 1）
+        String logId = createAndConfirmWithQid(studentToken, "csv-review", "KP0201",
+                courseQids(1).get(0), "");
         String sse = body(explain(studentToken, logId));
         assertThat(sse).contains("event:done");
         String explainId = explainIdFromSse(sse);

@@ -21,9 +21,13 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * 所有条件参数绑定，分页 LIMIT/OFFSET 也由这里绑定，不拼接 SQL 字符串。</p>
      *
      * <p>课程范围隔离：courseIds = 登录教师可管理课程；明确能定位到
-     * 其他教师课程的记录不可见；关联不到错题/题库（归属不明）的记录保留——
-     * 行消失会被当成丢数据，证据列为空更诚实（docs/01 §7.2）。调用方保证
-     * courseIds 非 null 且非空（无课程教师传哨兵 -1，即看不到任何有归属的记录）。</p>
+     * 其他教师课程的记录不可见；关联不到错题/题库（归属不明）的记录同样不可见——
+     * 归属不明不归属任何教师课程，只有创建者本人可读，其他教师一律 40300（P1-6）。
+     * 三条查询（COUNT / 分页 / 导出）共用同一段 where：
+     * {@code EXISTS(q.course_id IS NOT NULL)} 保证记录可归属，
+     * {@code NOT EXISTS(q.course_id NOT IN (...))} 排除他课记录，避免
+     * “说有 46 条、导出 40 条”的分页与导出口径漂移。调用方保证
+     * courseIds 非 null 且非空（无课程教师传哨兵 -1，即看不到任何记录）。</p>
      *
      * @param reviewed   null=全部；true=已评阅；false=待评阅
      * @param kpId       知识点筛选；null/空 表示不限
@@ -49,6 +53,9 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
+                AND EXISTS (SELECT 1 FROM student_error_record e
+                            JOIN question_bank q ON q.q_id = e.q_id
+                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
@@ -85,6 +92,9 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
+                AND EXISTS (SELECT 1 FROM student_error_record e
+                            JOIN question_bank q ON q.q_id = e.q_id
+                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
@@ -133,6 +143,9 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
                             WHERE e.log_id = l.log_id AND e.kp_id = #{kpId})
               </if>
               <if test="courseIds != null">
+                AND EXISTS (SELECT 1 FROM student_error_record e
+                            JOIN question_bank q ON q.q_id = e.q_id
+                            WHERE e.log_id = l.log_id AND q.course_id IS NOT NULL)
                 AND NOT EXISTS (SELECT 1 FROM student_error_record e
                                 JOIN question_bank q ON q.q_id = e.q_id
                                 WHERE e.log_id = l.log_id
@@ -154,7 +167,8 @@ public interface AiGenerationLogMapper extends BaseMapper<AiGenerationLog> {
      * 经错题记录 → 题库 course_id，与 {@link #countForReview} 等读侧 NOT EXISTS
      * 完全同口径——只认 e.log_id 关联且 q_id 成功连接题库的行；course_id 为 NULL
      * 不算归属（与读侧 {@code NULL NOT IN (...)} 不触发排除一致）。
-     * 返回空集 = 归属不明，调用方按读侧同口径放行（诚实留行原则，docs/01 §7.2）。
+     * 返回空集 = 归属不明：不归属任何教师课程，只有创建者本人可读/可评阅，
+     * 其他教师一律 40300（P1-6）。
      *
      * @param logId ai_generation_log.log_id（错题记录关联键）
      */

@@ -200,7 +200,7 @@ class TeacherReviewServiceTest {
         verify(logMapper).selectForReviewExport(any(), any(), any(), any(), eq(List.of(1L)));
     }
 
-    /** 课程范围（队列与导出同口径）：无课程教师传哨兵 -1（看不到任何有归属的记录）；有课程教师传自己的课程集。 */
+    /** 课程范围（队列与导出同口径）：无课程教师传哨兵 -1；有课程教师传自己的课程集。 */
     @Test
     void reviewQueriesAreScopedToTeachersManagedCourses() {
         when(courseService.listActiveCourseIdsByTeacher(2L)).thenReturn(List.of(1L, 3L));
@@ -214,7 +214,7 @@ class TeacherReviewServiceTest {
 
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(9L);
             service.page(1, 10, "PENDING", null, null, null);
-            // 无课程教师：哨兵 -1 → NOT IN (-1) 恒真 → 有归属的记录全排除，只剩归属不明
+            // 无课程教师：哨兵 -1 + “可归属”守卫 → 有归属与归属不明的记录都排除
             verify(logMapper).countForReview(any(), any(), any(), any(), eq(List.of(-1L)));
         }
     }
@@ -319,9 +319,9 @@ class TeacherReviewServiceTest {
         log.setLogPk(10L);
         log.setLogId("EL_10");
         log.setScene("RAG");
+        log.setUserId(10L);
         when(logMapper.selectById(10L)).thenReturn(log);
         when(logMapper.selectLinkedCourseIds("EL_10")).thenReturn(List.of());
-        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
         when(logMapper.update(isNull(), any())).thenReturn(1);
 
         LocalDateTime shanghaiNow;
@@ -331,6 +331,7 @@ class TeacherReviewServiceTest {
             TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
             shanghaiNow = LocalDateTime.now(ZoneId.of("Asia/Shanghai"));
             try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
                 service.submit(10L, new ReviewSubmitRequest(5, "讲解清晰"));
             }
             ArgumentCaptor<LambdaUpdateWrapper<AiGenerationLog>> captor =
@@ -364,10 +365,12 @@ class TeacherReviewServiceTest {
         AiGenerationLog log = new AiGenerationLog();
         log.setLogPk(10L);
         log.setScene("RAG");
+        log.setUserId(10L);
         when(logMapper.selectById(10L)).thenReturn(log);
         when(logMapper.update(isNull(), any())).thenReturn(1);
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
             service.submit(10L, new ReviewSubmitRequest(5, "讲解清晰"));
             verify(logMapper).update(isNull(), any());
         }
@@ -378,10 +381,12 @@ class TeacherReviewServiceTest {
         AiGenerationLog log = new AiGenerationLog();
         log.setLogPk(10L);
         log.setScene("RAG");
+        log.setUserId(10L);
         log.setReviewedAt(LocalDateTime.now());
         when(logMapper.selectById(10L)).thenReturn(log);
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
             BizException ex = assertThrows(BizException.class,
                     () -> service.submit(10L, new ReviewSubmitRequest(5, "讲解清晰")));
             assertEquals(ErrorCode.DUPLICATE_SUBMIT, ex.getErrorCode());
@@ -394,8 +399,10 @@ class TeacherReviewServiceTest {
         AiGenerationLog log = new AiGenerationLog();
         log.setLogPk(10L);
         log.setScene("RAG");
+        log.setUserId(10L);
         when(logMapper.selectById(10L)).thenReturn(log);
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
             BizException ex = assertThrows(BizException.class,
                     () -> service.submit(10L, new ReviewSubmitRequest(3, "  ", "RETURN")));
             assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
@@ -422,9 +429,9 @@ class TeacherReviewServiceTest {
         }
     }
 
-    /** 写侧课程范围：自己课程的记录放行；归属不明（解析不到课程）按读侧同口径放行，不误伤。 */
+    /** 写侧课程范围：自己课程的记录放行；归属不明只有创建者本人可评阅，非创建者教师 40300。 */
     @Test
-    void submitAllowsOwnCourseAndUnknownAttribution() {
+    void submitAllowsOwnCourseAndRejectsUnknownAttribution() {
         AiGenerationLog own = new AiGenerationLog();
         own.setLogPk(11L);
         own.setLogId("EL_11");
@@ -435,15 +442,82 @@ class TeacherReviewServiceTest {
         unknown.setLogPk(12L);
         unknown.setLogId("EL_12");
         unknown.setScene("RAG");
+        unknown.setUserId(7L);
         when(logMapper.selectById(12L)).thenReturn(unknown);
         when(logMapper.selectLinkedCourseIds("EL_12")).thenReturn(List.of());
         when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
         when(logMapper.update(isNull(), any())).thenReturn(1);
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(3L);
             service.submit(11L, new ReviewSubmitRequest(5, "讲解清晰"));
-            service.submit(12L, new ReviewSubmitRequest(5, "讲解清晰"));
-            verify(logMapper, times(2)).update(isNull(), any());
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.submit(12L, new ReviewSubmitRequest(5, "讲解清晰")));
+            assertEquals(ErrorCode.FORBIDDEN, ex.getErrorCode());
+            verify(logMapper, times(1)).update(isNull(), any());
         }
+    }
+
+    /** 写侧同一口径的反向：创建者本人（带 TEACHER 角色）可评阅自己归属不明的记录，不误伤。 */
+    @Test
+    void submitAllowsCreatorOwnUnattributedRecord() {
+        AiGenerationLog own = new AiGenerationLog();
+        own.setLogPk(13L);
+        own.setLogId("EL_13");
+        own.setScene("RAG");
+        own.setUserId(9L);
+        when(logMapper.selectById(13L)).thenReturn(own);
+        when(logMapper.selectLinkedCourseIds("EL_13")).thenReturn(List.of());
+        when(logMapper.update(isNull(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(9L);
+            service.submit(13L, new ReviewSubmitRequest(5, "讲解清晰"));
+        }
+
+        verify(logMapper).update(isNull(), any());
+    }
+
+    /**
+     * P1-6：评阅队列 / 导出 / COUNT 必须同口径排除归属不明的记录。
+     * 三条 SQL 的 WHERE 片段必须逐字一致，且都含“可归属”守卫（{@code q.course_id IS NOT NULL}）。
+     * 只改 COUNT 不改分页/导出，或删掉守卫，本用例即红（会出现“说有 46 条、导出 40 条”）。
+     */
+    @Test
+    void reviewQueueAndExportShareAttributionGuard() throws NoSuchMethodException {
+        String count = whereOf(sqlOf("countForReview", Boolean.class, String.class,
+                LocalDateTime.class, LocalDateTime.class, List.class));
+        String select = whereOf(sqlOf("selectForReview", Boolean.class, String.class,
+                LocalDateTime.class, LocalDateTime.class, List.class, int.class, int.class));
+        String export = whereOf(sqlOf("selectForReviewExport", Boolean.class, String.class,
+                LocalDateTime.class, LocalDateTime.class, List.class));
+
+        assertEquals(count, select, "COUNT 与分页 WHERE 必须同口径");
+        assertEquals(count, export, "COUNT 与导出 WHERE 必须同口径");
+        assertTrue(count.contains("q.course_id IS NOT NULL"), "缺少可归属守卫: " + count);
+        assertTrue(count.contains("NOT EXISTS"), "他课排除条件丢失: " + count);
+    }
+
+    private static String sqlOf(String method, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        String sql = AiGenerationLogMapper.class.getMethod(method, parameterTypes)
+                .getAnnotation(Select.class).value()[0];
+        return sql.replaceAll("\\s+", " ").trim();
+    }
+
+    /** 取 WHERE 片段：去掉 SELECT 投影、ORDER BY 与 LIMIT，只比较筛选条件。 */
+    private static String whereOf(String sql) {
+        int from = sql.indexOf(" WHERE ");
+        assertTrue(from >= 0, "缺少 WHERE: " + sql);
+        int end = sql.length();
+        int order = sql.indexOf(" ORDER BY ");
+        if (order > from) {
+            end = order;
+        }
+        int script = sql.indexOf("</script>");
+        if (script > from && script < end) {
+            end = script;
+        }
+        return sql.substring(from, end).trim();
     }
 }

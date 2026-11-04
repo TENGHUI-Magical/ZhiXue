@@ -1,6 +1,9 @@
 package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
@@ -9,9 +12,12 @@ import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.ExplainLogView;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +28,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -42,6 +49,15 @@ class ExplainQueryServiceTest {
     private CourseService courseService;
 
     private ExplainQueryService service;
+
+    /** MyBatis-Plus 的 lambda 列名缓存依赖表元数据；单测里手动初始化，便于断言 wrapper 的 SQL 片段。 */
+    @BeforeAll
+    static void initTableInfo() {
+        MybatisConfiguration configuration = new MybatisConfiguration();
+        configuration.setMapUnderscoreToCamelCase(true);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(configuration, ""), AiGenerationLog.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -213,26 +229,94 @@ class ExplainQueryServiceTest {
         }
     }
 
-    /** 读侧课程范围：归属不明（关联不到课程）按写侧同口径放行，不误伤。 */
+    /**
+     * P1-6：归属不明（关联不到课程）不归属任何教师课程，非创建者教师一律 40300。
+     * 旧版此处断言“归属不明放行”，那是单课程阶段无害、扩多课程即越权读学生正文的漏洞，已收紧。
+     */
     @Test
-    void teacherCanReadRecordWithUnknownCourseAttribution() {
+    void teacherCannotReadRecordWithUnknownCourseAttribution() {
         AiGenerationLog row = new AiGenerationLog();
         row.setExplainId("EX_unknown");
         row.setLogId("EL_unknown");
-        row.setContentText("正文");
+        row.setUserId(7L);
+        row.setContentText("其他学生的正文");
         row.setSourceIds("[]");
         when(logMapper.selectOne(any())).thenReturn(row);
         when(logMapper.selectLinkedCourseIds("EL_unknown")).thenReturn(List.of());
-        when(courseService.listActiveCourseIdsByTeacher(500L)).thenReturn(List.of(2L));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
+            assertThatThrownBy(() -> service.get("EX_unknown"))
+                    .isInstanceOfSatisfying(BizException.class, ex -> {
+                        assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.FORBIDDEN);
+                        assertThat(ex.getMessage()).doesNotContain("其他学生的正文");
+                    });
+        }
+    }
+
+    /** P1-6 反向：创建者本人读自己归属不明的讲解 → 200，不许误伤。 */
+    @Test
+    void creatorCanReadOwnUnattributedRecord() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_own_unknown");
+        row.setLogId("EL_own_unknown");
+        row.setUserId(500L);
+        row.setContentText("本人正文");
+        row.setSourceIds("[]");
+        when(logMapper.selectOne(any())).thenReturn(row);
+        when(logMapper.selectLinkedCourseIds("EL_own_unknown")).thenReturn(List.of());
 
         ExplainLogView view;
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
             stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
-            view = service.get("EX_unknown");
+            view = service.get("EX_own_unknown");
         }
 
-        assertThat(view.content()).isEqualTo("正文");
+        assertThat(view.content()).isEqualTo("本人正文");
+    }
+
+    /** 学生本人读自己的讲解 → 200；并断言查询条件确实带 user_id = 登录人（删掉过滤即红）。 */
+    @Test
+    void studentCanReadOwnExplain() {
+        AiGenerationLog row = new AiGenerationLog();
+        row.setExplainId("EX_student_own");
+        row.setUserId(9002L);
+        row.setContentText("自己的正文");
+        row.setSourceIds("[]");
+        when(logMapper.selectOne(any())).thenReturn(row);
+
+        ExplainLogView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(9002L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(false);
+            view = service.get("EX_student_own");
+        }
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<AiGenerationLog>> wrapper =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(logMapper).selectOne(wrapper.capture());
+        assertThat(wrapper.getValue().getSqlSegment())
+                .contains("explain_id")
+                .contains("user_id");
+        assertThat(wrapper.getValue().getParamNameValuePairs().values()).contains(9002L);
+        assertThat(view.content()).isEqualTo("自己的正文");
+    }
+
+    /** P1-6：记录不存在仍是 40400，不能被“无权限”合并成 40300。 */
+    @Test
+    void missingRecordKeeps40400NotForbidden() {
+        when(logMapper.selectOne(any())).thenReturn(null);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(500L);
+            stp.when(() -> StpUtil.hasRole("TEACHER")).thenReturn(true);
+            assertThatThrownBy(() -> service.get("EX_missing"))
+                    .isInstanceOfSatisfying(BizException.class,
+                            ex -> assertThat(ex.getErrorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+        }
     }
 
     /** 非教师（学生）语义不变：仍只按本人 user_id 查，查不到一律 40400。 */
