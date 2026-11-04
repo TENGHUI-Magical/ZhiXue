@@ -11,7 +11,7 @@ info:
     - 除登录与健康检查外，全部需要 header `satoken`。
     - 幂等：上传、作答提交、打卡必须携带 clientToken。
     - 错误约定：业务错误（40000/40100/40300/40400/40900/42900/60001 等）一律返回
-      HTTP 200 + `code`≠0 的统一信封，不返回 HTTP 4xx/5xx；错误码语义见 docs/01 §1.2。
+      HTTP 200 + `code`≠0 的统一信封，不返回 HTTP 4xx/5xx；错误码语义见 docs/01 §2。
       因此本契约不在 paths 中声明 4xx/5xx 响应，错误码目录见 components.responses。
 servers:
   - url: http://127.0.0.1:8080
@@ -1079,7 +1079,7 @@ components:
         degradeLevel:
           type: [string, "null"]
           enum: [L2, L3, L4, null]
-          description: 未降级时为 null；L1 正常无降级，不是降级级别。降级时：L2 仍是 AI 内容（备用通道生成，或远程已产出部分正文后中断，model 记录真实模型）；L3 远程零产出走本地模板（model=local-template）；L4 完全不可用/未生成。
+          description: 未降级时为 null；L1 正常无降级，不是降级级别。降级时：L2 仍是 AI 内容（备用通道完整生成，或远程已产出部分正文后流中断/超时截断，model 记录真实模型）；L3 远程零产出走本地模板（model=local-template）；L4 为 `concept_text` 为空（model=none、is_blocked=0、错误码 60001）。合规拦截 blocked（60004）不算降级，degrade_level=NULL、is_blocked=1。
         content: { type: string }
         sources:
           type: array
