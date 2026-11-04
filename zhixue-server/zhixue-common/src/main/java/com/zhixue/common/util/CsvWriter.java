@@ -81,7 +81,7 @@ public final class CsvWriter {
      */
     static String escape(String value) {
         String cell = value == null ? "" : value;
-        if (!cell.isEmpty() && FORMULA_PREFIXES.indexOf(cell.charAt(0)) >= 0) {
+        if (needsFormulaPrefix(cell)) {
             cell = "'" + cell;
         }
         if (cell.indexOf(',') >= 0 || cell.indexOf('"') >= 0
@@ -89,5 +89,25 @@ public final class CsvWriter {
             return '"' + cell.replace("\"", "\"\"") + '"';
         }
         return cell;
+    }
+
+    /**
+     * 是否需要前置 ' 中和。除首字符直接命中前缀外，还跳过**前导空格**再判一次：
+     * 表格软件会先 trim 再解析，"  =SUM(A1)" 与 "=SUM(A1)" 同等危险。
+     * 制表符本身就在前缀集合里，因此前导 TAB（含空格后的 TAB）仍会被中和，
+     * 无需单独跳过；不含前缀的前导空格值保持原样，输出逐字节不变。
+     */
+    private static boolean needsFormulaPrefix(String cell) {
+        if (cell.isEmpty()) {
+            return false;
+        }
+        if (FORMULA_PREFIXES.indexOf(cell.charAt(0)) >= 0) {
+            return true;
+        }
+        int i = 0;
+        while (i < cell.length() && cell.charAt(i) == ' ') {
+            i++;
+        }
+        return i < cell.length() && FORMULA_PREFIXES.indexOf(cell.charAt(i)) >= 0;
     }
 }

@@ -76,6 +76,20 @@ class CsvWriterTest {
         }
     }
 
+    /**
+     * 前导空格后的公式前缀（2026-11-04）：表格软件会先 trim 再解析，
+     * "  =SUM(A1)" 与 "=SUM(A1)" 同等危险，必须以首字符 ' 中和；
+     * 不含公式前缀的前导空格值仍逐字节原样输出。
+     */
+    @Test
+    void neutralizesFormulaAfterLeadingSpaces() {
+        assertEquals("'  =SUM(A1)", CsvWriter.escape("  =SUM(A1)"));
+        assertEquals("'   @SUM(A1)", CsvWriter.escape("   @SUM(A1)"));
+        assertEquals("' \tcmd", CsvWriter.escape(" \tcmd"));
+        assertEquals("   普通文本", CsvWriter.escape("   普通文本"));
+        assertEquals("   ", CsvWriter.escape("   "));
+    }
+
     /** 正常文本逐字节不变：没有中和前缀、没有转义字符时，输出就是原样 UTF-8（外加 CRLF）。 */
     @Test
     void normalTextIsByteIdentical() {
