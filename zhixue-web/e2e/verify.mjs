@@ -90,6 +90,15 @@ let checkinIsCorrect = true
 let lastPracticePayload = null
 let lastStartPayload = null
 let lastErrorRecordPayload = null
+// 门禁断言用的观测/故障开关（默认全关，不影响既有用例）
+let portraitRequestCount = 0
+let plansRequestCount = 0
+let questionsFailKp = ''
+let learningRecordsDelayUserId = 0
+let ocrTaskDelayMs = 0
+let ocrTaskInFlight = 0
+let ocrTaskMaxConcurrent = 0
+let ocrTaskRequestCount = 0
 
 function reply(method, pathname, role, search = '') {
   if (method === 'POST' && pathname === '/api/practices/start') {
@@ -130,7 +139,14 @@ function reply(method, pathname, role, search = '') {
     { chapterId: 2, chapterNo: 2, title: '关系模型' }
   ], timestamp: Date.now() }
   if (pathname.startsWith('/api/course/kp/')) return { code: 0, data: kpDetail, timestamp: Date.now() }
-  if (pathname === '/api/portraits/me') return { code: 0, data: portrait, timestamp: Date.now() }
+  if (pathname === '/api/portraits/me') {
+    portraitRequestCount += 1
+    return { code: 0, data: portrait, timestamp: Date.now() }
+  }
+  if (pathname === '/api/plans') {
+    plansRequestCount += 1
+    return { code: 0, data: plans, timestamp: Date.now() }
+  }
   if (/^\/api\/portraits\/class\/\d+$/.test(pathname)) return { code: 0, data: { courseId: 1, studentCount: 2, weakestKpTop: [
     { kpId: 'KP0012', name: '连接查询', avgMastery: 0.32, errorCount: 4 },
     { kpId: 'KP0006', name: '函数依赖', avgMastery: 0.41, errorCount: 3 },
@@ -138,7 +154,13 @@ function reply(method, pathname, role, search = '') {
     { kpId: 'KP0201', name: '关系模型', avgMastery: 0.52, errorCount: 2 },
     { kpId: 'KP0303', name: '事务并发', avgMastery: 0.58, errorCount: 1 }
   ], errorDist: { CONCEPT_CONFUSION: 4, METHOD_MISSING: 3, STEP_OMISSION: 2, CALCULATION_ERROR: 1, BOUNDARY_ERROR: 1 }, activeRate: 0.5 }, timestamp: Date.now() }
-  if (pathname === '/api/error/records') return { code: 0, data: errorPage, timestamp: Date.now() }
+  if (pathname === '/api/error/records') {
+    // 按 status 过滤（与真实接口一致）：不带 status 时保持原行为，既有用例不受影响
+    const statusParam = new URLSearchParams(search).get('status')
+    if (!statusParam) return { code: 0, data: errorPage, timestamp: Date.now() }
+    const records = errorPage.records.filter((item) => item.status === statusParam)
+    return { code: 0, data: { ...errorPage, total: records.length, records }, timestamp: Date.now() }
+  }
   if (/^\/api\/error\/records\/[^/]+$/.test(pathname)) {
     const logId = decodeURIComponent(pathname.split('/').pop())
     return { code: 0, data: errorPage.records.find((item) => item.logId === logId) ?? null, timestamp: Date.now() }
@@ -147,12 +169,16 @@ function reply(method, pathname, role, search = '') {
     const explainId = decodeURIComponent(pathname.split('/').pop())
     return { code: 0, data: explainLogs[explainId] ?? null, timestamp: Date.now() }
   }
-  if (pathname === '/api/plans') return { code: 0, data: plans, timestamp: Date.now() }
   if (pathname === '/api/plans/due-reviews') return { code: 0, data: dueReviewsMock, timestamp: Date.now() }
   if (pathname === '/api/recommendations') return { code: 0, data: recs, timestamp: Date.now() }
   if (pathname === '/api/teacher/reviews') return { code: 0, data: reviewsPage, timestamp: Date.now() }
   if (pathname === '/api/teacher/students') return { code: 0, data: teacherStudents, timestamp: Date.now() }
-  if (/^\/api\/teacher\/students\/\d+\/learning-records$/.test(pathname)) return { code: 0, data: studentLearning, timestamp: Date.now() }
+  if (/^\/api\/teacher\/students\/\d+\/learning-records$/.test(pathname)) {
+    // 按学生返回对应摘要，用于“快速切换只认最后一次”的竞态断言
+    const userId = Number(pathname.split('/')[4])
+    const summary = teacherStudents.records.find((item) => item.userId === userId) ?? teacherStudents.records[0]
+    return { code: 0, data: { ...studentLearning, summary }, timestamp: Date.now() }
+  }
   if (pathname === '/api/questions') {
     const kpId = new URLSearchParams(search).get('kpId') || ''
     if (kpId === 'KP0001') {
@@ -627,6 +653,29 @@ async function newContext(browser, role, theme, viewport, options = {}) {
   await ctx.route('**/*', async (route) => {
     const u = new URL(route.request().url())
     if (u.pathname.startsWith('/api/')) {
+      // 故障注入/延迟开关：仅供新增门禁断言使用，默认全部关闭
+      if (route.request().method() === 'GET' && u.pathname === '/api/questions'
+          && questionsFailKp && u.searchParams.get('kpId') === questionsFailKp) {
+        await route.fulfill({
+          status: 500, contentType: 'application/json',
+          body: JSON.stringify({ code: 50000, message: '服务暂不可用', timestamp: Date.now() })
+        })
+        return
+      }
+      if (route.request().method() === 'GET' && /^\/api\/teacher\/students\/\d+\/learning-records$/.test(u.pathname)
+          && learningRecordsDelayUserId === Number(u.pathname.split('/')[4])) {
+        await sleep(1200)
+      }
+      if (route.request().method() === 'GET' && u.pathname === '/api/error/tasks/OCR1' && ocrTaskDelayMs) {
+        ocrTaskRequestCount += 1
+        ocrTaskInFlight += 1
+        ocrTaskMaxConcurrent = Math.max(ocrTaskMaxConcurrent, ocrTaskInFlight)
+        try {
+          await sleep(ocrTaskDelayMs)
+        } finally {
+          ocrTaskInFlight -= 1
+        }
+      }
       if (route.request().method() === 'POST' && u.pathname === '/api/error/records') {
         lastErrorRecordPayload = route.request().postDataJSON()
       }
@@ -1048,6 +1097,36 @@ try {
   dueReviewsMock = defaultDueReviews
   check('今日：无横向溢出', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
 
+  // 竞态：同一 tick 连点两次“刷新”（第二次发生在 Vue 应用 loading 禁用前），
+  // 第一轮请求延迟返回，必须被 loadSeq 丢弃，页面只认最新一轮。
+  const raceCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
+  let racePortraitCalls = 0
+  await raceCtx.route('**/api/portraits/me', async (route) => {
+    racePortraitCalls += 1
+    const totalPractice = racePortraitCalls === 1 ? 18 : racePortraitCalls === 2 ? 12 : 137
+    if (racePortraitCalls === 2) await sleep(1500)
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ code: 0, data: { ...portrait, totalPractice }, timestamp: Date.now() })
+    })
+  })
+  const racePage = await raceCtx.newPage()
+  await open(racePage, '/today')
+  const sampleBefore = (await racePage.locator('.metric-card').nth(1).innerText()).trim()
+  await racePage.evaluate(() => {
+    const button = Array.from(document.querySelectorAll('.page-head button')).find((node) => node.textContent.trim().startsWith('刷新'))
+    button.click()
+    button.click()
+  })
+  await sleep(2600)
+  const sampleAfter = (await racePage.locator('.metric-card').nth(1).innerText()).trim()
+  check(
+    '今日：并发刷新只认最新一轮（旧响应不覆盖）',
+    racePortraitCalls === 3 && sampleBefore.includes('18') && sampleAfter.includes('137') && !sampleAfter.includes('12'),
+    JSON.stringify({ racePortraitCalls, sampleBefore, sampleAfter })
+  )
+  await raceCtx.close()
+
   await open(page, '/error-book')
   await checkNext('错题本：两行记录', async () => {
     const rowCount = await page.locator('.el-table__row').count()
@@ -1076,6 +1155,17 @@ try {
     }
   }
   await checkNext('错题本：缺 qId 显示待关联', async () => (await page.getByText('待关联题目').count()) >= 1 && detailsOk)
+
+  // 深链：学情首页“去练这道错题”会带 ?status=CONFIRMED，列表不得混入草稿
+  await open(page, '/error-book?status=CONFIRMED')
+  await checkNext('错题本：status=CONFIRMED 深链只含已确认', async () => {
+    const rows = page.locator('.el-table__row')
+    const count = await rows.count()
+    const texts = await rows.allInnerTexts()
+    return count === 2
+      && texts.every((text) => text.includes('已确认'))
+      && !texts.some((text) => text.includes('草稿') || text.includes('LOG002'))
+  })
 
   await open(page, '/portrait')
   await checkNext('画像：同基线三条', async () => (await page.locator('.metric-bar').count()) === 3)
@@ -1136,6 +1226,44 @@ try {
   )
   await page.keyboard.press('Escape'); await sleep(300)
   checkinIsCorrect = true
+
+  // 抽屉 completedResult 清理：答完一题 → 下一题 → 用“仅记录进度”关闭抽屉时，
+  // 不得把上一题的完成结果再上报一次（父页只应刷新一轮计划）
+  // 前面几条用户例会把 Q_0301~Q_0303 全局标记完成，这里重置计划状态以保证本用例有“下一题”；
+  // 本用例之后不再有计划页断言，不影响其它用例
+  for (const plan of plans) {
+    for (const item of plan.items) item.isDone = false
+    plan.doneCount = 0
+    plan.status = 'PENDING'
+  }
+  plansRequestCount = 0
+  await page.locator('.day-card').nth(6).getByRole('button', { name: '去打卡' }).first().click()
+  await page.locator('.practice-drawer .stem').waitFor()
+  const stemBeforeNext = await page.locator('.practice-drawer .stem').innerText()
+  await page.locator('.practice-drawer .el-radio').first().click()
+  await page.getByRole('button', { name: '查看参考答案' }).click()
+  await page.getByRole('button', { name: '提交本题（系统判分）' }).click()
+  await page.locator('.submission-result').waitFor()
+  await page.getByRole('button', { name: '下一题' }).click()
+  await page.waitForFunction(
+    (prev) => {
+      const stem = document.querySelector('.practice-drawer .stem')
+      return !!stem && stem.textContent.trim() !== String(prev).trim()
+    },
+    stemBeforeNext,
+    { timeout: 10000 }
+  )
+  await sleep(400)
+  const plansBeforeRecordOnly = plansRequestCount
+  await page.getByRole('button', { name: '仅记录进度（未作答）' }).click()
+  await page.locator('.el-message-box').getByRole('button', { name: '仅记录', exact: true }).click()
+  await sleep(1500)
+  const completedReloads = plansRequestCount - plansBeforeRecordOnly
+  check(
+    '抽屉：切题后关闭不重复上报 completed',
+    completedReloads === 1,
+    JSON.stringify({ completedReloads, plansBeforeRecordOnly, plansAfter: plansRequestCount })
+  )
 
   // 81 点独立数据上下文：验证默认章节簇可读性，不改变后续既有图谱用例的数据与断言
   const denseCounts = [10, 10, 10, 11, 9, 11, 10, 10]
@@ -1385,6 +1513,29 @@ try {
       && (await page.locator('.finder-empty').innerText()).includes('换个词试试')
   })
 
+  // 失败态：题单请求 500 时必须给“加载失败 + 重试”，不能伪装成空题库；重试后恢复
+  await open(page, '/practice')
+  questionsFailKp = 'KP0012'
+  await page.locator('.finder-input input').fill('连接')
+  await sleep(400)
+  await page.locator('.kp-result').first().click()
+  await sleep(400)
+  const failedPanelText = await page.locator('.question-panel').innerText().catch(() => '')
+  questionsFailKp = ''
+  const failStateShown = failedPanelText.includes('题目加载失败')
+    && !failedPanelText.includes('暂无题目')
+    && await page.locator('.question-panel').getByRole('button', { name: '重试' }).count() === 1
+  let failRecovered = false
+  if (failStateShown) {
+    await page.locator('.question-panel').getByRole('button', { name: '重试' }).click()
+    failRecovered = await waitFor(async () => (await page.locator('.question-row').count()) >= 1)
+  }
+  check(
+    '找题：加载失败给重试且不伪装空题库',
+    failStateShown && failRecovered,
+    JSON.stringify({ failStateShown, failRecovered, panelText: failedPanelText.slice(0, 60) })
+  )
+
   await open(page, '/profile')
   await checkNext('个人中心：快捷入口', async () => (await page.locator('.quick-links .el-button').count()) >= 3)
 
@@ -1452,6 +1603,25 @@ try {
     }
   }
   ocrConfidence = 0.95
+
+  // 防并发：OCR 查询慢于轮询间隔（2000ms）时，下一 tick 必须跳过，不能叠加出并发请求
+  ocrTaskDelayMs = 3500
+  ocrTaskMaxConcurrent = 0
+  ocrTaskRequestCount = 0
+  await open(page, '/diagnosis')
+  await page.locator('.ocr-upload input[type="file"]').setInputFiles({
+    name: 'question.png', mimeType: 'image/png', buffer: Buffer.from('mock-image')
+  })
+  await sleep(5000)
+  const ocrConcurrency = { max: ocrTaskMaxConcurrent, requests: ocrTaskRequestCount }
+  ocrTaskDelayMs = 0
+  await waitFor(async () => (await page.locator('textarea').first().inputValue()) === ocrStem, 8000)
+  check(
+    'OCR：慢响应下不并发重复轮询',
+    ocrConcurrency.max === 1 && ocrConcurrency.requests === 1,
+    JSON.stringify(ocrConcurrency)
+  )
+
   let explainReviewOk = true
   for (const [explainId, result, expected] of [['EXP001', 'PASS', '老师已复核这条讲解：讲解准确，可继续练习'], ['EXP002', 'RETURN', '需要补充：请补充连接条件的书写'], ['EXP003', null, '']]) {
     await open(page, `/diagnosis?explainId=${explainId}`)
@@ -1519,6 +1689,34 @@ try {
   )
   await loginCtx.close()
 
+  // 登录页 40100 是“用户名或密码错误”，只能出现一次表单侧提示；不能再叠加“登录已过期”式全局提示
+  const badLoginCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 }, { token: false })
+  await badLoginCtx.route('**/api/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200, contentType: 'application/json',
+      body: JSON.stringify({ code: 40100, message: '用户名或密码错误', timestamp: Date.now() })
+    })
+  })
+  const badLoginPage = await badLoginCtx.newPage()
+  await badLoginPage.goto(BASE + '/login', { waitUntil: 'domcontentloaded' })
+  await badLoginPage.waitForSelector('.login-card input', { timeout: 15000 })
+  await badLoginPage.locator('.login-card input').nth(0).fill('2023034743010')
+  await badLoginPage.locator('.login-card input').nth(1).fill('wrong-password')
+  await badLoginPage.getByRole('button', { name: '登录' }).click()
+  await sleep(600)
+  const badLoginMessages = await badLoginPage.locator('.el-message').allInnerTexts()
+  const badLoginUrl = new URL(badLoginPage.url())
+  const badLoginWarning = await badLoginPage.locator('.el-message--warning').count()
+  check(
+    '登录：40100 只提示一次且不改写登录页 URL',
+    badLoginMessages.length === 1
+      && badLoginMessages[0].includes('用户名或密码错误')
+      && badLoginWarning === 0
+      && badLoginUrl.pathname === '/login' && badLoginUrl.search === '',
+    JSON.stringify({ messages: badLoginMessages, warning: badLoginWarning, url: badLoginPage.url() })
+  )
+  await badLoginCtx.close()
+
   // 角色守卫
   const teacherGuard = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tp = await teacherGuard.newPage()
@@ -1572,6 +1770,13 @@ try {
       && teacherOverviewLayout.lastErrorBottom <= 900,
     JSON.stringify(teacherOverviewLayout)
   )
+
+  // avgMastery=null（无作答样本）不是 0%：不得显示 0%，也不得被当成学困生放进“需关注”
+  await checkNext('教学概览：无掌握度学生不误标学困生', async () => {
+    const attentionText = await tpage.locator('.student-list').innerText().catch(() => '')
+    const zeroPct = await tpage.locator('.student-row').filter({ hasText: '掌握度 0%' }).count()
+    return attentionText.includes('张*') && !attentionText.includes('李*') && zeroPct === 0
+  })
 
   // 1080p 守卫：答辩投影即 1920x1080，该高度不得命中压缩媒体查询（当前阈值 max-height:900px）。
   // 断言用计算样式数值（基础间距 20/16/16/10，压缩后会变 12/8/8/6），不用像素截图，
@@ -1645,16 +1850,44 @@ try {
   await tpage.keyboard.press('Escape')
   await tpage.locator('.export-date').nth(1).fill('2026-11-02')
   await tpage.keyboard.press('Escape')
+  const csvDownloadEvent = tpage.waitForEvent('download', { timeout: 10000 }).catch(() => null)
   await tpage.getByRole('button', { name: '导出留痕' }).click()
   await checkNext('评阅导出：按日期缩小后导出成功', async () =>
     (await tpage.getByText('已导出评阅留痕 CSV').count()) >= 1)
+  // 只查 toast 不够：blob URL 若被立刻回收，浏览器根本收不到下载事件
+  const csvDownload = await csvDownloadEvent
+  const csvFilename = csvDownload ? await csvDownload.suggestedFilename() : ''
+  check(
+    '评阅导出：浏览器真的收到 CSV 下载事件',
+    !!csvDownload && /-\d{8}\.csv$/.test(csvFilename),
+    JSON.stringify({ csvFilename })
+  )
 
+  // avgMastery=null 的班级行显示破折号，不能显示 0%
   await open(tpage, '/teacher/class')
   await checkNext('班级：两名学生', async () => (await tpage.locator('.el-table__row').count()) >= 2)
   await checkNext('班级：正确率取后端字段', async () => (await tpage.locator('.el-table').innerText()).includes('55%'))
+  await checkNext('班级：无掌握度显示破折号', async () => {
+    const rowText = await tpage.locator('.el-table__row').filter({ hasText: '李*' }).innerText()
+    return rowText.includes('—') && !rowText.includes('0%')
+  })
   await tpage.getByRole('button', { name: '学习记录' }).first().click()
   await checkNext('班级：学习记录抽屉', async () => await tpage.locator('.student-drawer').isVisible())
   await tpage.keyboard.press('Escape'); await sleep(400)
+
+  // 竞态：先点张*（响应延迟 1200ms），再快速改点李*；旧响应后到，详情必须仍是李*
+  learningRecordsDelayUserId = 2
+  await sleep(200)
+  await tpage.locator('.el-table__row').filter({ hasText: '张*' }).getByRole('button', { name: '学习记录' }).click()
+  await sleep(200)
+  await tpage.keyboard.press('Escape')
+  await sleep(600)
+  await tpage.locator('.el-table__row').filter({ hasText: '李*' }).getByRole('button', { name: '学习记录' }).click()
+  await sleep(1600)
+  const lateDetailName = (await tpage.locator('.student-drawer .summary-name').innerText().catch(() => '')).trim()
+  learningRecordsDelayUserId = 0
+  check('班级：快速切换后详情属于最后点击的学生', lateDetailName === '李*', JSON.stringify({ lateDetailName }))
+  await tpage.keyboard.press('Escape'); await sleep(300)
   await teacherCtx.close()
 
   // ---------- 移动端 ----------
