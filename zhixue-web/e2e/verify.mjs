@@ -180,12 +180,14 @@ const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teach
 // ---------------- 启动与断言 ----------------
 // 只保留 Vite 依赖重优化相关行：首次挂载懒加载路由会触发整页 reload，是挂载超时的已知诱因
 const viteNotices = []
+let lastViteNoticeAt = Date.now()
 function captureViteNotice(chunk) {
   for (const line of String(chunk).split(/\r?\n/)) {
     const text = line.trim()
     if (!text) continue
     if (/new dependencies optimized|optimized dependencies changed|reloading/i.test(text)) {
       viteNotices.push(text)
+      lastViteNoticeAt = Date.now()
       if (viteNotices.length > 30) viteNotices.shift()
     }
   }
@@ -249,8 +251,11 @@ async function waitFor(fn, timeout = 12000, interval = 250) {
   return false
 }
 
-/** 打开页面并等到路由内容挂载、骨架屏结束；失败时把页面现场带出来 */
-async function open(page, pathname) {
+/**
+ * 打开一次页面并等到路由内容挂载、骨架屏结束；失败时把页面现场带出来。
+ * 返回 true 表示挂载之后又发生了整页 reload（Vite 依赖预构建完成时会这样），调用方需重开。
+ */
+async function openOnce(page, pathname) {
   const started = Date.now()
   const navs = []
   const pageErrors = []
@@ -277,6 +282,10 @@ async function open(page, pathname) {
       .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
       .catch(() => {})
     await sleep(150)
+    // 确认文档在 600ms 内没有被重建：依赖预构建完成的 reload 会把已挂载的 DOM 整个换掉
+    const docId = await page.evaluate(() => performance.timeOrigin).catch(() => null)
+    await sleep(600)
+    return !(await page.evaluate((origin) => performance.timeOrigin === origin, docId).catch(() => false))
   } catch (e) {
     reason = e.message
     const state = await page.evaluate(() => {
@@ -300,6 +309,14 @@ async function open(page, pathname) {
   } finally {
     page.off('framenavigated', onNav)
     page.off('pageerror', onError)
+  }
+}
+
+/** 打开页面；若挂载后又被依赖预构建的 reload 打断，重开一次（最多 3 次）后才交给断言 */
+async function open(page, pathname) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    if (!(await openOnce(page, pathname))) return
+    await sleep(300)
   }
 }
 
@@ -544,6 +561,29 @@ async function axeScan(page) {
   throw lastError
 }
 
+/**
+ * 预热路由：冷缓存 Vite 首访懒加载路由时会做依赖预构建，完成瞬间整页 reload。
+ * reload 若落在断言期间，Playwright 读到的是空白/骨架 DOM（#55 图谱、#61 评阅队列均因此翻红）。
+ * 正式断言前按学生/教师身份把会被断言的路由各访一遍，让 reload 消化在预热阶段。
+ */
+async function warmUpRoutes() {
+  const pools = [
+    { role: 'STUDENT', paths: [...STUDENT.map(([, pathname]) => pathname), '/403', '/404'] },
+    { role: 'TEACHER', paths: ['/teacher', ...TEACHER.map(([, pathname]) => pathname)] }
+  ]
+  for (const { role, paths } of pools) {
+    const ctx = await newContext(browser, role, 'glass', { width: 1440, height: 900 })
+    const page = await ctx.newPage()
+    for (const pathname of paths) await open(page, pathname)
+    await ctx.close()
+  }
+  for (const line of viteNotices.slice(-10)) console.log('VITE 预热期：', line)
+  // 预构建 reload 可能延续到预热末尾：等 VITE 日志静默 3s（最多 15s）再进入正式断言
+  const settleStart = Date.now()
+  while (Date.now() - lastViteNoticeAt < 3000 && Date.now() - settleStart < 15000) await sleep(300)
+  console.log(`预热完成：${pools.reduce((sum, pool) => sum + pool.paths.length, 0)} 条路由`)
+}
+
 const server = await ensureServer()
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 
@@ -569,6 +609,9 @@ if (process.env.TEACHER_AXE_ONLY === '1') {
 }
 
 try {
+  // 冷缓存 Vite 的依赖预构建 reload 必须先被消化掉，否则会打断断言（见 warmUpRoutes 注释）
+  await warmUpRoutes()
+
   // ---------- 学生桌面 ----------
   const studentCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   const page = await studentCtx.newPage()
@@ -1342,6 +1385,10 @@ try {
     check(`移动端/${name}：无横向溢出`, !info.overflow)
     check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
     if (name === 'knowledge-graph') {
+      // 页面重载期间 DOM 为空，直接读会得到 tags=0 并连锁超时；先等清单与跳转入口真正渲染（期望值不变）
+      await mp.waitForFunction(() => document.querySelectorAll('.node-tag').length >= 12, null, { timeout: 20000 })
+        .catch(() => {})
+      await mp.waitForSelector('.mobile-list-jump', { state: 'attached', timeout: 20000 }).catch(() => {})
       check('移动端/图谱：390宽 scrollWidth 恒为390',
         await mp.evaluate(() => innerWidth === 390 && document.documentElement.scrollWidth === 390))
       const tagHeights = await mp.evaluate(() =>
