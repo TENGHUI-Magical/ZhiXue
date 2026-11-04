@@ -604,6 +604,15 @@ class RagExplainServiceTest {
     }
 
     /**
+     * 真实跨度上限覆盖：{@code P1-999} 只有 3 位数字，能过位数守卫，但跨度 999 > 500。
+     * 若只保留位数守卫而删掉跨度检查，该区间会被完整展开成 999 个页码，本用例即红。
+     */
+    @Test
+    void pageNumbersRejectsRangeBeyondSpanWithinDigitLimit() {
+        assertThat(service.pageNumbers("P1-999")).isEmpty();
+    }
+
+    /**
      * 契约里区间写法是 P1-2；题面给的 P1-P2 会被正则识别为两条独立引用（P1 与 P2），
      * 第二条位数超限被拒，只剩合法的那条，且不能因此触发大区间展开。
      */
@@ -615,6 +624,13 @@ class RagExplainServiceTest {
     /**
      * 上界为 Integer.MAX_VALUE 时原实现 {@code page++} 溢出为负、循环条件恒真 → 死循环。
      * 对应的页码本身也超长（10 位），应被位数上限拒绝。
+     *
+     * <p>注意：本用例在当前 {@code MAX_PAGE_DIGITS=4} 下是在位数守卫处先被拒绝，
+     * 并没有真正走进 long 循环，因此锁不住该循环本身的修复。4 位上限（最大 9999）
+     * 让 {@code int} 自增溢出结构上不可达，无法用真实输入造出红检；这里保留它锁住
+     * “超长页码必须拒绝”的外层行为。该 long 循环修复依赖位数守卫作为第一道闸：
+     * 若未来放宽 {@code MAX_PAGE_DIGITS}，必须同时复核 long 自增与跨度上限，
+     * 否则死循环风险会重新暴露。</p>
      */
     @Test
     void pageNumbersRejectsIntegerMaxPage() {

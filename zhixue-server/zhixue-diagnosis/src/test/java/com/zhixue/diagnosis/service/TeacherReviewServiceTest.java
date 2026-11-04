@@ -449,6 +449,39 @@ class TeacherReviewServiceTest {
         }
     }
 
+    /**
+     * {@link TeacherReviewService#exportCsv} 的 status 归一化同样必须显式 {@code Locale.ROOT}：
+     * 土耳其语默认 Locale 下 {@code "reviewed".toUpperCase()} 会得到带点大写 {@code "REVİEWED"}，
+     * 合法入参被判成 40000。把该处 {@code toUpperCase(Locale.ROOT)} 改回无参即红。
+     */
+    @Test
+    void exportCsvStatusIsLocaleIndependent() {
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.selectForReviewExport(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of());
+
+        Locale original = Locale.getDefault();
+        byte[] csv;
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                csv = renderCsv(service.exportCsv("reviewed", null, null, null));
+            }
+        } finally {
+            Locale.setDefault(original);
+        }
+
+        // 必须恢复成功，避免默认 Locale 被污染而影响其它测试
+        assertEquals(original, Locale.getDefault());
+        String text = new String(csv, StandardCharsets.UTF_8);
+        assertEquals((byte) 0xEF, csv[0]);
+        assertTrue(text.startsWith("\uFEFF留痕ID,"));
+        // 小写 reviewed 必须被归一化成“已评阅”过滤条件，而不是走到 40000
+        verify(logMapper).selectForReviewExport(eq(Boolean.TRUE), any(), any(), any(),
+                eq(List.of(1L)));
+    }
+
     private AiGenerationLog exportRow(long logPk) {
         AiGenerationLog row = new AiGenerationLog();
         row.setLogPk(logPk);
