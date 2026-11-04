@@ -1,5 +1,6 @@
 // 教师评阅（契约 teacher 组）：页面只经本文件调用。
 import { api, downloadCsv } from "./request";
+import { shanghaiDateStamp } from "./filenameDate";
 
 export interface ReviewSource {
   kpId?: string;
@@ -66,6 +67,6 @@ export const exportReviewLog = (params: {
   from?: string;
   to?: string;
 }) => {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const date = shanghaiDateStamp();
   return downloadCsv("/api/teacher/reviews/export", params, `review-log-${date}.csv`);
 };

@@ -1,5 +1,6 @@
 // 教师查看学生学习记录（契约 C12）
 import { api, downloadCsv } from "./request";
+import { shanghaiDateStamp } from "./filenameDate";
 
 export interface TeacherStudentItem {
   userId?: number;
@@ -81,7 +82,7 @@ export const getStudentLearningRecords = (
 
 /** 班级学情 CSV 导出（V2.2.8）：完整筛选结果而非当前分页 */
 export const exportClassLearning = (courseId: number, sort: string) => {
-  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const date = shanghaiDateStamp();
   return downloadCsv(
     "/api/teacher/students/export",
     { courseId, sort },
