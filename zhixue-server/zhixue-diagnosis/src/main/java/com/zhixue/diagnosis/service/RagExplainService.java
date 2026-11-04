@@ -79,7 +79,8 @@ public class RagExplainService {
     /** meta.model 暂用 auto；接入模型配置同步后改为真实模型名 */
     private static final String META_MODEL = "auto";
 
-    private static final String PROMPT_VERSION = "v2";
+    /** Prompt 模板版本：必须与 zhixue-ai/app/services/rag_service.py 的 PROMPT_VERSION 一致（单测校验）。 */
+    static final String PROMPT_VERSION = "v2";
     private static final int PREREQ_MIN_SAMPLES = 3;
     private static final String PRACTICE_HINT = "请完成下方同类练习，检验自己是否真正掌握。";
     private static final Pattern SECTION_PATTERN = Pattern.compile(
@@ -674,13 +675,14 @@ public class RagExplainService {
     }
 
     /** 固定字段顺序序列化，避免缓存键受 Map 遍历顺序影响。 */
-    private String canonicalContext(long userId, StudentErrorRecord record, KnowledgePoint kp,
-                                    String errorType, String questionText, String answerText,
-                                    ExplanationContext context) {
+    String canonicalContext(long userId, StudentErrorRecord record, KnowledgePoint kp,
+                            String errorType, String questionText, String answerText,
+                            ExplanationContext context) {
         Map<String, Object> canonical = new LinkedHashMap<>();
         canonical.put("userId", userId);
         canonical.put("courseId", kp.getCourseId() == null ? 1L : kp.getCourseId());
         canonical.put("kpId", kp.getKpId());
+        canonical.put("kpName", kp.getName());
         canonical.put("qId", record.getQId());
         canonical.put("errorType", errorType);
         canonical.put("questionText", questionText);

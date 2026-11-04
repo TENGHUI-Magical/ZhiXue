@@ -310,6 +310,31 @@ class RagExplainServiceTest {
         assertThat(service.resolveCacheText(record, request)).isEqualTo("请求里的题干");
     }
 
+    @Test
+    void canonicalContextCarriesKpNameSoRenameChangesCacheInput() {
+        stubRecordAndKp("关系模型的核心概念");
+        StudentErrorRecord record = errorRecordService.getConfirmed("EL_1");
+        KnowledgePoint kp = knowledgePointService.getById("KP0201");
+        RagExplainService.ExplanationContext context =
+                new RagExplainService.ExplanationContext(null, 0, 0, null);
+
+        String beforeRename = service.canonicalContext(
+                2L, record, kp, "CONCEPT_CONFUSION", "求闭包", "B", context);
+        assertThat(beforeRename).contains("\"kpName\":\"关系模型\"");
+
+        KnowledgePoint renamed = new KnowledgePoint();
+        renamed.setKpId(kp.getKpId());
+        renamed.setName("关系模型（修订）");
+        renamed.setConceptText(kp.getConceptText());
+        renamed.setMisconception(kp.getMisconception());
+        renamed.setTextbookPage(kp.getTextbookPage());
+        String afterRename = service.canonicalContext(
+                2L, record, renamed, "CONCEPT_CONFUSION", "求闭包", "B", context);
+
+        // kpName 进入 canonicalContext → 进入 sha256 键；知识点改名后旧缓存不再命中
+        assertThat(afterRename).isNotEqualTo(beforeRename);
+    }
+
     private void stubRecordAndKp(String conceptText) {
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId("EL_1");
