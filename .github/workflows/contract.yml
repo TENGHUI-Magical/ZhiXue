@@ -1,0 +1,71 @@
+name: 契约校验
+
+on:
+  pull_request:
+    paths: ['docs/openapi.yaml']
+  push:
+    branches: [main]
+    paths: ['docs/openapi.yaml']
+  workflow_dispatch:
+
+jobs:
+  contract:
+    name: 契约校验（openapi.yaml）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validators
+        run: pip install openapi-spec-validator pyyaml
+
+      # 1) 结构校验：必须是合法的 OpenAPI 3.1 文档，非法即红
+      - name: Validate OpenAPI 3.1 structure
+        run: openapi-spec-validator docs/openapi.yaml
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # 2) 与实现比对：ContractSchemaComparatorTest 是纯单测（不启动 Spring/Testcontainers），
+      #    直接读 docs/openapi.yaml 并与生成契约比较；-am 时上游模块无该测试，需关闭空匹配报错
+      - name: Contract comparator test
+        working-directory: zhixue-server
+        run: >-
+          mvn -B -ntp -pl zhixue-bootstrap -am test
+          -Dtest=ContractSchemaComparatorTest
+          -Dsurefire.failIfNoSpecifiedTests=false
+
+      # 3) 打印统计：只展示给人看，不做 34/35 之类硬断言，契约合法增长不应被本 workflow 卡住
+      - name: Contract stats
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import yaml
+
+          doc = yaml.safe_load(open('docs/openapi.yaml', encoding='utf-8'))
+          methods = ('get', 'post', 'put', 'delete', 'patch', 'head', 'options')
+          counts = {m.upper(): 0 for m in methods}
+          for item in doc['paths'].values():
+              for method in item:
+                  if method in methods:
+                      counts[method.upper()] += 1
+          total = sum(counts.values())
+
+          print('### 契约统计（docs/openapi.yaml）')
+          print()
+          print('| 项 | 值 |')
+          print('| --- | --- |')
+          print(f'| openapi | `{doc["openapi"]}` |')
+          print(f'| info.version | `{doc["info"]["version"]}` |')
+          print(f'| paths | {len(doc["paths"])} |')
+          print(f'| operations | {total} |')
+          for method, count in counts.items():
+              if count:
+                  print(f'| {method} | {count} |')
+          PY
