@@ -7,6 +7,8 @@ import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.Recommendation;
+import com.zhixue.diagnosis.entity.RecommendationRecord;
+import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
 import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +18,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.lang.reflect.Method;
 import java.time.Duration;
@@ -61,13 +66,18 @@ class RecommendationServiceTest {
     @Mock
     private RepairPriorityService repairPriorityService;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
     private RecommendationService service;
 
     @BeforeEach
     void setUp() {
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(null);
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         service = new RecommendationService(errorRecordService, knowledgePointService,
                 questionBankService, recommendationRecordMapper, practiceRecordMapper,
-                repairPriorityService, 7);
+                repairPriorityService, 7, transactionTemplate);
         lenient().when(practiceRecordMapper.selectList(any())).thenReturn(List.of());
         lenient().when(practiceRecordMapper.selectPracticedQids(anyLong(), anyLong(), any())).thenReturn(List.of());
         // 先修/后继为空时不查库；给批量查询一个空默认，避免严格 stub 误报
@@ -256,6 +266,49 @@ class RecommendationServiceTest {
         verify(practiceRecordMapper).selectPracticedQids(eq(2L), eq(1L), captor.capture());
         assertThat(Duration.between(shanghaiNow.minusDays(7), captor.getValue()).abs().getSeconds())
                 .isLessThan(5);
+    }
+
+    /**
+     * 并发重复生成：insert 命中唯一键 uk_user_log_q 后的回查必须发生在事务结束之后。
+     * 事务内 REPEATABLE READ 快照看不到并发方已提交行（selectOne 返回 null 即等价模拟），
+     * 只有事务结束后的新连接查询才能取到已落库批次。修复前直接抛 DuplicateKeyException。
+     */
+    @Test
+    void duplicatePersistReloadsExistingBatchAfterTransactionEnds() {
+        StudentErrorRecord record = new StudentErrorRecord();
+        record.setLogId("EL_1");
+        record.setUserId(2L);
+        record.setQId("Q_0301");
+        record.setKpId("KP0201");
+        when(errorRecordService.getConfirmed("EL_1")).thenReturn(record);
+        when(questionBankService.listByKp(1L, "KP0201"))
+                .thenReturn(List.of(question("Q_0301", 1), question("Q_0302", 2)));
+        when(knowledgePointService.prerequisites("KP0201")).thenReturn(List.of());
+        when(knowledgePointService.successors("KP0201")).thenReturn(List.of());
+        when(recommendationRecordMapper.insert(any(RecommendationRecord.class)))
+                .thenThrow(new DuplicateKeyException("uk_user_log_q"));
+        RecommendationRecord existing = new RecommendationRecord();
+        existing.setRecommendationId(9L);
+        existing.setUserId(2L);
+        existing.setLogId("EL_1");
+        existing.setQId("Q_0302");
+        existing.setLayer("CONSOLIDATE");
+        existing.setReason("同一块知识，再练一道");
+        existing.setRankNo(1);
+        existing.setIsAdopted(1);
+        // 事务内快照看不到并发提交：旧实现据此判定“不存在”并重抛
+        lenient().when(recommendationRecordMapper.selectOne(any())).thenReturn(null);
+        when(recommendationRecordMapper.selectList(any())).thenReturn(List.of(existing));
+
+        List<Recommendation> result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = service.recommend("EL_1", null, 1L);
+        }
+
+        assertThat(result).isNotEmpty();
+        assertThat(result.get(0).recommendationId()).isEqualTo(9L);
+        assertThat(result.get(0).isAdopted()).isTrue();
     }
 
     private RepairPriorityService.Priority priority(String kpId, double score, int distance) {
