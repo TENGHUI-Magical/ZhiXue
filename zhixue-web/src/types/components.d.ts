@@ -46,6 +46,7 @@ declare module 'vue' {
     ReviewStatus: typeof import('./../components/ReviewStatus.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    ThemeIcon: typeof import('./../components/ThemeIcon.vue')['default']
     ThemeSwitcher: typeof import('./../components/ThemeSwitcher.vue')['default']
   }
 }

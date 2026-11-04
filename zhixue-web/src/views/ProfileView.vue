@@ -91,6 +91,48 @@
           </p>
         </el-card>
 
+        <el-card class="appearance-card" shadow="never">
+          <template #header>
+            <div class="card-head"><span>外观</span><span class="card-sub">浅色 / 深色 / 跟随系统</span></div>
+          </template>
+          <div class="appearance-list" role="radiogroup" aria-label="外观主题">
+            <button
+              v-for="option in THEME_OPTIONS"
+              :key="option.key"
+              type="button"
+              role="radio"
+              class="appearance-item"
+              :class="{ 'is-active': pref === option.key }"
+              :aria-checked="pref === option.key"
+              @click="setPref(option.key)"
+            >
+              <ThemeIcon class="ap-icon" :name="option.key" :size="18" />
+              <span class="ap-copy">
+                <strong>{{ option.label }}</strong>
+                <small>{{ option.description }}</small>
+              </span>
+              <svg
+                v-if="pref === option.key"
+                class="ap-check"
+                viewBox="0 0 24 24"
+                width="15"
+                height="15"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m20 6-11 11-5-5" />
+              </svg>
+            </button>
+          </div>
+          <p class="appearance-note">
+            选「跟随系统」时，界面会随设备外观自动切换；也可随时用右上角快捷切换。
+          </p>
+        </el-card>
+
         <el-card class="quick-card" shadow="never">
           <template #header>
             <div class="card-head"><span>快捷入口</span><span class="card-sub">按角色</span></div>
@@ -125,7 +167,7 @@
               </el-button>
             </template>
           </div>
-          <p class="quick-note">主题可在右上角切换（浅色 / 深色）。</p>
+          <p class="quick-note">按角色提供最短路径；更多入口见左侧导航。</p>
         </el-card>
       </div>
     </PageState>
@@ -136,18 +178,17 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
+import ThemeIcon from "../components/ThemeIcon.vue";
+import { THEME_OPTIONS, useTheme } from "../composables/useTheme";
 import { api } from "../api/request";
 import { getPortrait, type Portrait } from "../api/portrait";
 import { reportError } from "../utils/telemetry";
-
-interface MeUser {
-  userId: number;
-  username: string;
-  realName: string;
-  role: string;
-}
+import { pct } from "../utils/format";
+import type { MeUser } from "../types/me";
 
 const router = useRouter();
+/** 外观设置与顶部切换器共用同一份偏好状态（useTheme 为模块级单例） */
+const { pref, setPref } = useTheme();
 const loading = ref(false);
 const error = ref("");
 const portraitError = ref("");
@@ -156,8 +197,6 @@ const portrait = ref<Portrait | null>(null);
 
 const initial = computed(() => (profile.value.realName || profile.value.username || "访").slice(0, 1));
 const isStudent = computed(() => profile.value.role === "STUDENT");
-const pct = (value?: number | null) =>
-  typeof value === "number" ? `${Math.round(value * 100)}%` : "—";
 const overallMastery = computed(() => {
   const values = Object.values(portrait.value?.dimensionScores ?? {}).filter(
     (value): value is number => typeof value === "number"
@@ -207,7 +246,8 @@ const load = async () => {
     localStorage.setItem("zhixue_user", JSON.stringify(me));
     if (me.role === "STUDENT") {
       try {
-        const data = await getPortrait();
+        // 学习概览卡有独立 el-alert 内联位，首屏失败不再叠加全局 toast
+        const data = await getPortrait({ silent: true });
         if (seq !== loadSeq) return;
         portrait.value = data;
       } catch (e) {
@@ -282,6 +322,10 @@ onMounted(() => {
   display: grid;
   place-items: center;
   color: #fff;
+  /* 与顶栏 .avatar 同源问题：浅色渐变顶色标上白字不足 4.5:1；
+     描边用与主色混合的深色（双主题都为暗色），保证白字在整段渐变上都可读 */
+  -webkit-text-stroke: 0.6px color-mix(in srgb, var(--app-primary-strong) 70%, black);
+  text-shadow: 0 0 1px color-mix(in srgb, var(--app-primary-strong) 70%, black);
   font-size: var(--app-fs-xl);
   font-weight: 600;
   background: linear-gradient(
@@ -404,6 +448,73 @@ onMounted(() => {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
+/* 外观：三档卡片选择器（桌面三列 / 移动端单列），与顶部切换器共享同一份偏好状态 */
+.appearance-card {
+  grid-column: 1 / -1;
+}
+.appearance-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--app-space-3);
+}
+.appearance-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--app-dur-fast) var(--app-ease-standard),
+    background-color var(--app-dur-fast) var(--app-ease-standard);
+}
+.appearance-item:hover {
+  border-color: var(--app-primary);
+  color: var(--app-text);
+}
+.appearance-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.appearance-item.is-active {
+  border-color: var(--app-primary);
+  /* 用 primary-soft 而非 5% color-mix：深色下 5% 蓝叠 #121a28 几乎看不出选中底，
+     而 primary-soft 已是双主题标定好的值（浅 10% / 深 16%） */
+  background: var(--app-primary-soft);
+  color: var(--app-primary);
+}
+.ap-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.ap-copy strong {
+  color: var(--app-text);
+  font-size: var(--app-fs-sm);
+  font-weight: 600;
+}
+.ap-copy small {
+  overflow: hidden;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ap-check {
+  flex: none;
+  color: var(--app-primary);
+}
+.appearance-note {
+  margin: 12px 0 0;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
 .quick-card {
   grid-column: 1 / -1;
 }
@@ -466,6 +577,9 @@ html[data-theme] .quick-link:hover {
 }
 @media (max-width: 768px) {
   .profile-grid {
+    grid-template-columns: 1fr;
+  }
+  .appearance-list {
     grid-template-columns: 1fr;
   }
   .learning-main {

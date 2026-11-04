@@ -6,18 +6,25 @@
     <meta name="theme-color" content="#d7e0ec" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <script>
-      // 首屏前应用主题，避免暗色主题闪白；key 与 useTheme.ts 保持一致
-      try {
-        var stored = localStorage.getItem('zhixue-theme');
-        // 只接受当前注册的主题，历史值（academic/ink/paper/mono）一律回退默认
-        var theme = stored === 'glass-dark' ? 'glass-dark' : 'glass';
-        document.documentElement.dataset.theme = theme;
-        if (theme === 'glass-dark') {
-          document.documentElement.classList.add('dark');
-        }
-        var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.content = theme === 'glass-dark' ? '#080d17' : '#d7e0ec';
-      } catch (e) {}
+      // 首屏前同步解析主题，避免深色下闪白（FOUC）。逻辑须与 useTheme.ts 完全一致：
+      // 存储只放偏好（system|light|dark），此处按系统外观解析成实际 data-theme；
+      // 兼容 V3.0 旧值 glass / glass-dark（老用户与 e2e 仍在写这两个值）。
+      (function () {
+        try {
+          var raw = localStorage.getItem('zhixue-theme') || 'system';
+          var legacy = { glass: 'light', 'glass-dark': 'dark' };
+          var pref = legacy[raw] || raw;
+          var dark =
+            pref === 'dark' ||
+            (pref !== 'light' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'glass-dark' : 'glass';
+          if (dark) document.documentElement.classList.add('dark');
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', dark ? '#080d17' : '#d7e0ec');
+        } catch (e) {}
+      })();
     </script>
     <title>智学领航：高校课程学情诊断系统</title>
   </head>

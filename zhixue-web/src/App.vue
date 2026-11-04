@@ -556,6 +556,10 @@ html[data-theme] .title {
   display: grid;
   place-items: center;
   color: #fff;
+  /* 浅色主题顶色标 78% white 时白字仅约 3.5:1：深色描边 + 暗晕保证字母在整段渐变上 ≥4.5:1，
+     不改令牌色值 / color-mix 比例；深色主题底色已压深，白字本身达标，下面撤销描边。 */
+  -webkit-text-stroke: 0.6px color-mix(in srgb, var(--app-primary-strong) 70%, black);
+  text-shadow: 0 0 1px color-mix(in srgb, var(--app-primary-strong) 70%, black);
   font-size: var(--app-fs-sm);
   font-weight: 600;
   background: linear-gradient(
@@ -572,6 +576,8 @@ html[data-theme="glass-dark"] .avatar {
     var(--app-primary-strong),
     color-mix(in srgb, var(--app-primary-strong) 78%, black)
   );
+  -webkit-text-stroke: 0;
+  text-shadow: none;
 }
 .user-meta {
   display: flex;
@@ -657,6 +663,14 @@ html[data-theme="glass-dark"] .avatar {
   padding: 8px 10px 16px;
 }
 
+/* 触控目标：粗指针设备（平板横屏、手机横屏）也要 ≥44px，不能只判宽度 */
+@media (max-width: 768px), (pointer: coarse) {
+  .user-trigger {
+    min-width: 44px;
+    height: 44px;
+  }
+}
+
 @media (max-width: 768px) {
   .aside {
     display: none;
@@ -676,8 +690,6 @@ html[data-theme="glass-dark"] .avatar {
   }
   .user-trigger {
     padding: 0 2px;
-    min-width: 44px;
-    height: 44px;
   }
   .main {
     padding: 12px;

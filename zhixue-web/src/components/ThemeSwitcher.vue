@@ -1,180 +1,113 @@
 <template>
-  <div ref="rootEl" class="theme-switch">
+  <div ref="rootEl" class="theme-seg" role="radiogroup" aria-label="外观主题">
     <button
-      ref="triggerEl"
+      v-for="(option, index) in THEME_OPTIONS"
+      :key="option.key"
       type="button"
-      class="theme-trigger"
-      :aria-expanded="open"
-      :aria-label="`切换主题，当前 ${current.label}`"
-      @click="open = !open"
+      role="radio"
+      class="seg-btn"
+      :class="{ 'is-active': pref === option.key }"
+      :aria-checked="pref === option.key"
+      :aria-label="ariaLabel(option)"
+      :title="ariaLabel(option)"
+      :tabindex="pref === option.key ? 0 : -1"
+      @click="select(option.key)"
+      @keydown="onKeydown($event, index)"
     >
-      <span class="swatch" aria-hidden="true" :style="{ background: current.accent }" />
-      <span class="label">{{ current.label }}</span>
-      <svg class="caret" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-        <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
+      <ThemeIcon class="seg-icon" :name="option.key" :size="16" />
     </button>
-    <div v-if="open" class="theme-menu" role="listbox" aria-label="选择主题">
-      <button
-        v-for="theme in THEMES"
-        :key="theme.key"
-        type="button"
-        role="option"
-        class="theme-option"
-        :aria-selected="theme.key === active"
-        @click="select(theme.key)"
-      >
-        <span class="swatch" aria-hidden="true" :style="{ background: theme.accent }" />
-        <span class="menu-label">
-          <strong>{{ theme.label }}</strong>
-          <small>{{ theme.description }}</small>
-        </span>
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { applyTheme, getStoredTheme, THEMES, type ThemeKey } from "../composables/useTheme";
+import { onMounted, ref } from "vue";
+import ThemeIcon from "./ThemeIcon.vue";
+import { initTheme, THEME_OPTIONS, useTheme, type ThemePref } from "../composables/useTheme";
 
-// 原生下拉而非 el-dropdown：体积棘轮（perf/bench/ceilings.json）不允许上调，
-// 头部组件必须零新增 Element 依赖
-const active = ref<ThemeKey>(getStoredTheme());
-const open = ref(false);
+// 原生分段控件而非原生下拉：三档用一次点击即可切换（下拉需两次），
+// 且零新增 Element 依赖（体积棘轮 ceilings.json 不允许上调）
+const { pref, systemDark, setPref } = useTheme();
 const rootEl = ref<HTMLElement | null>(null);
-const triggerEl = ref<HTMLButtonElement | null>(null);
-const current = computed(() => THEMES.find((theme) => theme.key === active.value) ?? THEMES[0]);
 
-const closeAndRestoreFocus = () => {
-  open.value = false;
-  // 选项按钮随 v-if 卸载，显式把焦点还给触发按钮，避免键盘用户失焦
-  triggerEl.value?.focus();
+const select = (key: ThemePref) => setPref(key);
+
+/** 「跟随系统」需说清当前实际外观，否则用户不知道它现在是不是深色 */
+const ariaLabel = (option: (typeof THEME_OPTIONS)[number]) => {
+  if (option.key !== "system") return `${option.label}主题`;
+  return `跟随系统，当前${systemDark.value ? "深色" : "浅色"}`;
 };
 
-const select = (key: ThemeKey) => {
-  active.value = key;
-  applyTheme(key);
-  closeAndRestoreFocus();
+/** roving tabindex：方向键在档位间移动，Home/End 到首尾（WAI-ARIA radiogroup 范式） */
+const onKeydown = (event: KeyboardEvent, index: number) => {
+  const last = THEME_OPTIONS.length - 1;
+  let next = -1;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") next = index === last ? 0 : index + 1;
+  else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = index === 0 ? last : index - 1;
+  else if (event.key === "Home") next = 0;
+  else if (event.key === "End") next = last;
+  if (next < 0) return;
+  event.preventDefault();
+  select(THEME_OPTIONS[next].key);
+  const buttons = rootEl.value?.querySelectorAll<HTMLButtonElement>(".seg-btn");
+  buttons?.[next]?.focus();
 };
 
-const onDocClick = (event: MouseEvent) => {
-  if (open.value && rootEl.value && !rootEl.value.contains(event.target as Node)) {
-    open.value = false;
-  }
-};
-
-const onKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Escape" && open.value) {
-    closeAndRestoreFocus();
-  }
-};
-
-onMounted(() => {
-  document.addEventListener("click", onDocClick);
-  document.addEventListener("keydown", onKeydown);
-});
-
-onBeforeUnmount(() => {
-  document.removeEventListener("click", onDocClick);
-  document.removeEventListener("keydown", onKeydown);
-});
+onMounted(initTheme);
 </script>
 
 <style scoped>
-.theme-switch {
-  position: relative;
-}
-.theme-trigger {
+.theme-seg {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 12px;
+  gap: 2px;
+  padding: 3px;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius-full);
-  background: var(--app-surface);
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
-  cursor: pointer;
+  background: var(--app-surface-muted);
 }
-.theme-trigger:hover {
-  border-color: var(--app-primary);
+.seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--app-radius-full);
+  background: transparent;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
+    color var(--app-dur-fast) var(--app-ease-standard);
+}
+.seg-btn:hover {
   color: var(--app-text);
 }
-.theme-trigger:focus-visible {
+.seg-btn:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: 2px;
 }
-.swatch {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+/* 选中档为"浮起的小滑块"：分段控件的通行读法（iOS/macOS/GitHub 一致）。
+   必须用 surface-raised 而非 surface：深色下 surface(#121a28) 比凹槽 muted(#192334) 更暗，
+   会读成"凹陷"，与浅色下的"浮起"语义相反。 */
+.seg-btn.is-active {
+  background: var(--app-surface-raised);
+  color: var(--app-primary);
+  box-shadow: var(--app-shadow-xs), inset 0 1px 0 var(--app-card-hi);
+}
+.seg-icon {
   flex: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--app-border) 70%, transparent);
 }
-.caret {
-  flex: none;
-  opacity: 0.7;
-}
-.theme-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 210px;
-  padding: 6px;
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  box-shadow: var(--app-shadow-lg);
-}
-.theme-option {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--app-radius-sm);
-  background: transparent;
-  color: var(--app-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.theme-option:hover {
-  background: var(--app-surface-muted);
-}
-.theme-option:focus-visible {
-  outline: 2px solid var(--app-primary);
-  outline-offset: -2px;
-}
-.menu-label {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.3;
-}
-.menu-label strong {
-  font-weight: 600;
-}
-.menu-label small {
-  color: var(--app-text-muted);
-  font-size: var(--app-fs-xs);
-}
-@media (max-width: 768px) {
-  .theme-trigger .label,
-  .theme-trigger .caret {
-    display: none;
-  }
-  .theme-trigger {
+/* 触控目标：每档 ≥44px（e2e 有 width/height ≥44 断言）。
+   条件含 (pointer: coarse)：平板横屏 1024 / 手机横屏 812·896 宽度均 >768，
+   只判宽度会让这些真实触摸设备停留在桌面尺寸 26px。 */
+@media (max-width: 768px), (pointer: coarse) {
+  .seg-btn {
     width: 44px;
     height: 44px;
-    padding: 0;
-    justify-content: center;
+  }
+  .theme-seg {
+    padding: 2px;
   }
 }
 </style>
