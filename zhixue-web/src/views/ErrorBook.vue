@@ -295,9 +295,12 @@ const openPractice = (row: ErrorRecordItem) => {
   drawerVisible.value = true;
 };
 
-/** 未关联题库题目的错题：去诊断台重新录入并选择关联题目 */
-const goDiagnosis = (_row: ErrorRecordItem) => {
-  router.push("/diagnosis");
+/** 未关联题库题目的错题：去诊断台重新录入，并带上知识点预选，减少一次重复匹配 */
+const goDiagnosis = (row: ErrorRecordItem) => {
+  router.push({
+    path: "/diagnosis",
+    query: row.kpId ? { kpId: row.kpId } : undefined
+  });
 };
 
 const loadKpOptions = async () => {

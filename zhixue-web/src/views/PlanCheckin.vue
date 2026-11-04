@@ -104,10 +104,9 @@
                   去打卡
                 </el-button>
               </div>
-              <el-empty
+              <BrandEmpty
                 v-if="!(plan.items || []).length"
                 description="当天暂无题目"
-                :image-size="60"
               />
             </div>
           </el-card>
@@ -175,6 +174,7 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
+import BrandEmpty from "../components/BrandEmpty.vue";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import { listErrorRecords } from "../api/errorBook";
 import {

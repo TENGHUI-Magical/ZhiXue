@@ -15,7 +15,7 @@
       >
         <div class="brand">
           <div class="brand-id">
-            <span class="brand-mark" aria-hidden="true">智</span>
+            <BrandMark :size="34" />
             <span class="brand-text">智学领航</span>
           </div>
           <button
@@ -59,6 +59,8 @@
                 <Menu :size="20" />
               </span>
             </el-button>
+            <span v-if="crumbGroup" class="crumb-group">{{ crumbGroup }}</span>
+            <ChevronRight v-if="crumbGroup" class="crumb-sep" :size="12" aria-hidden="true" />
             <span class="title">{{ $route.meta.title }}</span>
           </span>
           <span class="user">
@@ -104,7 +106,7 @@
 
       <el-drawer v-model="navOpen" direction="ltr" size="240px" :with-header="false" class="nav-drawer" append-to-body>
         <div class="brand drawer-logo">
-          <span class="brand-mark" aria-hidden="true">智</span>
+          <BrandMark :size="34" />
           <span class="brand-text">智学领航</span>
         </div>
         <div class="menu-caption">{{ userRole === "TEACHER" ? "教学" : "学习" }}</div>
@@ -127,13 +129,20 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Search, Stethoscope, Users } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ChevronRight, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Search, Stethoscope, Users } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
+import BrandMark from "./components/BrandMark.vue";
 
 const router = useRouter();
 const route = useRoute();
+/** 顶栏面包屑：用路由 roles 推导模块归属，把"顶栏标题 = 页内 h2"的重复读成层级（V1.1 §3.10） */
+const crumbGroup = computed(() => {
+  const roles = route.meta.roles as string[] | undefined;
+  if (!roles) return route.path === "/profile" ? "账号" : "";
+  return roles.includes("TEACHER") ? "教学" : "学习";
+});
 const userName = ref("未登录");
 const userAccount = ref("");
 const userRole = ref("");
@@ -368,20 +377,6 @@ onBeforeUnmount(() => {
 .side-toggle svg {
   display: block;
 }
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--app-radius-sm);
-  display: grid;
-  place-items: center;
-  flex: none;
-  color: var(--app-accent-contrast);
-  font-size: var(--app-fs-md);
-  font-weight: 700;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--app-primary), var(--app-primary-strong));
-  box-shadow: var(--app-shadow-sm);
-}
 .brand-text {
   color: var(--app-text);
   font-size: var(--app-fs-lg);
@@ -439,9 +434,7 @@ onBeforeUnmount(() => {
   padding: 0 !important;
 }
 :deep(.el-menu-item) {
-  height: 42px;
-  line-height: 42px;
-  margin: 3px 0;
+  /* 尺寸归 glass.css 单一来源；此处只保留非尺寸的属性，避免“看似生效”的静默失效 */
   border-radius: var(--app-radius-sm);
   color: var(--app-text-secondary);
   font-weight: 500;
@@ -462,7 +455,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 56px;
+  /* 高度归 glass.css（52px）单一来源，避免此处静默失效 */
   padding: 0 18px;
   border-bottom: 1px solid var(--app-border);
   background: var(--app-header);
@@ -481,10 +474,22 @@ html[data-theme] .title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.crumb-group {
+  flex: none;
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
-  font-weight: 500;
   letter-spacing: 0.02em;
+  opacity: 0.8;
+}
+.crumb-sep {
+  flex: none;
+  color: var(--app-text-muted);
+  opacity: 0.45;
 }
 .nav-toggle {
   display: none;
@@ -545,6 +550,14 @@ html[data-theme] .title {
     var(--app-primary-strong)
   );
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+/* 深色主题下压深头像底色，保证白色首字母 ≥4.5:1（原 78% white 叠加仅约 1.4:1） */
+html[data-theme="glass-dark"] .avatar {
+  background: linear-gradient(
+    160deg,
+    var(--app-primary-strong),
+    color-mix(in srgb, var(--app-primary-strong) 78%, black)
+  );
 }
 .user-meta {
   display: flex;

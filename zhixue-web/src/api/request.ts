@@ -3,6 +3,13 @@
 import axios from 'axios'
 import type { AxiosError, AxiosRequestConfig, AxiosResponse } from 'axios'
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /** 视图已用内联错误块呈现时置 true，跳过全局 toast，避免重复提示 */
+    silent?: boolean
+  }
+}
+
 /** 契约 1.1 统一响应包装 */
 export interface ApiResponse<T = unknown> {
   code: number
@@ -23,11 +30,31 @@ export interface PageResult<T> {
 export class ApiError extends Error {
   constructor(
     public readonly code: number,
-    message: string
+    message: string,
+    /** 后端 x-trace-id：便于把一次用户报错对应到服务端日志 */
+    public readonly traceId?: string
   ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+/** 兼容 AxiosHeaders 实例与普通对象两种响应头形态 */
+function traceIdOf(headers: unknown): string | undefined {
+  if (!headers || typeof headers !== 'object') return undefined
+  const get = (headers as { get?: (name: string) => unknown }).get
+  const viaGet = typeof get === 'function' ? get.call(headers, 'x-trace-id') : undefined
+  if (typeof viaGet === 'string' && viaGet) return viaGet
+  const record = headers as Record<string, unknown>
+  const raw = record['x-trace-id'] ?? record['traceId'] ?? record['trace-id']
+  return typeof raw === 'string' && raw ? raw : undefined
+}
+
+/** 优先 SPA 软导航：保留路由上下文与未提交表单；动态引入避免与 router/index.ts 循环依赖 */
+function navigate(path: string) {
+  import('../router')
+    .then(({ default: router }) => router.replace(path))
+    .catch(() => window.location.assign(path))
 }
 
 const request = axios.create({
@@ -54,7 +81,7 @@ function redirectToLogin(message: string) {
   if (window.location.pathname.startsWith('/login')) return
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
   const redirect = current.startsWith('/') ? current : ''
-  window.location.assign(redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login')
+  navigate(redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login')
 }
 
 // 响应拦截只处理 HTTP/网络层错误，业务 code 交给 unwrap 统一判定，避免两处逻辑漂移
@@ -66,13 +93,16 @@ request.interceptors.response.use(
     const message =
       (body && typeof body === 'object' && body.message) ||
       (error.code === 'ECONNABORTED' ? '请求超时，请稍后重试' : '网络异常，请检查服务是否已启动')
+    const traceId = traceIdOf(error.response?.headers)
+    // 视图已用内联错误块呈现时传 { silent: true }，避免 toast + 内联重复提示
+    const silent = Boolean(error.config?.silent)
 
     if (code === 40100) {
       redirectToLogin(message)
-    } else {
+    } else if (!silent) {
       ElMessage.error(message)
     }
-    return Promise.reject(new ApiError(code, message))
+    return Promise.reject(new ApiError(code, message, traceId))
   }
 )
 
@@ -87,7 +117,7 @@ async function unwrap<T>(promise: Promise<AxiosResponse<ApiResponse<T>>>): Promi
     redirectToLogin(body.message || '登录已过期，请重新登录')
   }
   if (body.code !== 0) {
-    throw new ApiError(body.code, body.message || '请求失败')
+    throw new ApiError(body.code, body.message || '请求失败', traceIdOf(res.headers))
   }
   return body.data
 }

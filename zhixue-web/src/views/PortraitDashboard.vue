@@ -10,7 +10,7 @@
       <div class="head-actions">
         <span class="sample-chip">样本量 {{ portrait?.totalPractice ?? 0 }}</span>
         <el-button :loading="loading" @click="load">刷新</el-button>
-        <el-button type="primary" @click="router.push('/diagnosis')">进入诊断</el-button>
+        <el-button @click="router.push('/diagnosis')">进入诊断</el-button>
       </div>
     </div>
 
@@ -26,33 +26,61 @@
       </template>
 
       <div class="dash">
-        <el-card class="c12 hero-card" shadow="never">
+        <el-card class="c12 hero-card is-raised" shadow="never">
           <div class="hero-top">
             <div>
-              <div class="hero-eyebrow">掌握概况 · 截至 {{ portrait?.statDate || "—" }}</div>
+              <div class="hero-eyebrow">
+                掌握概况 · 截至 {{ portrait?.statDate || "—" }}
+                <el-tooltip placement="bottom-start" trigger="click" :show-after="0">
+                  <template #content>
+                    <div class="caveat-pop">
+                      综合掌握取五维均值；正确率为前端估算（1 − 已确认错题 / 总练习），非后端口径，不用于结项/答辩；样本充分度按 20 次展示参考，非算法阈值。
+                    </div>
+                  </template>
+                  <button type="button" class="caveat-btn" aria-label="查看口径说明">
+                    <Info :size="13" />
+                  </button>
+                </el-tooltip>
+              </div>
               <h3 class="hero-title">{{ conclusionText }}</h3>
-              <p class="hero-note">
-                综合掌握取五维均值；正确率为前端估算（1 - 已确认错题/总练习），非后端口径，不用于结项/答辩；样本充分度按 20 次展示参考，非算法阈值。
-              </p>
             </div>
             <el-button type="primary" @click="router.push(primaryTo)">{{ primaryLabel }}</el-button>
           </div>
+          <div class="hero-mastery">
+            <div class="hero-mastery-head">
+              <span class="hero-mastery-label">综合掌握度</span>
+              <strong class="hero-mastery-value">
+                {{ hasMastery ? masteryPct : "—" }}<small v-if="hasMastery">%</small>
+              </strong>
+            </div>
+            <MetricBar
+              label="综合掌握度"
+              hide-label
+              :value="hasMastery ? masteryPct : null"
+              :target="70"
+              :danger-below="45"
+            />
+          </div>
+
           <div class="baseline-grid">
-            <div class="baseline-row">
-              <span class="baseline-name">掌握度</span>
-              <span class="baseline-track"><i class="mastery" :style="{ width: masteryPct + '%' }"></i></span>
-              <span class="baseline-value">{{ masteryPct }}%</span>
-            </div>
-            <div class="baseline-row">
-              <span class="baseline-name">作答正确率（估算）</span>
-              <span class="baseline-track"><i class="accuracy" :style="{ width: accuracyPct + '%' }"></i></span>
-              <span class="baseline-value">{{ accuracyText }}</span>
-            </div>
-            <div class="baseline-row">
-              <span class="baseline-name">样本充分度</span>
-              <span class="baseline-track"><i class="sample" :style="{ width: samplePct + '%' }"></i></span>
-              <span class="baseline-value">{{ samplePct }}%</span>
-            </div>
+            <MetricBar
+              label="作答正确率（估算）"
+              :value="hasSamples ? accuracyPct : null"
+              :target="60"
+              :danger-below="45"
+              :caption="'口径：1 − 已确认错题 / 总练习'"
+            />
+          </div>
+
+          <div class="confidence">
+            <div class="confidence-title">数据可信度 <span>（不是分数）</span></div>
+            <MetricBar
+              label="样本充分度"
+              :value="samplePct"
+              tone="neutral"
+              :display-value="`${portrait?.totalPractice ?? 0} / 20 次`"
+              :caption="samplePct >= 100 ? '样本充足，薄弱点排名可参考' : '样本积累中，结论仅供参考'"
+            />
           </div>
           <div class="hero-stats">
             <span>训练样本 {{ portrait?.totalPractice ?? 0 }} 次</span>
@@ -81,7 +109,7 @@
               <span class="cap-value">{{ row.display }}</span>
             </div>
           </div>
-          <el-empty v-else description="暂无维度配置" :image-size="64" />
+          <BrandEmpty v-else description="暂无维度配置" />
           <div v-if="hasEmptyDimension" class="chart-note">灰色维度暂无样本，按 0 展示，不代表能力缺失。</div>
           <table class="sr-only">
             <caption>五维能力分数</caption>
@@ -119,9 +147,9 @@
               </div>
             </button>
           </div>
-          <el-empty v-else description="知识点累计作答不少于 3 次后进入薄弱项排名。" :image-size="56">
+          <BrandEmpty v-else description="知识点累计作答不少于 3 次后进入薄弱项排名。">
             <el-button link type="primary" @click="router.push('/diagnosis')">开始诊断</el-button>
-          </el-empty>
+          </BrandEmpty>
         </el-card>
 
         <el-card class="c7" shadow="never">
@@ -135,7 +163,7 @@
               <span class="cap-value">{{ row.count }} 次</span>
             </div>
           </div>
-          <el-empty v-else description="暂无错因分布数据" :image-size="64" />
+          <BrandEmpty v-else description="暂无错因分布数据" />
         </el-card>
 
         <el-card class="c5 insight" shadow="never">
@@ -174,7 +202,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { Info } from "@lucide/vue";
 import PageState from "../components/PageState.vue";
+import BrandEmpty from "../components/BrandEmpty.vue";
+import MetricBar from "../components/MetricBar.vue";
 import { getPortrait, type Portrait } from "../api/portrait";
 import { listCourses, type DimensionDef } from "../api/course";
 
@@ -201,6 +232,10 @@ const sampleSufficient = computed(() => (portrait.value?.totalPractice ?? 0) >= 
 const hasEmptyDimension = computed(() =>
   dimensionDefs.value.some((def) => portrait.value?.dimensionScores?.[def.key] == null)
 );
+const hasMastery = computed(() =>
+  Object.values(portrait.value?.dimensionScores ?? {}).some((value) => typeof value === "number")
+);
+const hasSamples = computed(() => (portrait.value?.totalPractice ?? 0) > 0);
 
 const masteryPct = computed(() => {
   const values = Object.values(portrait.value?.dimensionScores ?? {}).filter(
@@ -218,10 +253,6 @@ const accuracyPct = computed(() => {
   return Math.max(0, Math.min(100, Math.round((1 - errors / total) * 100)));
 });
 
-const accuracyText = computed(() =>
-  (portrait.value?.totalPractice ?? 0) > 0 ? `${accuracyPct.value}%` : "—"
-);
-
 const samplePct = computed(() => Math.min(100, Math.round(((portrait.value?.totalPractice ?? 0) / 20) * 100)));
 
 const dimensionRows = computed(() =>
@@ -233,7 +264,7 @@ const dimensionRows = computed(() =>
       name: def.name,
       pct,
       display: typeof raw === "number" ? `${pct}%` : "暂无样本",
-      level: typeof raw !== "number" ? "empty" : pct < 45 ? "crit" : pct < 60 ? "low" : ""
+      level: typeof raw !== "number" ? "empty" : pct < 45 ? "crit" : ""
     };
   })
 );
@@ -346,7 +377,8 @@ onMounted(load);
 .dash {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 16px;
+  /* 内紧外松：卡间大于卡内行距，卡片才成"块"而不是散落的白片（V1.1 §3.3） */
+  gap: 20px;
 }
 .c4 { grid-column: span 4; }
 .c5 { grid-column: span 5; }
@@ -356,7 +388,7 @@ onMounted(load);
 .hero-card :deep(.el-card__body) {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 .hero-top {
   display: flex;
@@ -365,8 +397,39 @@ onMounted(load);
   gap: 16px;
 }
 .hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
+}
+/* 口径说明很重要，但不该占据 hero 的视觉重心：收进就近可点 tooltip（V1.1 §4.1） */
+.caveat-btn {
+  display: inline-grid;
+  place-items: center;
+  /* 视觉 18px，触控 44×44（负 margin 抵消占位，避免把 eyebrow 行撑高） */
+  width: 44px;
+  height: 44px;
+  margin: -13px;
+  padding: 0;
+  border: none;
+  border-radius: var(--app-radius-full);
+  background: none;
+  color: var(--app-text-muted);
+  cursor: pointer;
+  transition: color var(--app-dur-fast) var(--app-ease-standard);
+}
+.caveat-btn:hover {
+  color: var(--app-text);
+}
+.caveat-btn:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.caveat-pop {
+  max-width: 320px;
+  font-size: var(--app-fs-xs);
+  line-height: 1.65;
 }
 .hero-title {
   margin: 8px 0;
@@ -374,48 +437,55 @@ onMounted(load);
   line-height: 1.32;
   color: var(--app-text);
 }
-.hero-note {
-  margin: 0;
+.hero-mastery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 0 4px;
+}
+.hero-mastery-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.hero-mastery-label {
   color: var(--app-text-secondary);
-  font-size: var(--app-fs-xs);
-  line-height: 1.6;
+  font-size: var(--app-fs-sm);
+}
+.hero-mastery-value {
+  color: var(--app-text);
+  font-size: var(--app-fs-hero);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.hero-mastery-value small {
+  margin-left: 2px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-md);
+  font-weight: 500;
 }
 .baseline-grid {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-.baseline-row {
-  display: grid;
-  grid-template-columns: 96px 1fr 56px;
-  align-items: center;
   gap: 12px;
 }
-.baseline-name {
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
+.confidence {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-hairline);
 }
-.baseline-track {
-  height: 8px;
-  border-radius: var(--app-radius-full);
-  background: var(--app-surface-muted);
-  overflow: hidden;
-}
-.baseline-track i {
-  display: block;
-  height: 100%;
-  border-radius: var(--app-radius-full);
-}
-.baseline-track i.mastery { background: var(--app-primary); }
-.baseline-track i.accuracy { background: var(--app-success); }
-/* 样本充分度是信息性指标，高值不应显示为警告色 */
-.baseline-track i.sample { background: var(--app-info); }
-.baseline-value {
-  text-align: right;
-  color: var(--app-text);
+.confidence-title {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
   font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  font-size: var(--app-fs-sm);
+}
+.confidence-title span {
+  font-weight: 400;
 }
 .hero-stats {
   display: flex;
@@ -466,7 +536,7 @@ onMounted(load);
   height: 100%;
   border-radius: var(--app-radius-full);
   background: var(--app-primary);
-  transition: width 0.9s var(--app-ease-standard);
+  transition: width var(--app-dur-chart) var(--app-ease-emphasized);
 }
 .cap-value {
   text-align: right;
@@ -474,13 +544,11 @@ onMounted(load);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.cap-row.low .cap-track i { background: var(--app-warning); }
 .cap-row.crit .cap-track i { background: var(--app-danger); }
 .cap-row.empty .cap-track i { background: var(--app-border-strong); }
 .cap-row.empty .cap-value { color: var(--app-text-muted); }
+/* 规范 §3.4：同一系列同一颜色，长度已编码大小，删除按 DOM 顺序取色 */
 .error-row .cap-track i { background: color-mix(in srgb, var(--app-primary) 72%, var(--app-text-muted)); }
-.error-row:nth-child(1) .cap-track i { background: var(--app-danger); }
-.error-row:nth-child(2) .cap-track i { background: var(--app-warning); }
 .chart-note {
   margin-top: 12px;
   color: var(--app-text-muted);
@@ -494,6 +562,8 @@ onMounted(load);
 }
 .weak-item {
   width: 100%;
+  /* 触控目标下限 44px：内容实测 43.x，靠内容撑高度会卡在边界（WCAG 2.5.5） */
+  min-height: 44px;
   padding: 0;
   border: none;
   background: none;
@@ -630,16 +700,40 @@ onMounted(load);
   white-space: nowrap;
   border: 0;
 }
+@media (prefers-reduced-motion: no-preference) {
+  .dash > .el-card {
+    animation: dash-rise var(--app-dur-slow) var(--app-ease-emphasized) both;
+  }
+  .dash > .el-card:nth-child(2) { animation-delay: 40ms; }
+  .dash > .el-card:nth-child(3) { animation-delay: 80ms; }
+  .dash > .el-card:nth-child(4) { animation-delay: 120ms; }
+  .dash > .el-card:nth-child(5) { animation-delay: 160ms; }
+  .dash > .el-card:nth-child(6) { animation-delay: 200ms; }
+}
+@keyframes dash-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
-@media (max-width: 1080px) {
+@media (max-width: 1024px) {
   .c4, .c5, .c7, .c8, .c12 { grid-column: span 12; }
 }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .page-head { flex-direction: column; align-items: flex-start; }
   .dash { grid-template-columns: minmax(0, 1fr) !important; }
   .dash > .el-card { grid-column: 1 / -1 !important; }
   .c4, .c5, .c7, .c8, .c12 { grid-column: span 1; }
   .weak-head { align-items: flex-start; }
   .weak-name { white-space: normal; overflow-wrap: anywhere; }
+  /* 移动端：结论行不再与 CTA 抢同一行，标题降一号，避免 3 行巨字 */
+  .hero-top { flex-direction: column; align-items: stretch; gap: var(--app-space-3); }
+  .hero-title { font-size: var(--app-fs-lg); line-height: 1.35; margin: var(--app-space-2) 0 0; }
+  .hero-top > .el-button { align-self: flex-start; }
 }
 </style>

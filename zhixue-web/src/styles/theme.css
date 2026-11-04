@@ -132,11 +132,13 @@ html[data-theme="glass-dark"] {
   --app-space-5: 20px;
   --app-space-6: 24px;
   --app-space-8: 32px;
-  --app-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --app-shadow-sm: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
-  --app-shadow-md: 0 4px 12px rgba(16, 24, 40, 0.06), 0 2px 4px rgba(16, 24, 40, 0.04);
-  --app-shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.08);
-  --app-shadow-hover: 0 6px 16px rgba(16, 24, 40, 0.08);
+  /* 三层高度（V1.1 §3.5）：卡片需真实浮起，否则整页"平铺"。
+     旧值 alpha 仅 0.04–0.08，浅色底上几乎不可见，是页面发平的直接原因。 */
+  --app-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --app-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 5px 14px -8px rgba(16, 24, 40, 0.14);
+  --app-shadow-md: 0 1px 2px rgba(16, 24, 40, 0.05), 0 14px 32px -16px rgba(16, 24, 40, 0.22);
+  --app-shadow-lg: 0 2px 4px rgba(16, 24, 40, 0.05), 0 24px 56px -20px rgba(16, 24, 40, 0.26);
+  --app-shadow-hover: 0 1px 2px rgba(16, 24, 40, 0.05), 0 16px 36px -16px rgba(16, 24, 40, 0.24);
   --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-primary) 22%, transparent);
   --app-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --app-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
@@ -144,6 +146,8 @@ html[data-theme="glass-dark"] {
   --app-dur-base: 180ms;
   --app-dur-slow: 260ms;
   --app-dur-page: 320ms;
+  /* 图表首帧：只播一次（裁决 §3.8） */
+  --app-dur-chart: 400ms;
   --app-nav-width: 232px;
   --app-page-max: 1320px;
 }
@@ -216,7 +220,9 @@ body {
   margin: 0;
   background: var(--app-bg);
   color: var(--app-text);
-  font-family: "Inter", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+  /* 单一字体栈（裁决 §3.9）：拉丁优先 Inter，中文走系统黑体，避免两套栈打架 */
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "HarmonyOS Sans SC",
+    "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -334,15 +340,24 @@ a {
     border-color var(--app-dur-base) var(--app-ease-standard);
 }
 
-.el-card__header {
-  border-bottom: 1px solid var(--app-divider);
-  padding: var(--app-space-4) var(--app-space-5);
-  color: var(--app-text);
-  font-weight: 600;
+/* 卡片层级（V1.1 §3.5）：同页只允许一张 is-raised，其余为默认档。
+   层级靠"高度 + 内距 + 标题字号"三件事共同表达，不靠颜色。 */
+.el-card.is-raised {
+  box-shadow: var(--app-shadow-md);
+}
+.el-card.is-raised .el-card__body {
+  padding: var(--app-space-6);
+}
+.el-card.is-sunken {
+  background: var(--app-surface-muted);
+  box-shadow: none;
 }
 
-.el-card__body {
-  padding: var(--app-space-5);
+.el-card__header {
+  border-bottom: 1px solid var(--app-divider);
+  color: var(--app-text);
+  font-weight: 600;
+  /* 内边距归 glass.css 单一来源（14px/16px），此处不再声明，避免被高特异性规则静默覆盖 */
 }
 
 .el-button {
@@ -429,9 +444,9 @@ a {
     box-shadow: var(--app-shadow-md);
   }
 
+  /* 规范 §3.8：非交互元素禁止位移，仅保留阴影提示 */
   .main .stat-card:hover,
   .main .summary-card:hover {
-    transform: translateY(-2px);
     box-shadow: var(--app-shadow-hover);
   }
 

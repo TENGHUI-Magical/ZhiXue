@@ -310,6 +310,7 @@ const reset = () => {
 };
 
 const clearFields = () => {
+  revealSeq += 1;
   loading.value = false;
   answerLoading.value = false;
   submitting.value = false;
@@ -330,6 +331,7 @@ const clearFields = () => {
 };
 
 let loadSeq = 0;
+let revealSeq = 0;
 let submitToken = "";
 let submitTokenKey = "";
 
@@ -425,14 +427,20 @@ const load = async () => {
 
 const reveal = async () => {
   if (!canReveal.value) return;
+  const seq = ++revealSeq;
+  const qId = currentQId.value;
   answerLoading.value = true;
   try {
-    answer.value = await getQuestionAnswer(currentQId.value);
+    const data = await getQuestionAnswer(qId);
+    // 快速切题/关闭重开时丢弃旧响应，避免把上一题的答案写回当前抽屉
+    if (seq !== revealSeq || qId !== currentQId.value) return;
+    answer.value = data;
     revealed.value = true;
   } catch (e) {
+    if (seq !== revealSeq) return;
     ElMessage.error((e as Error).message || "参考答案加载失败");
   } finally {
-    answerLoading.value = false;
+    if (seq === revealSeq) answerLoading.value = false;
   }
 };
 

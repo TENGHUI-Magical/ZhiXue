@@ -751,8 +751,10 @@ try {
   await open(page, '/today')
   await checkNext('今日：三张指标卡', async () => {
     const metricCount = await page.locator('.metric-card').count()
-    const emptyText = await page.locator('.due-card .due-empty').innerText().catch(() => '')
-    return metricCount === 3 && emptyText.includes('暂无到期复习')
+    // 空态已升级为 BrandEmpty：断言"说清原因 + 给出动作"，比只认旧文案更强
+    const emptyText = await page.locator('.due-card .brand-empty').innerText().catch(() => '')
+    const emptyAction = await page.locator('.due-card .brand-empty button').count()
+    return metricCount === 3 && emptyText.includes('到期') && emptyAction === 1
   })
   dueReviewsMock = defaultDueReviews
   check('今日：无横向溢出', await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
@@ -787,8 +789,8 @@ try {
   await checkNext('错题本：缺 qId 显示待关联', async () => (await page.getByText('待关联题目').count()) >= 1 && detailsOk)
 
   await open(page, '/portrait')
-  await checkNext('画像：同基线三条', async () => (await page.locator('.baseline-row').count()) === 3)
-  await checkNext('画像：正确率标注估算', async () => (await page.locator('.baseline-name').nth(1).innerText()).includes('估算'))
+  await checkNext('画像：同基线三条', async () => (await page.locator('.metric-bar').count()) === 3)
+  await checkNext('画像：正确率标注估算', async () => (await page.getByText('作答正确率（估算）').count()) >= 1)
   check('画像：三环已移除', await page.locator('.rings').count() === 0)
   await checkNext('画像：薄弱点可点击', async () => (await page.locator('button.weak-item').count()) >= 1)
   await checkNext('画像：结论含掌握度', async () => (await page.locator('.hero-title').innerText()).includes('掌握度'))
@@ -1371,7 +1373,7 @@ try {
     today: '.metric-card',
     diagnosis: '.upload-card, .page-head',
     'error-book': '.el-table__row',
-    portrait: '.baseline-row',
+    portrait: '.metric-bar',
     plan: '.day-card',
     'knowledge-graph': '.graph-node',
     practice: '.finder-card',

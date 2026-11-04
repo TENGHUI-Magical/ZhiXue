@@ -184,7 +184,7 @@
           </g>
         </svg>
         <div v-if="!visibleNodes.length" class="graph-empty">
-          <el-empty description="本章暂无知识点" :image-size="64" />
+          <BrandEmpty description="本章暂无知识点" />
         </div>
         <div class="graph-note">
           <template v-if="chapterFilter == null">
@@ -251,6 +251,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
+import BrandEmpty from "../components/BrandEmpty.vue";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import { DEFAULT_COURSE_ID, getRecommendations } from "../api/diagnosis";
 import {

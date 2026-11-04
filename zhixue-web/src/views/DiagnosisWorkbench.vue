@@ -107,7 +107,7 @@
               </el-radio>
             </el-radio-group>
           </div>
-          <el-empty v-else description="录入题干后开始知识点匹配" :image-size="72" />
+          <BrandEmpty v-else description="录入题干后开始知识点匹配" />
 
           <div v-if="selectedKpId" class="linked-question">
             <div class="label">关联题库题目（可选）</div>
@@ -153,6 +153,7 @@
                   <el-tag type="warning">{{ degradeLabel }}</el-tag>
                 </el-tooltip>
                 <el-tag v-if="blocked" type="danger">学术诚信拦截</el-tag>
+                <el-button v-if="explaining" size="small" @click="stopExplain">停止生成</el-button>
                 <el-button
                   type="primary"
                   :loading="explaining"
@@ -166,9 +167,28 @@
           </template>
 
           <el-skeleton v-if="explaining && !explainText" :rows="4" animated class="skeleton" />
-          <div v-else-if="explainText" class="explain-text">{{ explainText }}</div>
+          <div
+            v-else-if="explainText"
+            ref="explainBox"
+            class="explain-text"
+            aria-live="polite"
+          >{{ explainText }}</div>
           <ReviewStatus v-if="explainText" :result="reviewResult" :comment="reviewComment" />
-          <div v-else class="explain-empty">
+          <div
+            v-if="completed && !explaining && !errorMsg && !blocked"
+            class="explain-done"
+            role="status"
+          >
+            <div class="done-copy">
+              <strong>讲解已生成，错题已归档</strong>
+              <span>本次诊断已保存，可继续去错题本复盘或安排练习。</span>
+            </div>
+            <div class="done-actions">
+              <el-button type="primary" size="small" @click="goErrorBook">去错题本</el-button>
+              <el-button size="small" @click="goPlan">去周计划</el-button>
+            </div>
+          </div>
+          <div v-else-if="!explainText && !explaining" class="explain-empty">
             <p class="empty-title">确认知识点后可生成讲解</p>
             <div class="guide">
               <span><i>1</i>录入或上传题干</span>
@@ -276,6 +296,7 @@ import { ApiError } from "../api/request";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import ReviewStatus from "../components/ReviewStatus.vue";
 import { getQuestionDetail } from "../api/questions";
+import BrandEmpty from "../components/BrandEmpty.vue";
 import { listQuestionsByKp, type QuestionBrief } from "../api/course";
 import {
   DEFAULT_COURSE_ID,
@@ -343,11 +364,14 @@ const decisionType = computed(() => {
 
 const explaining = ref(false);
 const explainText = ref("");
+const explainBox = ref<HTMLElement | null>(null);
 const sources = ref<SourceRef[]>([]);
 const degraded = ref(false);
 const degradeLevel = ref("");
 const blocked = ref(false);
 const explainId = ref("");
+/** 仅收到 SSE done 才置 true：用户主动停止/中断不显示“已完成” */
+const completed = ref(false);
 const reviewResult = ref<"PASS" | "RETURN" | null>(null);
 const reviewComment = ref<string | null>(null);
 const logId = ref("");
@@ -537,6 +561,7 @@ const resetExplainState = () => {
   degradeLevel.value = "";
   blocked.value = false;
   explainId.value = "";
+  completed.value = false;
   reviewResult.value = null;
   reviewComment.value = null;
   latencyMs.value = 0;
@@ -647,6 +672,10 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
     }
     case "delta":
       explainText.value += String(payload.text ?? "");
+      // 流式长文自动跟随到底部（读屏由容器 aria-live 播报增量）
+      void nextTick(() => {
+        if (explainBox.value) explainBox.value.scrollTop = explainBox.value.scrollHeight;
+      });
       break;
     case "degraded":
       degraded.value = true;
@@ -654,6 +683,7 @@ const handleFrame = (event: string, payload: Record<string, unknown>) => {
       break;
     case "done":
       doneSeen = true;
+      completed.value = true;
       explainId.value = String(payload.explainId ?? explainId.value);
       latencyMs.value = Number(payload.latencyMs ?? 0);
       void loadRecommend();
@@ -680,7 +710,7 @@ const redirectIfUnauthorized = (raw: unknown) => {
   if (body?.code === 40100) {
     authExpired = true;
     localStorage.removeItem("satoken");
-    window.location.assign("/login");
+    void router.replace("/login");
     return true;
   }
   return false;
@@ -768,6 +798,14 @@ watch(
   },
   { immediate: true }
 );
+
+/** 用户主动中断流式讲解；abort 后 finally 会复位 explaining，不落错误提示 */
+const stopExplain = () => {
+  controller?.abort();
+};
+
+const goErrorBook = () => router.push("/error-book");
+const goPlan = () => router.push("/plan");
 
 /** 创建并确认错题记录：讲解必须基于 CONFIRMED 记录（契约前置）。
  *  create 成功但 confirm 失败时复用同一 DRAFT 重试确认，避免每次失败都多落一条孤儿草稿；
@@ -1038,6 +1076,36 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
   min-height: 80px;
 }
+.explain-done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--app-success) 35%, var(--app-border));
+  border-radius: var(--app-radius-md);
+  background: color-mix(in srgb, var(--app-success) 8%, var(--app-surface));
+}
+.done-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.done-copy strong {
+  font-size: var(--app-fs-sm);
+}
+.done-copy span {
+  font-size: var(--app-fs-xs);
+  color: var(--app-text-muted);
+}
+.done-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .explain-empty {
   margin-top: 10px;
   padding: 20px 4px 8px;
@@ -1229,7 +1297,7 @@ onBeforeUnmount(() => {
     gap: var(--app-space-4);
   }
 }
-@media (max-width: 767px) {
+@media (max-width: 768px) {
   .workspace-row {
     row-gap: 12px;
   }
