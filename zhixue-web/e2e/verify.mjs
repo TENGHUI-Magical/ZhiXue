@@ -180,7 +180,16 @@ const TEACHER = [['teacher-reviews','/teacher/reviews'],['teacher-class','/teach
 // ---------------- 启动与断言 ----------------
 // 只保留 Vite 依赖重优化相关行：首次挂载懒加载路由会触发整页 reload，是挂载超时的已知诱因
 const viteNotices = []
+const viteOutput = []
 let lastViteNoticeAt = Date.now()
+function recordViteOutput(chunk) {
+  for (const line of String(chunk).split(/\r?\n/)) {
+    const text = line.trim()
+    if (text) viteOutput.push(text)
+  }
+  if (viteOutput.length > 60) viteOutput.splice(0, viteOutput.length - 60)
+  captureViteNotice(chunk)
+}
 function captureViteNotice(chunk) {
   for (const line of String(chunk).split(/\r?\n/)) {
     const text = line.trim()
@@ -210,13 +219,19 @@ async function killTree(child) {
 async function ensureServer() {
   try {
     const res = await fetch(BASE, { signal: AbortSignal.timeout(1500) })
-    if (res.ok) return null
+    if (res.ok) {
+      // 并行会话可能占用同一端口：复用后对方退出会让本脚本出现 ERR_CONNECTION_REFUSED。
+      // 本地多次复跑用 E2E_PORT 指定独立端口；CI 是隔离 runner，默认端口可用。
+      console.log(`检测到 ${BASE} 已有服务：复用该进程（未由本脚本启动），端口冲突会污染结果`)
+      return null
+    }
   } catch { /* not running */ }
   const child = spawn('npm', ['run', 'dev', '--', '--port', PORT, '--strictPort'], {
     cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], shell: true
   })
-  child.stdout?.on('data', captureViteNotice)
-  child.stderr?.on('data', captureViteNotice)
+  child.stdout?.on('data', (chunk) => recordViteOutput(chunk))
+  child.stderr?.on('data', (chunk) => recordViteOutput(chunk))
+  child.on('exit', (code, signal) => console.log(`VITE 进程退出：code=${code} signal=${signal}`))
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 500))
     try {
@@ -228,12 +243,167 @@ async function ensureServer() {
   throw new Error('Vite 未能在 30s 内启动')
 }
 
+// 冷启动依赖预构建预算：只在浏览器打开前预取入口模块用，不是断言超时。
+// 冷缓存首访时 Vite 会阻塞模块请求直到依赖优化完成（负载高时可超过 Playwright 默认 30s 导航超时），
+// 因此把这段等待放到 Node 侧、用独立预算吸收，避免它落进 page.goto 的导航超时。
+const PREWARM_BUDGET_MS = Number(process.env.E2E_PREWARM_BUDGET_MS || 120000)
+const prewarmLog = []
+async function prewarmModules() {
+  const started = Date.now()
+  for (const target of ['/', '/src/main.ts', '/src/App.vue']) {
+    const t0 = Date.now()
+    try {
+      const res = await fetch(BASE + target, { signal: AbortSignal.timeout(PREWARM_BUDGET_MS) })
+      const body = await res.text()
+      prewarmLog.push(`${target} status=${res.status} bytes=${body.length} 耗时=${Date.now() - t0}ms`)
+    } catch (e) {
+      prewarmLog.push(`${target} 失败：${e.message} 耗时=${Date.now() - t0}ms`)
+    }
+    console.log('冷启动预取：', prewarmLog[prewarmLog.length - 1])
+  }
+  // 依赖优化完成以 VITE 日志为准：出现新日志后再等静默 3s（最多 60s）
+  const deadline = Date.now() + 60000
+  let lastLen = viteNotices.length
+  let lastChange = Date.now()
+  while (Date.now() < deadline) {
+    if (viteNotices.length !== lastLen) {
+      lastLen = viteNotices.length
+      lastChange = Date.now()
+    }
+    if (Date.now() - lastChange >= 3000) break
+    await sleep(300)
+  }
+  console.log(`冷启动预取完成：总耗时 ${Date.now() - started}ms，VITE 依赖优化日志 ${viteNotices.length} 条`)
+}
+
 const results = []
 function check(name, condition, detail = '') {
   results.push({ name, pass: !!condition, detail })
   if (!condition) console.log('FAIL:', name, detail)
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+// ---------------- 整页 reload 监控与失败现场 ----------------
+// load 只在文档级加载时触发，SPA 的 router.push 不会触发；用它区分“整页 reload”与普通路由跳转
+const pageStates = []
+const reloadEvents = []
+let currentStage = '启动'
+function setStage(name) {
+  currentStage = name
+  console.log('阶段：', name)
+}
+
+function watchPage(page, label) {
+  const state = {
+    page, label, loads: [], lastLoadAt: 0, lastNavAt: 0,
+    watching: false, violations: [], consoleErrors: [], pageErrors: []
+  }
+  page.on('load', () => {
+    const record = { at: Date.now(), iso: new Date().toISOString(), url: page.url(), phase: currentStage }
+    state.loads.push(record)
+    state.lastLoadAt = record.at
+    // 用 Navigation Timing 区分「整页 reload」与「普通导航」（同 URL 重新 goto 不算 reload）
+    page.evaluate(() => {
+      const nav = performance.getEntriesByType('navigation')[0]
+      return nav ? nav.type : ''
+    }).then((type) => { record.navType = type }).catch(() => {})
+    if (state.watching) {
+      state.violations.push(record)
+      reloadEvents.push(record)
+    }
+  })
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) state.lastNavAt = Date.now()
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') state.consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => state.pageErrors.push(error.message))
+  pageStates.push(state)
+  return state
+}
+
+function pageStateOf(page) {
+  return pageStates.find((state) => state.page === page) || watchPage(page, '未登记页面')
+}
+
+/** 断言期间发生整页 reload：该段直接判红（重试吸收不能当成没事） */
+function finalizeReloadViolations() {
+  for (const state of pageStates) {
+    if (!state.violations.length) continue
+    check(
+      `运行期整页 reload：${state.label}`,
+      false,
+      `共 ${state.violations.length} 次：${state.violations.map((v) => `${v.iso}@${v.url}（阶段：${v.phase}）`).join(' | ')}`
+    )
+  }
+}
+
+async function capturePageState(page) {
+  return page.evaluate(() => {
+    const main = document.querySelector('#main-content')
+    return {
+      url: location.href,
+      readyState: document.readyState,
+      domNodes: document.querySelectorAll('*').length,
+      mainChildren: main ? main.children.length : -1,
+      skeleton: document.querySelectorAll('.el-skeleton').length,
+      text: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 300)
+    }
+  }).catch((err) => ({ evalError: err.message }))
+}
+
+/** 失败也要留下现场：partial 报告 + failure.png + 卡住的路由/DOM/控制台/导航序列 */
+// 从脚本自身抽取断言名，得到「未跑完的用例清单」（断言名是字面量，可直接静态收集）
+const staticCaseNames = [...new Set([...fs.readFileSync(new URL(import.meta.url), 'utf8').matchAll(/check\('([^']+)'/g)].map((m) => m[1]))]
+async function writeFailureArtifacts(error) {
+  const pages = []
+  for (const state of pageStates) {
+    if (state.page.isClosed()) continue
+    pages.push({
+      label: state.label,
+      ...(await capturePageState(state.page)),
+      navigations: state.loads.map((r) => `${r.iso} ${r.url}（${r.phase}）`),
+      reloadViolations: state.violations,
+      consoleErrors: state.consoleErrors.slice(-10),
+      pageErrors: state.pageErrors.slice(-10)
+    })
+  }
+  const report = {
+    base: BASE,
+    partial: true,
+    failedAt: new Date().toISOString(),
+    stage: currentStage,
+    error: String((error && error.stack) || error),
+    completedChecks: results.map((r) => r.name),
+    passedChecks: results.filter((r) => r.pass).map((r) => r.name),
+    failedChecks: results.filter((r) => !r.pass),
+    notRunChecks: staticCaseNames.filter((name) => !results.some((r) => r.name === name)),
+    staticCaseCount: staticCaseNames.length,
+    notRunNote: `阶段「${currentStage}」之后的断言未执行（以阶段标记为界；清单来自脚本内断言名静态收集）`,
+    vite: { output: viteOutput.slice(-20), notices: viteNotices.slice(-20), prewarm: prewarmLog.slice(-5) },
+    reloadViolations: reloadEvents.map((v) => `${v.iso} ${v.url}（${v.phase}）`),
+    pages
+  }
+  fs.writeFileSync(path.join(OUT, 'e2e-report.json'), JSON.stringify(report, null, 2), 'utf8')
+  const target = pageStates.map((state) => state.page).find((page) => !page.isClosed())
+  if (target) {
+    await target.screenshot({ path: path.join(OUT, 'failure.png'), fullPage: true })
+      .catch(async () => target.screenshot({ path: path.join(OUT, 'failure.png') }).catch(() => {}))
+  }
+  console.log('FAIL-REPORT:', path.join(OUT, 'e2e-report.json'))
+  console.log('FAIL-SHOT:', path.join(OUT, 'failure.png'))
+}
+
+// 兜底：任何一步卡死也要留下现场（CI 的 job 级超时不会产出 artifact）
+const WATCHDOG_MS = Number(process.env.E2E_WATCHDOG_MS || 25 * 60 * 1000)
+setTimeout(() => {
+  ;(async () => {
+    console.error(`E2E 看门狗触发：${WATCHDOG_MS}ms 未结束，当前阶段=${currentStage}`)
+    await writeFailureArtifacts(new Error(`看门狗超时：阶段「${currentStage}」卡住超过 ${WATCHDOG_MS}ms`)).catch(() => {})
+    process.exit(1)
+  })()
+}, WATCHDOG_MS).unref?.()
 
 /** 轮询等待条件成立：冷启动/首次编译时固定 sleep 不可靠 */
 async function waitFor(fn, timeout = 12000, interval = 250) {
@@ -251,79 +421,144 @@ async function waitFor(fn, timeout = 12000, interval = 250) {
   return false
 }
 
-/**
- * 打开一次页面并等到路由内容挂载、骨架屏结束；失败时把页面现场带出来。
- * 返回 true 表示挂载之后又发生了整页 reload（Vite 依赖预构建完成时会这样），调用方需重开。
- */
-async function openOnce(page, pathname) {
+/** 轮询直到条件成立，并带回等待耗时与实际值（超时也返回，便于写进 FAIL detail） */
+async function waitForDetail(fn, timeout = 12000, interval = 250) {
   const started = Date.now()
-  const navs = []
-  const pageErrors = []
-  const onNav = (frame) => {
-    if (frame === page.mainFrame()) navs.push(`${Date.now() - started}ms ${new URL(frame.url()).pathname}`)
+  let last
+  while (Date.now() - started < timeout) {
+    try {
+      last = await fn()
+      if (last) return { ok: true, waitedMs: Date.now() - started, value: last }
+    } catch (e) {
+      last = e.message
+    }
+    await sleep(interval)
   }
-  const onError = (error) => pageErrors.push(error.message)
-  page.on('framenavigated', onNav)
-  page.on('pageerror', onError)
-  let reason = ''
-  try {
-    await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
-    // 单一真实信号：路由组件根节点出现。reload 期间 waitForFunction 会跨导航重试，
-    // 不必再单独等 #main-content（它只是外壳，壳在而内容空正是懒加载/重载的典型形态）。
-    await page.waitForFunction(
-      () => {
-        const main = document.querySelector('#main-content')
-        return !!main && !!main.querySelector('.page, .state-code, .el-result, .el-empty')
-      },
-      null,
-      { timeout: 30000 }
-    )
-    await page
-      .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
-      .catch(() => {})
-    await sleep(150)
-    // 确认文档在 600ms 内没有被重建：依赖预构建完成的 reload 会把已挂载的 DOM 整个换掉
-    const docId = await page.evaluate(() => performance.timeOrigin).catch(() => null)
-    await sleep(600)
-    return !(await page.evaluate((origin) => performance.timeOrigin === origin, docId).catch(() => false))
-  } catch (e) {
-    reason = e.message
-    const state = await page.evaluate(() => {
-      const main = document.querySelector('#main-content')
-      return {
-        url: location.href,
-        title: document.title,
-        readyState: document.readyState,
-        hasMain: !!main,
-        mainChildren: main ? main.children.length : -1,
-        text: (document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 200),
-        skeleton: document.querySelectorAll('.el-skeleton').length
-      }
-    }).catch((err) => ({ evalError: err.message }))
-    for (const line of viteNotices.slice(-5)) console.error('VITE:', line)
-    throw new Error(
-      `页面未挂载：${pathname}（${Date.now() - started}ms） reason=${reason} ` +
-      `state=${JSON.stringify(state)} nav=${JSON.stringify(navs.slice(-5))} ` +
-      `errors=${JSON.stringify(pageErrors.slice(-3))}`
-    )
-  } finally {
-    page.off('framenavigated', onNav)
-    page.off('pageerror', onError)
-  }
+  return { ok: false, waitedMs: Date.now() - started, value: last }
 }
 
-/** 打开页面；若挂载后又被依赖预构建的 reload 打断，重开一次（最多 3 次）后才交给断言 */
+const OPEN_QUIET_MS = 800     // 最后一次导航/加载后需静默的时长（事件驱动，不用固定检测窗）
+const OPEN_MAX_ATTEMPTS = 3   // 重开上限（与之前一致）
+const OPEN_MAX_RELOADS = 2    // 单次 open 允许吸收的整页 reload 上限：只够冷缓存依赖预构建那一次
+
+/** 等文档 readyState=complete，且最后一次导航后静默 OPEN_QUIET_MS */
+async function waitDocumentQuiet(page, state, timeout = 15000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
+    const ready = await page.evaluate(() => document.readyState === 'complete').catch(() => false)
+    const last = Math.max(state.lastLoadAt, state.lastNavAt)
+    if (ready && Date.now() - last >= OPEN_QUIET_MS) return true
+    await sleep(100)
+  }
+  return false
+}
+
+/**
+ * 打开页面：挂载 + 骨架结束 + 文档静默。
+ * 冷缓存 Vite 依赖预构建会造成整页 reload：只允许在重开里吸收并记录次数/时间戳；
+ * 重开耗尽或 reload 超过上限 → 显式失败，绝不静默放行。
+ */
 async function open(page, pathname) {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    if (!(await openOnce(page, pathname))) return
+  const state = pageStateOf(page)
+  state.watching = false
+  const attempts = []
+  const reloads = []
+  let lastStable = false
+  for (let attempt = 1; attempt <= OPEN_MAX_ATTEMPTS; attempt++) {
+    const started = Date.now()
+    const startedIso = new Date(started).toISOString()
+    const attemptStart = state.loads.length
+    try {
+      await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
+      await page.waitForLoadState('load')
+    } catch (e) {
+      attempts.push({ attempt, startedIso, reloads: [], navError: String(e.message).split('\n')[0] })
+      console.log(`OPEN 导航失败：${pathname} 第 ${attempt} 次尝试：${String(e.message).split('\n')[0]}`)
+      await sleep(300)
+      continue
+    }
+    try {
+      // 单一真实信号：路由组件根节点出现。reload 期间 waitForFunction 会跨导航重试，
+      // 不必再单独等 #main-content（它只是外壳，壳在而内容空正是懒加载/重载的典型形态）。
+      await page.waitForFunction(
+        () => {
+          const main = document.querySelector('#main-content')
+          return !!main && !!main.querySelector('.page, .state-code, .el-result, .el-empty')
+        },
+        null,
+        { timeout: 30000 }
+      )
+      await page
+        .waitForFunction(() => !document.querySelector('.el-skeleton'), null, { timeout: 10000 })
+        .catch(() => {})
+    } catch (e) {
+      await sleep(100) // 等 load 事件里的 Navigation Timing 探测落定
+      // 挂载信号失败前已经发生的 reload 也必须计数，否则“挂载前刷 3 次”会被漏掉吞绿
+      const attemptReloads = state.loads.slice(attemptStart).filter((r) => r.navType === 'reload')
+      reloads.push(...attemptReloads)
+      reloadEvents.push(...attemptReloads)
+      attempts.push({ attempt, startedIso, reloads: attemptReloads.map((r) => r.iso), mountError: String(e.message).split('\n')[0] })
+      const pageState = await capturePageState(page)
+      for (const line of viteNotices.slice(-5)) console.error('VITE:', line)
+      throw new Error(
+        `页面未挂载：${pathname}（${Date.now() - started}ms） reason=${e.message} ` +
+        `reload=${reloads.length} 次（${reloads.map((r) => r.iso).join(', ')}） ` +
+        `state=${JSON.stringify(pageState)} load=${JSON.stringify(state.loads.slice(-5))} ` +
+        `errors=${JSON.stringify(state.pageErrors.slice(-3))}`
+      )
+    }
+    lastStable = await waitDocumentQuiet(page, state)
+    await sleep(100) // 等 load 事件里的 Navigation Timing 探测落定
+    // reload 判定用 Navigation Timing：type=reload 才算，重定向/重复 goto 不算
+    const attemptReloads = state.loads.slice(attemptStart).filter((r) => r.navType === 'reload')
+    attempts.push({ attempt, startedIso, reloads: attemptReloads.map((r) => r.iso) })
+    reloads.push(...attemptReloads)
+    reloadEvents.push(...attemptReloads)
+    if (lastStable && attemptReloads.length === 0) {
+      state.watching = true
+      return
+    }
+    if (attemptReloads.length) {
+      console.log(
+        `OPEN 重开：${pathname} 第 ${attempt} 次尝试检测到 ${attemptReloads.length} 次整页 reload（` +
+        `${attemptReloads.map((r) => r.iso).join(', ')}）`
+      )
+    }
+    if (reloads.length > OPEN_MAX_RELOADS) break
     await sleep(300)
   }
+  state.watching = true
+  throw new Error(
+    `页面反复整页 reload：${pathname}，${attempts.length} 次重开未拿到“零 reload 的稳定文档”；` +
+    `reload 共 ${reloads.length} 次（${reloads.map((r) => r.iso).join(', ')}）；` +
+    `最后一次加载后稳定=${lastStable}；attempts=${JSON.stringify(attempts)}`
+  )
 }
 
-/** 登录页不在 #main-content 内，单独等登录卡片 */
-async function openLogin(page) {
-  await page.goto(BASE + '/login', { waitUntil: 'domcontentloaded' })
+/** 登录页不在 #main-content 内，单独等登录卡片；pathname 供预热 /login 与带 redirect 的变体 */
+async function openLogin(page, pathname = '/login') {
+  const state = pageStateOf(page)
+  state.watching = false
+  const started = Date.now()
+  const attemptStart = state.loads.length
+  await page.goto(BASE + pathname, { waitUntil: 'domcontentloaded' })
+  await page.waitForLoadState('load')
   await page.waitForSelector('.login-page .login-card', { timeout: 30000 })
+  const stable = await waitDocumentQuiet(page, state)
+  await sleep(100)
+  // 登录页是最先打开的页面，冷启动 reload 与“挂载后自刷”都先落在这里，必须同样计数
+  const loginReloads = state.loads.slice(attemptStart).filter((r) => r.navType === 'reload')
+  reloadEvents.push(...loginReloads)
+  if (loginReloads.length) {
+    console.log(`OPEN 登录页 ${pathname} 检测到 ${loginReloads.length} 次整页 reload（${loginReloads.map((r) => r.iso).join(', ')}）`)
+  }
+  state.watching = true
+  if (loginReloads.length > OPEN_MAX_RELOADS || !stable) {
+    throw new Error(
+      `登录页反复整页 reload：${pathname}（${Date.now() - started}ms），reload 共 ${loginReloads.length} 次` +
+      `（${loginReloads.map((r) => r.iso).join(', ')}）；最后一次加载后稳定=${stable}`
+    )
+  }
   await sleep(150)
 }
 
@@ -448,6 +683,14 @@ async function newContext(browser, role, theme, viewport, options = {}) {
       await route.continue()
     }
   })
+  // 每个页面统一挂 reload 监控：open 期间允许重开吸收，open 返回后的整页 reload 一律判红
+  let pageNo = 0
+  const rawNewPage = ctx.newPage.bind(ctx)
+  ctx.newPage = async () => {
+    const page = await rawNewPage()
+    watchPage(page, `${role}/${theme}#${++pageNo}`)
+    return page
+  }
   return ctx
 }
 
@@ -561,30 +804,71 @@ async function axeScan(page) {
   throw lastError
 }
 
+/** 断言用到的所有页面路径：预热清单从这里派生，不再手工维护 */
+// 断言里 open() 实际打开的带参与别名路径（与断言同源）；新增断言路径时同步到此，
+// 覆盖率会打印“未覆盖 N”，漏掉就会在日志里暴露，而不是靠人工记忆。
+const EXTRA_ASSERTED_PATHS = ['/not-exist', '/knowledge-graph?kpId=KP0012', '/diagnosis?explainId=EXP004']
+function assertedPaths() {
+  return [...new Set([
+    ...STUDENT.map(([, pathname]) => pathname),
+    ...TEACHER.map(([, pathname]) => pathname),
+    '/teacher', '/403', '/404',
+    ...EXTRA_ASSERTED_PATHS
+  ])].sort()
+}
+// 登录页单独走 openLogin；redirect 变体也必须预热（守卫会带 redirect 回登录）
+const LOGIN_PATHS = ['/login', '/login?redirect=/teacher']
+
 /**
  * 预热路由：冷缓存 Vite 首访懒加载路由时会做依赖预构建，完成瞬间整页 reload。
  * reload 若落在断言期间，Playwright 读到的是空白/骨架 DOM（#55 图谱、#61 评阅队列均因此翻红）。
- * 正式断言前按学生/教师身份把会被断言的路由各访一遍，让 reload 消化在预热阶段。
+ * 预热清单由 assertedPaths() 派生，并打印覆盖率与捕获到的 reload 次数/时间戳。
  */
 async function warmUpRoutes() {
+  const asserted = assertedPaths()
+  const reloadStart = reloadEvents.length
   const pools = [
-    { role: 'STUDENT', paths: [...STUDENT.map(([, pathname]) => pathname), '/403', '/404'] },
-    { role: 'TEACHER', paths: ['/teacher', ...TEACHER.map(([, pathname]) => pathname)] }
+    { role: 'STUDENT', paths: asserted },
+    { role: 'TEACHER', paths: asserted },
+    { role: 'STUDENT', paths: LOGIN_PATHS, token: false, login: true }
   ]
-  for (const { role, paths } of pools) {
-    const ctx = await newContext(browser, role, 'glass', { width: 1440, height: 900 })
+  for (const pool of pools) {
+    const ctx = await newContext(browser, pool.role, 'glass', { width: 1440, height: 900 },
+      { token: pool.token !== false })
     const page = await ctx.newPage()
-    for (const pathname of paths) await open(page, pathname)
+    for (const pathname of pool.paths) {
+      if (pool.login) await openLogin(page, pathname)
+      else await open(page, pathname)
+    }
     await ctx.close()
   }
+  const warmReloads = reloadEvents.slice(reloadStart)
+  const covered = new Set(pools.flatMap((pool) => pool.paths))
+  const missing = [...asserted, ...LOGIN_PATHS].filter((pathname) => !covered.has(pathname))
+  console.log(
+    `预热覆盖：断言路径 ${asserted.length}/${asserted.length}，登录路径 ${LOGIN_PATHS.length}/${LOGIN_PATHS.length}` +
+    `，未覆盖 ${missing.length}${missing.length ? '（' + missing.join(', ') + '）' : ''}`
+  )
+  console.log(
+    `预热捕获整页 reload ${warmReloads.length} 次` +
+    (warmReloads.length
+      ? '：' + warmReloads.map((r) => `${r.iso} @${r.url}`).join(' | ')
+      : '（本轮冷缓存下 0 次 reload；预热未被触发的场景仍需保留统计输出）')
+  )
+  const viteReloads = viteNotices.filter((line) => /optimized dependencies changed|reloading/i.test(line)).length
+  console.log(
+    `VITE 日志报告 reload ${viteReloads} 次；页面 load 事件捕获 ${warmReloads.length} 次` +
+    `（落在下一次 goto 的首个 load 之前的那部分只计入 VITE 日志，用于交叉核对）`
+  )
   for (const line of viteNotices.slice(-10)) console.log('VITE 预热期：', line)
   // 预构建 reload 可能延续到预热末尾：等 VITE 日志静默 3s（最多 15s）再进入正式断言
   const settleStart = Date.now()
   while (Date.now() - lastViteNoticeAt < 3000 && Date.now() - settleStart < 15000) await sleep(300)
-  console.log(`预热完成：${pools.reduce((sum, pool) => sum + pool.paths.length, 0)} 条路由`)
 }
 
 const server = await ensureServer()
+setStage('冷启动预取')
+await prewarmModules()
 const browser = await chromium.launch({ channel: 'msedge', headless: true })
 
 // 单例复现模式只用于诊断；正常 npm run e2e 的全量用例与断言不变。
@@ -610,9 +894,11 @@ if (process.env.TEACHER_AXE_ONLY === '1') {
 
 try {
   // 冷缓存 Vite 的依赖预构建 reload 必须先被消化掉，否则会打断断言（见 warmUpRoutes 注释）
+  setStage('预热')
   await warmUpRoutes()
 
   // ---------- 学生桌面 ----------
+  setStage('学生桌面')
   const studentCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   const page = await studentCtx.newPage()
   const runtimeLogs = []
@@ -1066,6 +1352,7 @@ try {
     (await page.locator('.graph-note').innerText()).slice(0, 120))
 
   // ---------- 找题练习 ----------
+  setStage('找题练习')
   await open(page, '/practice')
   await checkNext('找题：搜索命中知识点', async () => {
     await page.locator('.finder-input input').fill('连接')
@@ -1251,6 +1538,7 @@ try {
   await unknownCtx.close()
 
   // ---------- 教师桌面 ----------
+  setStage('教师桌面')
   const teacherCtx = await newContext(browser, 'TEACHER', 'glass', { width: 1440, height: 900 })
   const tpage = await teacherCtx.newPage()
   await open(tpage, '/teacher')
@@ -1365,6 +1653,7 @@ try {
   await teacherCtx.close()
 
   // ---------- 移动端 ----------
+  setStage('移动端')
   const mobileCtx = await newContext(browser, 'STUDENT', 'glass', { width: 390, height: 844 })
   const mp = await mobileCtx.newPage()
   const MOBILE_READY = {
@@ -1385,10 +1674,18 @@ try {
     check(`移动端/${name}：无横向溢出`, !info.overflow)
     check(`移动端/${name}：触控≥44`, info.small === 0, `small=${info.small} ${info.sample.join(' | ')}`)
     if (name === 'knowledge-graph') {
-      // 页面重载期间 DOM 为空，直接读会得到 tags=0 并连锁超时；先等清单与跳转入口真正渲染（期望值不变）
-      await mp.waitForFunction(() => document.querySelectorAll('.node-tag').length >= 12, null, { timeout: 20000 })
-        .catch(() => {})
-      await mp.waitForSelector('.mobile-list-jump', { state: 'attached', timeout: 20000 }).catch(() => {})
+      // 页面重载期间 DOM 为空；先等清单与跳转入口真正渲染（期望值不变），超时把等待时长与实际值写进 FAIL detail
+      const tagWait = await waitForDetail(async () => {
+        const count = await mp.evaluate(() => document.querySelectorAll('.node-tag').length)
+        return count >= 12 ? { count } : 0
+      }, 20000)
+      const jumpWait = await waitForDetail(async () => {
+        const count = await mp.locator('.mobile-list-jump').count()
+        return count > 0 ? { count } : 0
+      }, 20000)
+      const tagCount = tagWait.ok ? tagWait.value.count : await mp.evaluate(() => document.querySelectorAll('.node-tag').length).catch(() => -1)
+      const jumpCount = jumpWait.ok ? jumpWait.value.count : await mp.locator('.mobile-list-jump').count().catch(() => -1)
+      const domState = tagWait.ok && jumpWait.ok ? null : await capturePageState(mp)
       check('移动端/图谱：390宽 scrollWidth 恒为390',
         await mp.evaluate(() => innerWidth === 390 && document.documentElement.scrollWidth === 390))
       const tagHeights = await mp.evaluate(() =>
@@ -1397,10 +1694,19 @@ try {
       check(
         '移动端/图谱：清单替代目标≥44',
         tagHeights.length >= 12 && tagHeights.every((h) => h >= 44),
-        `tags=${tagHeights.length} min=${tagHeights.length ? Math.min(...tagHeights) : 0}`
+        `tags=${tagHeights.length} min=${tagHeights.length ? Math.min(...tagHeights) : 0}` +
+        ` | 等待 ${tagWait.waitedMs}ms 期望≥12 实际=${tagCount}` +
+        ` | 跳转入口等待 ${jumpWait.waitedMs}ms 实际=${jumpCount}` +
+        `${domState ? ' | dom=' + JSON.stringify(domState) : ''}`
       )
-      const jumpBox = await mp.locator('.mobile-list-jump').boundingBox()
-      check('移动端/图谱：清单跳转≥44', !!jumpBox && jumpBox.height >= 44, JSON.stringify(jumpBox))
+      let jumpBox = null
+      let jumpError = ''
+      try {
+        jumpBox = await mp.locator('.mobile-list-jump').boundingBox()
+      } catch (e) {
+        jumpError = ` | boundingBox 失败：${e.message.split('\n')[0]}`
+      }
+      check('移动端/图谱：清单跳转≥44', !!jumpBox && jumpBox.height >= 44, `${JSON.stringify(jumpBox)}${jumpError}`)
 
       // 真实双指：用 CDP touch 模拟，避免合成 PointerEvent 的自欺
       const pinchCtx = await newContext(browser, 'STUDENT', 'glass',
@@ -1478,6 +1784,7 @@ try {
   await mobileCtx.close()
 
   // ---------- 教师移动端：触控与横向溢出 ----------
+  setStage('教师移动端')
   const teacherMobileCtx = await newContext(browser, 'TEACHER', 'glass', { width: 390, height: 844 })
   const tmp = await teacherMobileCtx.newPage()
   const TEACHER_MOBILE_READY = { 'teacher-reviews': '.mobile-card', 'teacher-class': '.mobile-card' }
@@ -1493,6 +1800,7 @@ try {
   await teacherMobileCtx.close()
 
   // ---------- axe（双主题：学生 8 + 教师 3 + 登录 1 + 403/404 2；玻璃移动端学生 3 + 教师 3；计划超时错误态并入 glass/plan） ----------
+  setStage('a11y')
   const a11y = []
   const planTimeoutCtx = await newContext(browser, 'STUDENT', 'glass', { width: 1440, height: 900 })
   await planTimeoutCtx.route(/\/api\/plans(?:\?|$)/, async route => {
@@ -1579,6 +1887,7 @@ try {
   }
   await studentCtx.close()
 
+  finalizeReloadViolations()
   fs.writeFileSync(path.join(OUT, 'e2e-report.json'), JSON.stringify({ base: BASE, results, a11y }, null, 2), 'utf8')
   const failed = results.filter(r => !r.pass)
   console.log(`\nE2E: ${results.length - failed.length}/${results.length} passed`)
@@ -1586,7 +1895,11 @@ try {
   console.log('REPORT:', path.join(OUT, 'e2e-report.json'))
   process.exitCode = failed.length ? 1 : 0
 } catch (e) {
+  finalizeReloadViolations()
+  const violations = pageStates.flatMap((s) => s.violations.map((v) => `${s.label} ${v.iso} ${v.url}（${v.phase}）`))
+  if (violations.length) console.error(`运行期整页 reload ${violations.length} 次：${violations.join(' | ')}`)
   console.error('E2E 执行异常：', e)
+  await writeFailureArtifacts(e).catch((err) => console.error('失败现场写入失败：', err))
   process.exitCode = 1
 } finally {
   await browser.close()
