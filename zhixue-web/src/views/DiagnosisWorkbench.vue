@@ -18,8 +18,8 @@
       @close="errorMsg = ''"
     />
 
-    <el-row :gutter="16" class="workspace-row">
-      <el-col :xs="24" :sm="24" :md="12" :lg="12">
+    <div class="workspace-row">
+      <div class="workspace-col">
         <el-card>
           <template #header>
             <div class="card-head"><span>01 · 题目录入</span><span class="card-sub">图片识别或手动输入</span></div>
@@ -138,9 +138,9 @@
             </p>
           </div>
         </el-card>
-      </el-col>
+      </div>
 
-      <el-col :xs="24" :sm="24" :md="12" :lg="12">
+      <div class="workspace-col">
         <el-card class="explain-detail">
           <template #header>
             <div class="card-head card-head-actions">
@@ -231,8 +231,8 @@
           </ul>
           <p class="state-note">讲解生成后，下方会按巩固、变式、进阶给出练习。</p>
         </el-card>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
 
     <el-card class="recommend-card">
       <template #header>
@@ -910,11 +910,26 @@ onBeforeUnmount(() => {
 .page :deep(.el-card) {
   transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
+/* 两栏：等价原 el-row(gutter=16)/el-col(12/12) 布局，列宽与间距保持不变 */
+.workspace-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+.workspace-col {
+  min-width: 0;
+}
+@media (max-width: 991px) {
+  .workspace-row {
+    grid-template-columns: 1fr;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   .page :deep(.el-card) {
     animation: card-in 0.28s ease-out both;
   }
-  .page :deep(.el-col:nth-child(2) .el-card) {
+  .page :deep(.workspace-row > :nth-child(2) .el-card) {
     animation-delay: 0.05s;
   }
 }

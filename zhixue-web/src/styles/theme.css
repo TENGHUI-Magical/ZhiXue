@@ -195,8 +195,6 @@ html[data-theme] {
   --el-border-color-light: var(--app-border);
   --el-border-color-lighter: var(--app-border);
   --el-fill-color-blank: var(--app-surface);
-  --el-fill-color-light: var(--app-surface-muted);
-  --el-fill-color-lighter: var(--app-surface-muted);
   --el-box-shadow-light: var(--app-shadow);
   --el-mask-color: rgba(11, 18, 32, 0.55);
   /* el-alert type="error" / ElMessage.error 用的是 --el-color-error 家族（不是 danger），
@@ -348,10 +346,6 @@ a {
 .el-card.is-raised .el-card__body {
   padding: var(--app-space-6);
 }
-.el-card.is-sunken {
-  background: var(--app-surface-muted);
-  box-shadow: none;
-}
 
 .el-card__header {
   border-bottom: 1px solid var(--app-divider);
@@ -411,15 +405,13 @@ a {
   --el-pagination-hover-color: var(--app-primary);
 }
 
-.stat-card,
-.summary-card {
+.stat-card {
   transition: transform var(--app-dur-base) var(--app-ease-standard),
     box-shadow var(--app-dur-base) var(--app-ease-standard),
     border-color var(--app-dur-base) var(--app-ease-standard);
 }
 
-.stat-value,
-.summary-value {
+.stat-value {
   font-variant-numeric: tabular-nums;
 }
 
@@ -445,8 +437,7 @@ a {
   }
 
   /* 规范 §3.8：非交互元素禁止位移，仅保留阴影提示 */
-  .main .stat-card:hover,
-  .main .summary-card:hover {
+  .main .stat-card:hover {
     box-shadow: var(--app-shadow-hover);
   }
 

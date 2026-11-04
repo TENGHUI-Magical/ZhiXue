@@ -270,12 +270,6 @@ html[data-theme="glass"] .el-card.is-raised .el-card__body,
 html[data-theme="glass-dark"] .el-card.is-raised .el-card__body {
   padding: var(--app-space-6);
 }
-html[data-theme="glass"] .el-card.is-sunken,
-html[data-theme="glass-dark"] .el-card.is-sunken {
-  background: var(--app-surface-muted);
-  border-color: transparent;
-  box-shadow: none;
-}
 
 /* 按钮：统一 10px 圆角、34px 高度；主 / 次 / 文字 / 链接四层 */
 html[data-theme="glass"] .el-button,
@@ -548,21 +542,6 @@ html[data-theme="glass-dark"] .el-message-box {
   -webkit-backdrop-filter: blur(26px) saturate(165%);
   backdrop-filter: blur(26px) saturate(165%);
   box-shadow: var(--app-shell-shadow), 0 0 0 0.5px var(--app-glass-edge);
-}
-
-/* 空态：去默认插画，保持克制 */
-html[data-theme="glass"] .el-empty__image,
-html[data-theme="glass-dark"] .el-empty__image {
-  display: none;
-}
-html[data-theme="glass"] .el-empty,
-html[data-theme="glass-dark"] .el-empty {
-  padding: 22px 0;
-}
-html[data-theme="glass"] .el-empty__description p,
-html[data-theme="glass-dark"] .el-empty__description p {
-  font-size: var(--app-fs-xs);
-  color: var(--app-text-muted);
 }
 
 /* 上传区：收起 Element 默认大图标，改成轻量拖拽区 */
