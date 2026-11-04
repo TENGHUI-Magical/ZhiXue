@@ -17,7 +17,7 @@ import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -64,6 +64,7 @@ public class RecommendationService {
     private final RecommendationRecordMapper recommendationRecordMapper;
     private final PracticeRecordMapper practiceRecordMapper;
     private final RepairPriorityService repairPriorityService;
+    private final TransactionTemplate transactionTemplate;
     private final int cooldownDays;
 
     public RecommendationService(StudentErrorRecordService errorRecordService,
@@ -72,7 +73,8 @@ public class RecommendationService {
                                  RecommendationRecordMapper recommendationRecordMapper,
                                  PracticeRecordMapper practiceRecordMapper,
                                  RepairPriorityService repairPriorityService,
-                                 @Value("${recommend.cooldown-days:7}") int cooldownDays) {
+                                 @Value("${recommend.cooldown-days:7}") int cooldownDays,
+                                 TransactionTemplate transactionTemplate) {
         this.errorRecordService = errorRecordService;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
@@ -80,6 +82,7 @@ public class RecommendationService {
         this.practiceRecordMapper = practiceRecordMapper;
         this.repairPriorityService = repairPriorityService;
         this.cooldownDays = Math.max(1, cooldownDays);
+        this.transactionTemplate = transactionTemplate;
     }
 
     /**
@@ -90,7 +93,6 @@ public class RecommendationService {
      * @param courseId 课程 ID；为空时按知识点所属课程解析，显式传入时须与知识点课程一致
      * @return 1—3 条推荐；无题可推时返回空数组
      */
-    @Transactional
     public List<Recommendation> recommend(String logId, String kpId, Long courseId) {
         StudentErrorRecord record = null;
         String resolvedKp;
@@ -149,7 +151,7 @@ public class RecommendationService {
         }
 
         if (record != null) {
-            return persist(record.getLogId(), userId, result);
+            return persistIdempotent(record.getLogId(), userId, result);
         }
         // kpId 兜底路径不落库：log_id 为 NULL 时唯一键 uk_user_log_q 不去重，会重复插行
         return result;
@@ -313,8 +315,48 @@ public class RecommendationService {
 
     /**
      * 幂等落库（05 §3.3.4）：按唯一键 uk_user_log_q，重复生成命中已有记录并保留其
-     * is_adopted（学生是否练过不能被覆盖）；外层 @Transactional 保证整批一致。
+     * is_adopted（学生是否练过不能被覆盖）。
+     * <p>
+     * 批量写入用编程式事务，DuplicateKeyException 的回查必须发生在该事务结束之后：
+     * REPEATABLE READ 下事务内快照看不到并发方已提交的行，留在事务里重查会误判为“不存在”
+     * 并把正常并发请求打成 500（与 PracticeService.start 同一处理口径）。
      */
+    private List<Recommendation> persistIdempotent(String logId, long userId, List<Recommendation> result) {
+        try {
+            return transactionTemplate.execute(status -> persist(logId, userId, result));
+        } catch (DuplicateKeyException e) {
+            List<Recommendation> restored = reloadExisting(logId, userId, result);
+            if (!restored.isEmpty()) {
+                return restored;
+            }
+            throw e;
+        }
+    }
+
+    /** 事务结束后的新连接回查已落库批次（并发方已提交，快照可见） */
+    private List<Recommendation> reloadExisting(String logId, long userId, List<Recommendation> result) {
+        List<RecommendationRecord> rows = recommendationRecordMapper.selectList(
+                new LambdaQueryWrapper<RecommendationRecord>()
+                        .eq(RecommendationRecord::getUserId, userId)
+                        .eq(RecommendationRecord::getLogId, logId)
+                        .orderByAsc(RecommendationRecord::getRankNo));
+        Map<String, Recommendation> byQid = new HashMap<>();
+        for (Recommendation item : result) {
+            byQid.put(item.qId(), item);
+        }
+        List<Recommendation> restored = new ArrayList<>(rows.size());
+        for (RecommendationRecord row : rows) {
+            Recommendation item = byQid.get(row.getQId());
+            if (item == null) {
+                continue;
+            }
+            boolean adopted = row.getIsAdopted() != null && row.getIsAdopted() == 1;
+            restored.add(new Recommendation(row.getRecommendationId(), row.getQId(), row.getLayer(),
+                    row.getReason(), item.difficulty(), adopted, item.questionText(), item.top1Reason()));
+        }
+        return restored;
+    }
+
     private List<Recommendation> persist(String logId, long userId, List<Recommendation> result) {
         List<Recommendation> persisted = new ArrayList<>(result.size());
         int rankNo = 1;
@@ -327,21 +369,7 @@ public class RecommendationService {
             row.setReason(item.reason());
             row.setRankNo(rankNo++);
             row.setIsAdopted(0);
-            try {
-                recommendationRecordMapper.insert(row);
-            } catch (DuplicateKeyException e) {
-                RecommendationRecord existing = recommendationRecordMapper.selectOne(
-                        new LambdaQueryWrapper<RecommendationRecord>()
-                                .eq(RecommendationRecord::getUserId, userId)
-                                .eq(RecommendationRecord::getLogId, logId)
-                                .eq(RecommendationRecord::getQId, item.qId())
-                                .last("LIMIT 1"));
-                if (existing != null) {
-                    row = existing;
-                } else {
-                    throw e;
-                }
-            }
+            recommendationRecordMapper.insert(row);
             boolean adopted = row.getIsAdopted() != null && row.getIsAdopted() == 1;
             persisted.add(new Recommendation(row.getRecommendationId(), item.qId(), item.layer(),
                     item.reason(), item.difficulty(), adopted, item.questionText(),
