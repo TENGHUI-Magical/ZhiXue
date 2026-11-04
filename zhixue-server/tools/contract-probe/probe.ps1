@@ -248,7 +248,7 @@ Exec 'E01' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=1;client
 Exec 'E02' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{clientToken='probe-e02-20261104'}) 'application/json' 'missing courseId' '40000'
 Exec 'E03' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=1}) 'application/json' 'missing clientToken' '40000'
 Exec 'E04' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=1;clientToken=('T'*65)}) 'application/json' 'clientToken 65 chars' '40000'
-Exec 'E05' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=0;clientToken='probe-e05-20261104'}) 'application/json' 'courseId=0' '40400'
+Exec 'E05' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=0;clientToken='probe-e05-20261104'}) 'application/json' 'courseId=0（@Positive 先于 Service 存在性校验）' '40000'
 Exec 'E06' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=9223372036854775807;clientToken='probe-e06-20261104'}) 'application/json' 'courseId=Long.MAX' '40400'
 Exec 'E07' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=1;clientToken='probe-e07-20261104';qId='NO_SUCH_Q'}) 'application/json' 'nonexistent qId' '40400'
 Exec 'E08' 'ErrorRecord' 'POST' '/api/error/records' $stu (J @{courseId=1;clientToken='probe-e08-20261104';ocrConfidence=2}) 'application/json' 'ocrConfidence=2 (contract max=1)' '40000'
