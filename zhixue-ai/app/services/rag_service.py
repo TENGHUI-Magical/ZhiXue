@@ -104,22 +104,29 @@ def _prompt(req: RagExplainRequest, hits: list | None = None) -> list[dict]:
     question = _first(req.questionText, 1000) or "（只讲概念）"
     my_answer = _first(req.myAnswer, 300) or "未提供具体作答"
     concept = _first(req.conceptText, 600)
+    # 元数据同样来自请求体，必须有上限：否则超长 kpName/kpId 会绕过 4000 硬预算直奔模型
+    kp_id = _first(req.kpId, 40) or "UNKNOWN"
+    kp_name = _first(req.kpName, 100) or kp_id
+    error_type = _first(req.errorType, 40) or "未提供"
+    textbook_page = _first(req.textbookPage, 40) or "未提供"
     mistakes = [_first(item, 125) for item in _misconceptions(req.misconception, 2)]
     prereq = req.prereqWeakness if req.prereqWeakness and req.prereqWeakness.sampleCount >= 3 else None
     prereq_concept = _first(prereq.conceptText, 200) if prereq else ""
+    prereq_kp = (f"{_first(prereq.kpName, 100) or _first(prereq.kpId, 40)}"
+                 f"（{_first(prereq.kpId, 40) or 'UNKNOWN'}）") if prereq else ""
     retrieval = _retrieval_lines(req, hits)
 
     def build() -> list[dict]:
         parts = [
             "[当前问题]",
-            f"知识点：{req.kpName}（{req.kpId}）",
-            f"错因标签：{req.errorType or '未提供'}",
+            f"知识点：{kp_name}（{kp_id}）",
+            f"错因标签：{error_type}",
             f"作答次数：第 {req.attemptCount} 次作答，其中第 {req.wrongCount} 次答错",
             "[学生证据]",
             f"题干：{question}",
             f"最近作答：{my_answer}",
             "[教材证据]",
-            f"教材页码：{req.textbookPage or '未提供'}",
+            f"教材页码：{textbook_page}",
             f"概念切片：{concept or '未提供'}",
         ]
         if mistakes:
@@ -129,7 +136,7 @@ def _prompt(req: RagExplainRequest, hits: list | None = None) -> list[dict]:
         if prereq:
             parts.extend([
                 "[先修弱项]",
-                f"先修知识点：{prereq.kpName}（{prereq.kpId}）",
+                f"先修知识点：{prereq_kp}",
                 f"掌握度：{prereq.mastery:.3f}；样本数：{prereq.sampleCount}",
             ])
             if prereq_concept:
@@ -330,8 +337,8 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
 
 def _template_chunks(req: RagExplainRequest) -> list[str]:
     """L3 学习卡：只给知识点定位、页码、最多三条误区与练习入口。"""
-    name = req.kpName or req.kpId
-    page = req.textbookPage or "页码待确认"
+    name = _first(req.kpName, 100) or _first(req.kpId, 40)
+    page = _first(req.textbookPage, 40) or "页码待确认"
     mistakes = [_first(item, 90) for item in _misconceptions(req.misconception, 3)]
     parts = ["【学习卡】", f"【知识点】{name}；教材{page}", "【常见误区】"]
     if mistakes:
@@ -347,10 +354,11 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
     start = time.time()
     # 契约 §1.2：traceId 由 Java 生成并透传，这里只回显，保证全链路一致
     trace_id = req.traceId or f"t-{time.strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
+    kp_id = _first(req.kpId, 40) or "UNKNOWN"
     sources = [{
-        "kpId": req.kpId,
-        "name": req.kpName or req.kpId,
-        "ref": f"《数据库系统概论（第6版）》{req.textbookPage or '页码待确认'}",
+        "kpId": kp_id,
+        "name": _first(req.kpName, 100) or kp_id,
+        "ref": f"《数据库系统概论（第6版）》{_first(req.textbookPage, 40) or '页码待确认'}",
     }]
     hits = []
     # 索引有内容时用检索命中的多来源增强；索引为空/失败时保持原有单来源，不影响降级链

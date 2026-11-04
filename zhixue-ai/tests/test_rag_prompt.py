@@ -1,6 +1,6 @@
 """Prompt 组装：检索切片必须进入 L1/L2 Prompt，而不是只当引用列表。"""
 from app.schemas import PrereqWeakness, RagExplainRequest
-from app.services.rag_service import PROMPT_VERSION, _prompt, _request_payload
+from app.services.rag_service import PROMPT_HARD_LIMIT_TOKENS, PROMPT_VERSION, _prompt, _request_payload
 from app.services.vector_index import Chunk, Hit
 
 
@@ -102,6 +102,16 @@ def test_prompt_budget_truncates_retrieval_before_prereq_and_preserves_answer():
     assert f"最近作答：{'答' * 300}" in user
     assert "作答次数：第 4 次作答，其中第 3 次答错" in user
     assert "教材页码：P34" in user
+
+
+def test_prompt_caps_unbounded_metadata_fields():
+    """kpName/kpId/errorType/textbookPage 来自请求体，超长时必须被截断，不能突破硬上限。"""
+    huge = "超" * 20000
+    req = RagExplainRequest(kpId=huge, kpName=huge, errorType=huge, textbookPage=huge)
+
+    user = _prompt(req, [])[1]["content"]
+
+    assert len(user) <= PROMPT_HARD_LIMIT_TOKENS
 
 
 def test_request_payload_limits_output_to_700_tokens():
