@@ -71,10 +71,9 @@ html[data-theme="glass-dark"] .app-wall::before {
 }
 
 /* ---------- 壳层：窗口 + 玻璃功能层 ---------- */
+/* 字体栈统一由 theme.css 提供，此处只保留字距，避免两套栈互相覆盖（裁决 §3.9） */
 html[data-theme="glass"] body,
 html[data-theme="glass-dark"] body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro SC",
-    "PingFang SC", "Helvetica Neue", "Microsoft YaHei", system-ui, sans-serif;
   letter-spacing: 0;
 }
 
@@ -110,20 +109,8 @@ html[data-theme="glass-dark"] .aside {
     inset 0 -1px 0 var(--app-glass-lo);
 }
 
-html[data-theme="glass"] .brand-mark,
-html[data-theme="glass-dark"] .brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: var(--app-radius-sm);
-  font-size: var(--app-fs-md);
-  background: linear-gradient(
-    160deg,
-    color-mix(in srgb, var(--app-primary) 82%, white),
-    var(--app-primary-strong)
-  );
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 2px 8px color-mix(in srgb, var(--app-primary) 30%, transparent);
-}
+/* 品牌标视觉（尺寸/渐变/阴影）归 BrandMark.vue 组件自身：
+   这里若继续覆盖 .brand-mark，会压过 :size 属性并把登录页 380px 水印压回 30px。 */
 html[data-theme="glass"] .brand-text,
 html[data-theme="glass-dark"] .brand-text {
   font-size: var(--app-fs-md);
@@ -273,6 +260,15 @@ html[data-theme="glass-dark"] .el-card__body {
 html[data-theme="glass"] .el-card.is-hover-shadow:hover,
 html[data-theme="glass-dark"] .el-card.is-hover-shadow:hover {
   box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-card-hi);
+}
+/* 卡片层级（V1.1 §3.5）：glass 选择器优先级高于全局 .el-card，必须在此覆盖 */
+html[data-theme="glass"] .el-card.is-raised,
+html[data-theme="glass-dark"] .el-card.is-raised {
+  box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-card-hi);
+}
+html[data-theme="glass"] .el-card.is-raised .el-card__body,
+html[data-theme="glass-dark"] .el-card.is-raised .el-card__body {
+  padding: var(--app-space-6);
 }
 
 /* 按钮：统一 10px 圆角、34px 高度；主 / 次 / 文字 / 链接四层 */
@@ -546,21 +542,6 @@ html[data-theme="glass-dark"] .el-message-box {
   -webkit-backdrop-filter: blur(26px) saturate(165%);
   backdrop-filter: blur(26px) saturate(165%);
   box-shadow: var(--app-shell-shadow), 0 0 0 0.5px var(--app-glass-edge);
-}
-
-/* 空态：去默认插画，保持克制 */
-html[data-theme="glass"] .el-empty__image,
-html[data-theme="glass-dark"] .el-empty__image {
-  display: none;
-}
-html[data-theme="glass"] .el-empty,
-html[data-theme="glass-dark"] .el-empty {
-  padding: 22px 0;
-}
-html[data-theme="glass"] .el-empty__description p,
-html[data-theme="glass-dark"] .el-empty__description p {
-  font-size: var(--app-fs-xs);
-  color: var(--app-text-muted);
 }
 
 /* 上传区：收起 Element 默认大图标，改成轻量拖拽区 */

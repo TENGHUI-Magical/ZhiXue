@@ -49,6 +49,14 @@
         </el-card>
 
         <el-card v-if="isStudent" class="learning-card" shadow="never">
+          <el-alert
+            v-if="portraitError"
+            type="warning"
+            :title="portraitError"
+            :closable="false"
+            show-icon
+            style="margin-bottom: var(--app-space-3)"
+          />
           <div class="learning-main">
             <div class="learning-copy">
               <div class="card-head">
@@ -130,6 +138,7 @@ import { useRouter } from "vue-router";
 import PageState from "../components/PageState.vue";
 import { api } from "../api/request";
 import { getPortrait, type Portrait } from "../api/portrait";
+import { reportError } from "../utils/telemetry";
 
 interface MeUser {
   userId: number;
@@ -141,6 +150,7 @@ interface MeUser {
 const router = useRouter();
 const loading = ref(false);
 const error = ref("");
+const portraitError = ref("");
 const profile = ref<MeUser>({ userId: 0, username: "", realName: "", role: "" });
 const portrait = ref<Portrait | null>(null);
 
@@ -183,26 +193,37 @@ const cacheProfile = () => {
   }
 };
 
+let loadSeq = 0;
 const load = async () => {
+  const seq = ++loadSeq;
   loading.value = true;
   error.value = "";
+  portraitError.value = "";
   try {
-    const me = await api.get<MeUser>("/api/auth/me");
+    // 页面用 PageState 内联呈现错误，silent 避免 toast 与内联重复
+    const me = await api.get<MeUser>("/api/auth/me", undefined, { silent: true });
+    if (seq !== loadSeq) return;
     profile.value = me;
     localStorage.setItem("zhixue_user", JSON.stringify(me));
     if (me.role === "STUDENT") {
       try {
-        portrait.value = await getPortrait();
-      } catch {
+        const data = await getPortrait();
+        if (seq !== loadSeq) return;
+        portrait.value = data;
+      } catch (e) {
+        if (seq !== loadSeq) return;
         portrait.value = null;
+        reportError(e, "profile.loadPortrait");
+        portraitError.value = (e as Error).message || "学习概览加载失败，可稍后重试";
       }
     } else {
       portrait.value = null;
     }
   } catch (e) {
+    if (seq !== loadSeq) return;
     error.value = (e as Error).message || "账号信息加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 };
 
@@ -443,7 +464,7 @@ html[data-theme] .quick-link:hover {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .profile-grid {
     grid-template-columns: 1fr;
   }

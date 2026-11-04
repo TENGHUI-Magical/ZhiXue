@@ -131,7 +131,7 @@
         <el-card class="section-card due-card" shadow="never">
           <div class="section-head">
             <span>到期复习</span>
-            <span class="due-caption">{{ dueReviews.length ? "距上次答对已过半衰期，先复习再练新题" : "到期后会列在这里" }}</span>
+            <span v-if="dueReviews.length" class="due-caption">距上次答对已过半衰期，先复习再练新题</span>
           </div>
           <div v-if="dueReviews.length" class="due-list">
             <div v-for="due in dueReviews" :key="due.kpId" class="due-row">
@@ -147,7 +147,12 @@
             </div>
           </div>
           <p v-else-if="dueError" class="due-empty" role="status">到期复习暂不可用</p>
-          <p v-else class="due-empty" role="status">暂无到期复习</p>
+          <BrandEmpty
+            v-else
+            description="还没有到期的复习项。某个知识点连续答对后，系统会在半衰期到时把它排到这里，先复习再练新题。"
+          >
+            <el-button @click="router.push('/plan')">查看本周计划</el-button>
+          </BrandEmpty>
         </el-card>
 
         <!-- 推荐练习 -->
@@ -197,6 +202,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
+import BrandEmpty from "../components/BrandEmpty.vue";
 import { DEFAULT_COURSE_ID, getRecommendations, type Recommendation } from "../api/diagnosis";
 import { listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
 import { getPortrait, type Portrait } from "../api/portrait";

@@ -8,13 +8,15 @@
       {{ retryText }}
     </el-button>
   </div>
-  <el-empty v-else-if="empty" role="status" :description="emptyText" :image-size="96">
+  <BrandEmpty v-else-if="empty" :description="emptyText">
     <slot name="empty-action" />
-  </el-empty>
+  </BrandEmpty>
   <slot v-else />
 </template>
 
 <script setup lang="ts">
+import BrandEmpty from "./BrandEmpty.vue";
+
 interface Props {
   loading?: boolean;
   error?: string;

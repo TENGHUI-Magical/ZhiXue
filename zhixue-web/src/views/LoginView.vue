@@ -1,9 +1,10 @@
 <template>
   <div class="login-page">
+    <BrandMark :size="380" tone="mono" class="login-watermark" />
     <div class="login-shell">
       <section class="login-story">
         <div class="story-brand">
-          <span class="brand-mark" aria-hidden="true">智</span>
+          <BrandMark :size="40" />
           <div>
             <strong>智学领航</strong>
             <span>《数据库系统概论》课程学情诊断</span>
@@ -72,6 +73,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import BrandMark from "../components/BrandMark.vue";
 import { api } from "../api/request";
 
 /** openapi LoginResult：token + userId + username + role 平铺 */
@@ -148,6 +150,10 @@ const submit = async () => {
 </script>
 
 <style scoped>
+/* 水印贴边但不产生横向滚动 */
+.login-page {
+  overflow: hidden;
+}
 .login-shell {
   position: relative;
   z-index: 1;
@@ -166,19 +172,14 @@ const submit = async () => {
   gap: 14px;
   margin-bottom: 40px;
 }
-.brand-mark {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--app-radius-md);
-  display: grid;
-  place-items: center;
-  flex: none;
-  color: var(--app-accent-contrast);
-  font-size: var(--app-fs-lg);
-  font-weight: 700;
-  line-height: 1;
-  background: linear-gradient(135deg, var(--app-primary), var(--app-primary-strong));
-  box-shadow: var(--app-shadow-sm);
+.login-watermark {
+  position: absolute;
+  right: -6%;
+  bottom: -6%;
+  z-index: 0;
+  color: var(--app-primary);
+  opacity: 0.045;
+  pointer-events: none;
 }
 .story-brand strong {
   display: block;
