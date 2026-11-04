@@ -7,6 +7,7 @@ import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
@@ -59,15 +60,18 @@ public class StudentErrorRecordService {
     private final AiGenerationLogMapper aiLogMapper;
     private final KnowledgePointService knowledgePointService;
     private final QuestionBankService questionBankService;
+    private final CourseService courseService;
 
     public StudentErrorRecordService(StudentErrorRecordMapper mapper,
                                      AiGenerationLogMapper aiLogMapper,
                                      KnowledgePointService knowledgePointService,
-                                     QuestionBankService questionBankService) {
+                                     QuestionBankService questionBankService,
+                                     CourseService courseService) {
         this.mapper = mapper;
         this.aiLogMapper = aiLogMapper;
         this.knowledgePointService = knowledgePointService;
         this.questionBankService = questionBankService;
+        this.courseService = courseService;
     }
 
     /**
@@ -85,6 +89,8 @@ public class StudentErrorRecordService {
         if (existing != null) {
             return toView(existing);
         }
+        // 课程必须存在且启用：否则会落出一条永远挂不上任何课程的孤儿记录（探针 E05/E06）
+        courseService.getActiveById(request.courseId());
         // DRAFT 允许 kpId 为空；一旦非空就必须存在，否则插入后再查知识点会留下无法重试的脏记录
         if (request.kpId() != null && !request.kpId().isBlank()) {
             knowledgePointService.getById(request.kpId());

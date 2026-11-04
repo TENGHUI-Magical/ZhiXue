@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.zhixue.common.exception.BizException;
 import com.zhixue.diagnosis.config.AiClientProperties;
 import com.zhixue.diagnosis.entity.OcrTask;
 import com.zhixue.diagnosis.mapper.OcrTaskMapper;
@@ -16,9 +17,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.mock.web.MockMultipartFile;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -30,6 +33,7 @@ import java.util.List;
 import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -57,6 +61,8 @@ class OcrServiceTest {
     void setUp() {
         service = new OcrService(ocrTaskMapper,
                 new AiClientProperties("http://127.0.0.1:1", 1), new ObjectMapper());
+        // @Value 在纯单测下不注入，maxImageBytes 会保持 0；显式设为 5MB 才能测到后续校验分支
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "maxImageBytes", 5_242_880L);
     }
 
     @Test
@@ -108,6 +114,20 @@ class OcrServiceTest {
                 .map(LocalDateTime.class::cast)
                 .findFirst().orElseThrow();
         assertThat(Duration.between(shanghaiNow, deadline).abs().getSeconds()).isLessThan(5);
+    }
+
+    /**
+     * 上传白名单不能被 Content-Type 绕过：.txt 只要把 part 的 Content-Type 伪造成 image/jpeg，
+     * 旧实现会因“扩展名非法 → 回落到 Content-Type 推断 jpg”而放行任意字节。
+     */
+    @Test
+    void disguisedNonImageFileIsRejectedEvenWithImageContentType() {
+        MockMultipartFile txt = new MockMultipartFile("file", "note.txt", "image/jpeg",
+                "hello".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> service.submit(txt, "ct-txt-1", 9001L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("JPG");
     }
 
     /** 契约 §4 周清理：只删过期文件，保留新文件；腾空的子目录一并移除，根目录保留。 */

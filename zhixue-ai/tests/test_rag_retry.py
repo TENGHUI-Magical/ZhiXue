@@ -126,6 +126,33 @@ def test_l1_retries_once_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     assert done["modelUsed"] == settings.llm_model_main
 
 
+def test_l1_retry_sleeps_for_backoff_before_second_attempt(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """重试前必须有固定退避：用记录调用的替身锁住 sleep 参数，不依赖真实耗时。"""
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(rag_service.asyncio, "sleep", fake_sleep)
+    calls = {"count": 0}
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise httpx.ConnectError("L1 首次失败")
+        yield "第一段讲解。"
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+
+    _collect()
+
+    assert calls["count"] == 2, "L1 失败后必须重试 1 次"
+    assert sleeps == [rag_service.RETRY_BACKOFF_SECONDS], \
+        "重试前必须按 RETRY_BACKOFF_SECONDS 退避一次"
+
+
 def test_l1_fails_twice_then_degrades_to_l2(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
     monkeypatch.setattr(settings, "glm_api_key", "test-glm-key")
