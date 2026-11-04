@@ -29,6 +29,22 @@ PROMPT_TARGET_TOKENS = 3000
 PROMPT_HARD_LIMIT_TOKENS = 4000
 MAX_OUTPUT_TOKENS = 700
 
+# 降级级别与模型名口径：与 Java 侧 RagExplainService 的 LEVEL_L2/LEVEL_L3/
+# MODEL_LOCAL_TEMPLATE 常量一致，任一侧改动必须同步另一侧。
+LEVEL_L2 = "L2"  # 有正文但非 L1 完整产出：备用模型完整产出，或流中断/超时截断
+LEVEL_L3 = "L3"  # 远程零产出，完全回退本地模板
+MODEL_LOCAL_TEMPLATE = "local-template"
+
+
+def _model_hint() -> str:
+    """meta 中告知 Java 侧首个候选模型名，供流中断时保留真实 model（内部字段，不下发前端）。"""
+    if settings.deepseek_api_key:
+        return settings.llm_model_main
+    if settings.glm_api_key:
+        return settings.llm_model_fallback
+    return MODEL_LOCAL_TEMPLATE
+
+
 # SSE 响应头：禁用代理缓冲，保持逐帧下发
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
 
@@ -349,7 +365,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
         logger.warning("RAG 检索增强失败，保持单来源：%s", exc)
     blocked, block_tip = compliance_check(req.questionText or "")
 
-    yield _sse("meta", {"traceId": trace_id, "sources": sources})
+    yield _sse("meta", {"traceId": trace_id, "sources": sources, "model": _model_hint()})
     if blocked:
         # 契约 §2 60004：展示学术诚信提示，不展示讲解正文——不发 chunk/done，
         # 由 Java 转发 error 事件并落库 is_blocked=1
@@ -360,7 +376,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
     usage: dict = {}
     if settings.deepseek_api_key:
         # 契约 §6：L1 超时/5xx/限流时重试 1 次，仍失败才降 L2。
-        # 已向前端输出部分正文时不重试不降级（会造成正文重复），直接中断由 Java 标记 L3。
+        # 已向前端输出部分正文时不重试不降级（会造成正文重复），直接中断由 Java 记为 L2（部分产出）。
         delivered = False
         for attempt in (1, 2):
             try:
@@ -391,7 +407,8 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
     if settings.glm_api_key:
         delivered = False
         try:
-            yield _sse("degraded", {"level": "L2", "reason": "L1 调用失败"})
+            yield _sse("degraded", {"level": LEVEL_L2, "reason": "L1 调用失败",
+                                    "modelUsed": settings.llm_model_fallback})
             async for delta in _guard_pages(_buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
                     settings.glm_api_key, settings.llm_model_fallback, messages, usage)),
@@ -409,16 +426,16 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
             logger.warning("L2 输出全部被过滤，降级本地模板")
         except Exception as exc:
             if delivered:
-                # 已输出部分 GLM 正文时直接中断，由 Java 标记 L3，不再追加模板造成混合正文
+                # 已输出部分 GLM 正文时直接中断，由 Java 记为 L2（保留 glm 模型名），不再追加模板造成混合正文
                 logger.warning("L2 %s 流式中断且已输出正文，不再追加模板：%s",
                                settings.llm_model_fallback, exc)
                 raise
             logger.warning("L2 %s 调用失败，降级本地模板：%s", settings.llm_model_fallback, exc)
 
-    yield _sse("degraded", {"level": "L3", "reason": "L1/L2 均不可用，使用本地模板"})
+    yield _sse("degraded", {"level": LEVEL_L3, "reason": "L1/L2 均不可用，使用本地模板"})
     for chunk in _template_chunks(req):
         yield _sse("chunk", {"content": sanitize_page_citations(chunk, req.textbookPage)})
         await asyncio.sleep(0.02)
-    yield _sse("done", {"degraded": True, "blocked": False, "modelUsed": "local-template",
+    yield _sse("done", {"degraded": True, "blocked": False, "modelUsed": MODEL_LOCAL_TEMPLATE,
                         "promptVersion": PROMPT_VERSION,
                         "elapsedMs": int((time.time() - start) * 1000)})
