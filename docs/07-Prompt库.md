@@ -1,6 +1,6 @@
 # 07 · Prompt 库
 
-> 当前版本：`v1`（`rag_service.PROMPT_VERSION`）。每次改 Prompt 必须递增版本并写入 `ai_generation_log.prompt_version`。
+> 当前版本：`v2`（`rag_service.PROMPT_VERSION`）。每次改 Prompt 必须递增版本并写入 `ai_generation_log.prompt_version`；Java `RagExplainService.PROMPT_VERSION` 必须同步，`PromptVersionConsistencyTest` 会在两侧不一致时失败。
 
 ## 1. 讲解 Prompt（L1/L2 共用）
 
