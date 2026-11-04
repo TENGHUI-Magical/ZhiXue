@@ -6,9 +6,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,6 +37,34 @@ class InitV2IndexInvariantTest {
     private static final Path INIT_SQL = Path.of("../sql/init-v2.sql");
     private static final Path WINDOW_MIGRATION =
             Path.of("../sql/migration/2026-11-03-diagnosis-window-index.sql");
+    private static final Path PLAN_MIGRATION = Path.of("../sql/init-v2.3-migration.sql");
+
+    @Test
+    void studyPlanIndexesAlreadyCoverMigrationColumns() throws IOException {
+        String initSql = stripComments(Files.readString(INIT_SQL, StandardCharsets.UTF_8));
+        String migrationSql = stripComments(Files.readString(PLAN_MIGRATION, StandardCharsets.UTF_8));
+
+        Map<String, List<String>> initIndexes = studyPlanIndexes(initSql);
+        assertEquals(List.of("user_id", "plan_date"), initIndexes.get("uk_user_date"),
+                "init-v2.sql 的 study_plan 缺少 (user_id, plan_date) 索引；实际索引=" + initIndexes);
+        // 有意决策：唯一索引已覆盖同列，不补重复索引，因此基线不出现迁移里的命名 idx_user_plan_date。
+        assertFalse(initIndexes.containsKey("idx_user_plan_date"),
+                "有意决策：uk_user_date 已覆盖 (user_id, plan_date)，不补重复索引；实际索引=" + initIndexes.keySet());
+
+        // 迁移脚本对 study_plan 的 ADD INDEX，在基线中都必须有列等价的索引 → 迁移在该表上是 no-op
+        Matcher added = Pattern.compile(
+                        "ALTER TABLE study_plan ADD INDEX\\s+(\\w+)\\s*\\(([^)]*)\\)")
+                .matcher(migrationSql);
+        List<List<String>> addedColumns = new ArrayList<>();
+        while (added.find()) {
+            addedColumns.add(splitColumns(added.group(2)));
+        }
+        assertFalse(addedColumns.isEmpty(), "迁移脚本应包含 study_plan 的 ADD INDEX");
+        for (List<String> columns : addedColumns) {
+            assertTrue(initIndexes.values().stream().anyMatch(columns::equals),
+                    "迁移 ADD INDEX 的列 " + columns + " 在 init-v2.sql 中没有列等价索引，迁移不是 no-op；实际=" + initIndexes);
+        }
+    }
 
     @Test
     void practiceRecordIndexesAlreadyEqualMigrationTerminalState() throws IOException {
@@ -89,6 +120,29 @@ class InitV2IndexInvariantTest {
             names.add(key.group(1).startsWith("PRIMARY") ? "PRIMARY" : key.group(2));
         }
         return names;
+    }
+
+    /** 解析 study_plan 建表块内的索引名 → 列序（不会命中 study_plan_item）。 */
+    private Map<String, List<String>> studyPlanIndexes(String sql) {
+        Matcher table = Pattern.compile(
+                        "CREATE TABLE IF NOT EXISTS study_plan\\s*\\((.*?)\\n\\)\\s*ENGINE",
+                        Pattern.DOTALL)
+                .matcher(sql);
+        assertTrue(table.find(), "init-v2.sql 中找不到 study_plan 建表块");
+
+        Map<String, List<String>> indexes = new LinkedHashMap<>();
+        Matcher key = Pattern.compile(
+                        "[ \\t]*(UNIQUE\\s+KEY|PRIMARY\\s+KEY|KEY)[ \\t]+(\\w+)?[ \\t]*\\(([^)]*)\\)")
+                .matcher(table.group(1));
+        while (key.find()) {
+            String name = key.group(1).startsWith("PRIMARY") ? "PRIMARY" : key.group(2);
+            indexes.put(name, splitColumns(key.group(3)));
+        }
+        return indexes;
+    }
+
+    private List<String> splitColumns(String columns) {
+        return Arrays.stream(columns.split(",")).map(String::trim).toList();
     }
 
     private Set<String> indexNames(String sql, String regex) {
