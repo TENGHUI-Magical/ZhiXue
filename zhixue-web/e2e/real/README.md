@@ -1,11 +1,16 @@
 # 真实联调 E2E（不 mock）
 
-两套脚本，只在本地/测试环境跑，**不接入 CI**（CI 没有 MySQL/Redis/后端）。
+三套脚本：前两套为本地联调；`e2e:real:ci` 是 CI 门禁（workflow `e2e-real`，真 MySQL/Redis + 真 Spring Boot + 真 Vite + 真浏览器，与 mock 的 `e2e` job 完全独立）。
 
 | 脚本 | 覆盖 | 前置 |
 |---|---|---|
 | `npm run e2e:real` | 登录、课程/图谱/知识点、映射、错题创建+确认、SSE 讲解、推荐、计划生成、打卡、画像、教师学生/班级/评阅、health | 后端 8080 + MySQL/Redis + 种子数据 |
 | `npm run e2e:real:ui` | 真实浏览器：登录、今日、错题本、画像、计划、图谱（含邻接高亮）、诊断台、个人中心、教师三页、评阅提交/只读 | 上面全部 + Vite 5174 + Edge |
+| `npm run e2e:real:ci` | 5 场景 / 30 子断言：学生作答真写库、画像掌握度/薄弱点、教师评阅 PASS 学生可见、teacher02 越权 40300、评阅留痕 CSV（表头/行数/不含正文） | 能 `mvn -DskipTests package` 的后端 jar + MySQL/Redis + Vite 5173 + Edge/Chrome |
+
+## CI 门禁怎么跑
+
+workflow `.github/workflows/ci.yml` 的 `e2e-real` job：`services` 拉 `mysql:8.0` + `redis:7-alpine`，`mvn -DskipTests package` 打包，`npm ci`，然后 `npm run e2e:real:ci`。数据准备每次 `DROP DATABASE IF EXISTS <E2E_DB_NAME>` 后重放仓库 SQL，可幂等重跑；`E2E_DB_NAME` 必须以 `zhixue_e2e` 开头，防止误删开发库。失败/异常一律非 0 退出，日志与截图随 artifact 上传。
 
 ## 准备工作
 
