@@ -108,7 +108,7 @@ def _prompt(req: RagExplainRequest, hits: list | None = None) -> list[dict]:
     kp_id = _first(req.kpId, 40) or "UNKNOWN"
     kp_name = _first(req.kpName, 100) or kp_id
     error_type = _first(req.errorType, 40) or "未提供"
-    textbook_page = _first(req.textbookPage, 40) or "未提供"
+    textbook_page = _first(req.textbookPage, 50) or "未提供"
     mistakes = [_first(item, 125) for item in _misconceptions(req.misconception, 2)]
     prereq = req.prereqWeakness if req.prereqWeakness and req.prereqWeakness.sampleCount >= 3 else None
     prereq_concept = _first(prereq.conceptText, 200) if prereq else ""
@@ -338,7 +338,7 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
 def _template_chunks(req: RagExplainRequest) -> list[str]:
     """L3 学习卡：只给知识点定位、页码、最多三条误区与练习入口。"""
     name = _first(req.kpName, 100) or _first(req.kpId, 40)
-    page = _first(req.textbookPage, 40) or "页码待确认"
+    page = _first(req.textbookPage, 50) or "页码待确认"
     mistakes = [_first(item, 90) for item in _misconceptions(req.misconception, 3)]
     parts = ["【学习卡】", f"【知识点】{name}；教材{page}", "【常见误区】"]
     if mistakes:
@@ -358,7 +358,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
     sources = [{
         "kpId": kp_id,
         "name": _first(req.kpName, 100) or kp_id,
-        "ref": f"《数据库系统概论（第6版）》{_first(req.textbookPage, 40) or '页码待确认'}",
+        "ref": f"《数据库系统概论（第6版）》{_first(req.textbookPage, 50) or '页码待确认'}",
     }]
     hits = []
     # 索引有内容时用检索命中的多来源增强；索引为空/失败时保持原有单来源，不影响降级链

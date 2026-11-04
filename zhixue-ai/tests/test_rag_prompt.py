@@ -1,6 +1,8 @@
 """Prompt 组装：检索切片必须进入 L1/L2 Prompt，而不是只当引用列表。"""
 from app.schemas import PrereqWeakness, RagExplainRequest
-from app.services.rag_service import PROMPT_HARD_LIMIT_TOKENS, PROMPT_VERSION, _prompt, _request_payload
+from app.services.rag_service import (
+    PROMPT_HARD_LIMIT_TOKENS, PROMPT_VERSION, _prompt, _request_payload, _template_chunks)
+
 from app.services.vector_index import Chunk, Hit
 
 
@@ -112,6 +114,22 @@ def test_prompt_caps_unbounded_metadata_fields():
     user = _prompt(req, [])[1]["content"]
 
     assert len(user) <= PROMPT_HARD_LIMIT_TOKENS
+
+
+def test_prompt_page_cap_matches_column_width():
+    """textbook_page 列宽 50：50 字原样保留，51 字才截断，避免截断列内合法值。"""
+    page50 = "P" + "1" * 49
+    page51 = page50 + "2"
+
+    user50 = _prompt(RagExplainRequest(kpId="KP0201", textbookPage=page50), [])[1]["content"]
+    user51 = _prompt(RagExplainRequest(kpId="KP0201", textbookPage=page51), [])[1]["content"]
+    card = "".join(_template_chunks(RagExplainRequest(kpId="KP0201", textbookPage=page51)))
+
+    assert page50 in user50
+    assert page51 not in user51
+    assert page50 in user51
+    assert page51 not in card
+    assert page50 in card
 
 
 def test_request_payload_limits_output_to_700_tokens():
