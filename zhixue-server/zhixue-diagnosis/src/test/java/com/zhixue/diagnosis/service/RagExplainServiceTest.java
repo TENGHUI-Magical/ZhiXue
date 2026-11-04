@@ -588,6 +588,51 @@ class RagExplainServiceTest {
         assertThat(Duration.between(shanghaiNow, written).abs().getSeconds()).isLessThan(5);
     }
 
+    /**
+     * 页码解析面对缓存正文/教材页码这类非受控输入，必须拒绝超长数字串：
+     * 原实现裸 {@code Integer.parseInt} 会抛 NumberFormatException 一路打挂接口。
+     */
+    @Test
+    void pageNumbersRejectsDigitOverflow() {
+        assertThat(service.pageNumbers("P9999999999999")).isEmpty();
+    }
+
+    /** 单条引用区间必须有上限：原实现会从 1 循环到 20 亿塞进 HashSet（OOM）。 */
+    @Test
+    void pageNumbersRejectsExplosiveRange() {
+        assertThat(service.pageNumbers("P1-2000000000")).isEmpty();
+    }
+
+    /**
+     * 契约里区间写法是 P1-2；题面给的 P1-P2 会被正则识别为两条独立引用（P1 与 P2），
+     * 第二条位数超限被拒，只剩合法的那条，且不能因此触发大区间展开。
+     */
+    @Test
+    void pageNumbersHandlesTwoIndependentCitations() {
+        assertThat(service.pageNumbers("P1-P2000000000")).containsExactly(1);
+    }
+
+    /**
+     * 上界为 Integer.MAX_VALUE 时原实现 {@code page++} 溢出为负、循环条件恒真 → 死循环。
+     * 对应的页码本身也超长（10 位），应被位数上限拒绝。
+     */
+    @Test
+    void pageNumbersRejectsIntegerMaxPage() {
+        assertThat(service.pageNumbers("P2147483647")).isEmpty();
+    }
+
+    /** 正常教材区间不能被误杀（契约写法是 P38-40）。 */
+    @Test
+    void pageNumbersKeepsNormalRange() {
+        assertThat(service.pageNumbers("P38-40")).containsExactlyInAnyOrder(38, 39, 40);
+    }
+
+    /** 无页码正文返回空集合。 */
+    @Test
+    void pageNumbersHandlesTextWithoutCitation() {
+        assertThat(service.pageNumbers("本节讲解不涉及页码引用")).isEmpty();
+    }
+
     private void stubRecordAndKp(String conceptText) {
         StudentErrorRecord record = new StudentErrorRecord();
         record.setLogId("EL_1");

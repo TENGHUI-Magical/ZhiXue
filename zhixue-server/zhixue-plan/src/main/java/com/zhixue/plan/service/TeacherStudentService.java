@@ -105,8 +105,9 @@ public class TeacherStudentService {
         String sortKey = normalizeSort(sort);
         List<TeacherStudentViews.StudentItem> items = aggregateAll(courseId, sortKey);
         long total = items.size();
-        int fromIndex = Math.min(items.size(), (page - 1) * size);
-        int toIndex = Math.min(items.size(), fromIndex + size);
+        long offset = (long) (page - 1) * size;
+        int fromIndex = (int) Math.min(items.size(), offset);
+        int toIndex = (int) Math.min(items.size(), offset + size);
         return new TeacherStudentViews.Page(page, size, total,
                 new ArrayList<>(items.subList(fromIndex, toIndex)));
     }
@@ -220,9 +221,11 @@ public class TeacherStudentService {
         LocalDateTime fromTime = from == null ? null : from.atStartOfDay();
         LocalDateTime toTime = to == null ? null : to.atTime(23, 59, 59);
         long total = practiceRecordMapper.countByUserPaged(userId, qIds, fromTime, toTime);
-        List<PracticeRecord> rows = total == 0 ? List.of()
+        long offset = (long) (page - 1) * size;
+        List<PracticeRecord> rows = total == 0 || offset >= total || offset > Integer.MAX_VALUE
+                ? List.of()
                 : practiceRecordMapper.selectByUserPaged(userId, qIds, fromTime, toTime,
-                size, (page - 1) * size);
+                size, (int) offset);
         Set<String> pageQIds = new LinkedHashSet<>();
         rows.forEach(row -> {
             if (row.getQId() != null && !row.getQId().isBlank()) {

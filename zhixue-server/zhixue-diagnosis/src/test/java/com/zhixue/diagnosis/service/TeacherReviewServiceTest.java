@@ -41,6 +41,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -54,6 +55,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -385,6 +387,66 @@ class TeacherReviewServiceTest {
         }
 
         assertTrue(waitingSeconds >= 25 && waitingSeconds <= 40, "waitingSeconds=" + waitingSeconds);
+    }
+
+    /**
+     * 超大 page 不能把负 offset 传给 SQL：页码从 1 起，page=Integer.MAX_VALUE 时
+     * {@code (page - 1) * size} 在 int 上溢出为负数，MySQL 会报错/越界。
+     * offset 越过总数应返回空页，且不再触发取数。
+     */
+    @Test
+    void pageWithHugePageNumberDoesNotPassNegativeOffset() {
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(1L);
+        lenient().when(logMapper.selectForReview(any(), any(), any(), any(), any(), anyInt(), anyInt()))
+                .thenAnswer(inv -> {
+                    int offset = inv.getArgument(6);
+                    if (offset < 0) {
+                        throw new IllegalArgumentException("negative offset: " + offset);
+                    }
+                    return List.of();
+                });
+
+        ReviewPageView view;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            view = service.page(Integer.MAX_VALUE, 50, "ALL", null, null, null);
+        }
+
+        assertEquals(1, view.total());
+        assertTrue(view.records().isEmpty(), "offset 超过总数时应返回空页");
+        verify(logMapper, never()).selectForReview(any(), any(), any(), any(), any(),
+                anyInt(), anyInt());
+    }
+
+    /**
+     * status/result 的大小写归一化不能依赖 JVM 默认 Locale：土耳其语环境下
+     * "pending"/"pass" 的 {@code toUpperCase()} 会得到 "PENDİNG"/"PASS" 之外的带点大写 İ，
+     * 合法入参被判成 40000。显式 Locale.ROOT 才与部署环境无关。
+     */
+    @Test
+    void statusAndResultMatchingAreLocaleIndependent() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(10L);
+        log.setLogId("EL_10");
+        log.setScene("RAG");
+        log.setUserId(10L);
+        when(logMapper.selectById(10L)).thenReturn(log);
+        when(logMapper.selectLinkedCourseIds("EL_10")).thenReturn(List.of());
+        when(logMapper.update(isNull(), any())).thenReturn(1);
+        when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
+        lenient().when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(0L);
+
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+                stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
+                assertEquals(0, service.page(1, 10, "pending", null, null, null).total());
+                service.submit(10L, new ReviewSubmitRequest(5, "ok", "pass"));
+            }
+        } finally {
+            Locale.setDefault(original);
+        }
     }
 
     private AiGenerationLog exportRow(long logPk) {
