@@ -160,7 +160,8 @@ const ATTENTION_THRESHOLD = 0.75;
 const weakest = computed(() => classPortrait.value?.weakestKpTop ?? []);
 const attentionStudents = computed(() =>
   students.value
-    .filter((student) => (student.avgMastery ?? 0) < ATTENTION_THRESHOLD)
+    // 无掌握度样本的学生不能按 0 分算“需要关注”，否则会把没练过的学生误标成学困生
+    .filter((student) => typeof student.avgMastery === "number" && student.avgMastery < ATTENTION_THRESHOLD)
     .slice(0, 5)
 );
 const weakestTop = computed(() => weakest.value[0] ?? null);

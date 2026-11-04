@@ -299,20 +299,28 @@ const load = async () => {
 };
 
 
+let detailSeq = 0;
 const loadDetail = async () => {
   if (selectedUserId.value == null) return;
+  const seq = ++detailSeq;
+  const userId = selectedUserId.value;
+  const pageNo = practicePage.value;
   detailLoading.value = true;
   detailError.value = "";
   try {
-    detail.value = await getStudentLearningRecords(selectedUserId.value, {
+    const data = await getStudentLearningRecords(userId, {
       courseId: DEFAULT_COURSE_ID,
-      page: practicePage.value,
+      page: pageNo,
       size: 10
     });
+    // 快速切换学生/翻页时，先发请求可能后返回，只认最新一次
+    if (seq !== detailSeq) return;
+    detail.value = data;
   } catch (e) {
+    if (seq !== detailSeq) return;
     detailError.value = (e as Error).message || "学习记录加载失败";
   } finally {
-    detailLoading.value = false;
+    if (seq === detailSeq) detailLoading.value = false;
   }
 };
 

@@ -73,12 +73,13 @@ request.interceptors.request.use((config) => {
 // 首屏并发多个请求同时 401 时只跳一次、只提示一次
 let lastRedirectAt = 0
 function redirectToLogin(message: string) {
+  localStorage.removeItem('satoken')
+  // 登录页的 40100 是“用户名或密码错误”，由表单内联提示；不能再弹“登录已过期”
+  if (window.location.pathname.startsWith('/login')) return
   const now = Date.now()
   if (now - lastRedirectAt < 3000) return
   lastRedirectAt = now
-  localStorage.removeItem('satoken')
   ElMessage.warning(message)
-  if (window.location.pathname.startsWith('/login')) return
   const current = `${window.location.pathname}${window.location.search}${window.location.hash}`
   const redirect = current.startsWith('/') ? current : ''
   navigate(redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login')
@@ -165,8 +166,15 @@ export async function downloadCsv(url: string, params: object, filename: string)
   const link = document.createElement('a')
   link.href = URL.createObjectURL(blob)
   link.download = filename
+  link.rel = 'noopener'
+  link.style.display = 'none'
+  // Firefox/Safari 在点击后立刻回收 blob URL 会中断下载（Bugzilla 1282407），延迟回收更稳
+  document.body.appendChild(link)
   link.click()
-  URL.revokeObjectURL(link.href)
+  window.setTimeout(() => {
+    link.remove()
+    URL.revokeObjectURL(link.href)
+  }, 1000)
 }
 
 export default request
