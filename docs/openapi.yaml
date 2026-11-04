@@ -1079,7 +1079,7 @@ components:
         degradeLevel:
           type: [string, "null"]
           enum: [L2, L3, L4, null]
-          description: 未降级时为 null；降级时为 L2（备用模型）/L3（本地模板）/L4（拒绝生成）。L1 是主力模型，不是降级级别。
+          description: 未降级时为 null；L1 正常无降级，不是降级级别。降级时：L2 仍是 AI 内容（备用通道生成，或远程已产出部分正文后中断，model 记录真实模型）；L3 远程零产出走本地模板（model=local-template）；L4 完全不可用/未生成。
         content: { type: string }
         sources:
           type: array
