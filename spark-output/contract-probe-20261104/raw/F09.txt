@@ -1,0 +1,16 @@
+event:meta
+data:{"explainId":"EX_20261104220632_0d0f912e","traceId":"t-20261104-d1bbfe3b","model":"auto","degraded":false}
+
+event:source
+data:{"kpId":"KP0201","textbookPage":"P34","title":"关系模型的基本概念与三要素"}
+
+event:degraded
+data:{"reason":"AI 服务不可用，已切换本地学习卡","level":"L3"}
+
+event:delta
+data:{"text":"【学习卡】\n【知识点】关系模型的基本概念与三要素；教材P34\n【常见误区】\n1. 把关系模型只当成二维表，漏掉关系操作与完整性约束\n2. 认为关系模型的结构与层次、网状模型一样复杂\n3. 把“关系”与“关系模式”当作同一概念\n【练习提示】请完成下方同类练习，检验自己是否真正掌握。"}
+
+event:done
+data:{"explainId":"EX_20261104220632_0d0f912e","latencyMs":124,"tokens":0,"learningCard":{"kpName":"关系模型的基本概念与三要素","textbookPage":"P34","misconceptions":["把关系模型只当成二维表，漏掉关系操作与完整性约束","认为关系模型的结构与层次、网状模型一样复杂","把“关系”与“关系模式”当作同一概念"],"practiceHint":"请完成下方同类练习，检验自己是否真正掌握。"}}
+
+

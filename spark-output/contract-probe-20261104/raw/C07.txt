@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":[{"qId":"Q_0201","primaryKpId":"KP0201","questionType":"单选","questionText":"关于关系模型，下列叙述不正确的是（ ）。","difficulty":1},{"qId":"Q_0213","primaryKpId":"KP0201","questionType":"填空","questionText":"在关系模型中，二维表的每一行称为一个____，每一列称为一个____，列中值的取值范围称为____，元组中的每一个值称为____。","difficulty":1}],"timestamp":1793801189011}

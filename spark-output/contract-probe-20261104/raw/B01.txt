@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":[{"courseId":1,"courseName":"数据库原理","textbook":"《数据库系统概论（第6版）》王珊","description":"试点课程，覆盖 8 个核心章节","dimensionConfig":[{"key":"concept","name":"概念理解"},{"key":"sql","name":"SQL 编写"},{"key":"schema","name":"模式设计"},{"key":"transaction","name":"事务与并发"},{"key":"boundary","name":"边界与异常"}]}],"timestamp":1793801188526}

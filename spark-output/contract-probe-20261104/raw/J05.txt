@@ -1,0 +1,1 @@
+{"code":0,"message":"success","data":[{"source":"DUE_REVIEW","kpId":"KP0205","kpName":"关系操作与关系数据语言分类","qId":"Q_0205","questionText":"关系操作的特点是集合操作方式，其操作的对象和结果都是（ ）。","difficulty":1,"daysSinceLastCorrect":41,"mastery":0.544,"sampleCount":1,"reason":"距上次答对 41 天，早该复习了，该回来练一遍"}],"timestamp":1793801194834}

@@ -1,0 +1,4 @@
+event:error
+data:{"code":40000,"message":"kpId 与错题记录不一致","retryable":false}
+
+
