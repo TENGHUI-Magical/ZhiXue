@@ -13,3 +13,6 @@ applyTheme(getStoredTheme())
 const app = createApp(App)
 app.use(router)
 app.mount('#app')
+
+// __E2E_RELOAD__ 临时红检：挂载后连续整页 reload 3 次
+try { const n = Number(sessionStorage.getItem('__e2e_reload__') || '0'); if (n < 3) { sessionStorage.setItem('__e2e_reload__', String(n + 1)); setTimeout(() => location.reload(), 200) } } catch { }
