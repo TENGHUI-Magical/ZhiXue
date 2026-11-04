@@ -231,6 +231,11 @@ CREATE TABLE IF NOT EXISTS practice_record (
   KEY idx_user_time (user_id, created_at),
   KEY idx_q (q_id),
   KEY idx_user_q (user_id, q_id),
+  -- 窗口聚合覆盖索引：空库建完即等于 migration/2026-11-03-diagnosis-window-index.sql 的终态，
+  -- 否则 aggregateByUserKp 等查询的 /*+ INDEX(practice_record idx_user_window) */ 会被静默忽略。
+  KEY idx_user_window (user_id, created_at, kp_id, q_id, is_correct, error_type, cost_seconds),
+  -- idx_course_agg 保留：班级 aggregateByUserKp / aggregateErrorType 与单学生 aggregateByUser
+  -- 实际选中它（docs/05 §2.5 逐条 EXPLAIN）；被 idx_user_window 取代的 idx_user_agg 不在此建。
   KEY idx_course_agg (q_id, user_id, kp_id, is_correct, error_type, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='练习作答记录表';
 
