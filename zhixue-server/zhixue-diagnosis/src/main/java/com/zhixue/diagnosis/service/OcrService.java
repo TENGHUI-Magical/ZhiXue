@@ -376,6 +376,15 @@ public class OcrService {
         if (contentType == null || !contentType.startsWith("image/")) {
             throw new BizException(ErrorCode.PARAM_ERROR, "仅支持图片文件");
         }
+        // 文件自带扩展名时必须命中白名单，不能因为客户端把 part 的 Content-Type 写成 image/jpeg 就放行 .txt。
+        // 无扩展名的客户端（浏览器 blob）仍走 resolveExtension 的 Content-Type 推断分支。
+        String original = image.getOriginalFilename();
+        if (original != null && original.lastIndexOf('.') >= 0) {
+            String declared = original.substring(original.lastIndexOf('.') + 1).toLowerCase();
+            if (!ALLOWED_EXTENSIONS.contains(declared)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "仅支持 JPG/PNG");
+            }
+        }
         if (!ALLOWED_EXTENSIONS.contains(resolveExtension(image))) {
             throw new BizException(ErrorCode.PARAM_ERROR, "仅支持 JPG/PNG");
         }

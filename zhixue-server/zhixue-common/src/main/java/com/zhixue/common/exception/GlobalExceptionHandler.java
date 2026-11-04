@@ -10,12 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -66,6 +69,22 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ApiResponse<Void> handleMissingPart(MissingServletRequestPartException e) {
         return ApiResponse.fail(ErrorCode.PARAM_ERROR, "缺少上传文件字段: " + e.getRequestPartName());
+    }
+
+    /**
+     * 方法/媒体类型不匹配 → 40000（契约 1.2「格式错误」）。
+     * <p>
+     * 405（GET 打到只支持 POST 的端点）、415（Content-Type 不是 JSON）、
+     * 畸形 multipart（声明 multipart/form-data 但缺 boundary）此前都落到兜底 50000，
+     * 属于错误码误用；这里统一收敛为参数错误。
+     */
+    @ExceptionHandler({
+            HttpRequestMethodNotSupportedException.class,
+            HttpMediaTypeNotSupportedException.class,
+            MultipartException.class
+    })
+    public ApiResponse<Void> handleMalformedRequest(Exception e) {
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR, "请求方法或格式不受支持");
     }
 
     /** multipart 超过容器上限 → 40000；业务侧 5MB 限制由 OcrService 再校验 */
