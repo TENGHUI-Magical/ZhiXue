@@ -34,6 +34,9 @@ MAX_OUTPUT_TOKENS = 700
 LEVEL_L2 = "L2"  # 有正文但非 L1 完整产出：备用模型完整产出，或流中断/超时截断
 LEVEL_L3 = "L3"  # 远程零产出，完全回退本地模板
 MODEL_LOCAL_TEMPLATE = "local-template"
+MODEL_UNKNOWN = "unknown"  # 未配置任何模型时不伪造 local-template（docs/03 §3）
+# L1 失败后重试前的固定短退避：只重试 1 次，避免立即重放 429/5xx 形成二次洪峰
+RETRY_BACKOFF_SECONDS = 0.3
 
 
 def _model_hint() -> str:
@@ -42,7 +45,8 @@ def _model_hint() -> str:
         return settings.llm_model_main
     if settings.glm_api_key:
         return settings.llm_model_fallback
-    return MODEL_LOCAL_TEMPLATE
+    # 无密钥时根本没有模型产出；blocked 场景也要落 unknown 而不是 local-template
+    return MODEL_UNKNOWN
 
 
 # SSE 响应头：禁用代理缓冲，保持逐帧下发
@@ -267,7 +271,11 @@ def _normalized_answer(text: str) -> str:
 
 
 def is_answer_leak(sentence: str, answer_text: str | None) -> bool:
-    """识别答案原文、归一化原文及选项泄露句式；解释性/否定引用不误判。"""
+    """识别答案原文、归一化原文及选项泄露句式；解释性/否定引用不误判。
+
+    短答案（归一化后不足 4 字，如填空/判断题的「语义」「正确」）只认显式泄露句式，
+    不做子串匹配：否则正常讲解里出现该词就会被整句删除，甚至把 L1 正文全部过滤掉。
+    """
     answer = (answer_text or "").strip()
     if not answer or not sentence:
         return False
@@ -281,14 +289,22 @@ def is_answer_leak(sentence: str, answer_text: str | None) -> bool:
                 continue
             return True
         return False
-    if answer.lower() in sentence.lower():
-        return True
     normalized = _normalized_answer(answer)
-    return len(normalized) >= 4 and normalized in _normalized_answer(sentence)
+    if len(normalized) >= 4:
+        if answer.lower() in sentence.lower():
+            return True
+        return normalized in _normalized_answer(sentence)
+    # 短答案：仅「答案是/正确答案是/应填/应为 + 答案原文」才算泄露
+    short_leak = re.compile(
+        r"(?:正确答案|正确选项|答案|应填|应写|应为|应选)\s*(?:是|为|：|:)?\s*" + re.escape(answer),
+        re.IGNORECASE,
+    )
+    return bool(short_leak.search(sentence))
 
 
 async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
-                       answer_text: str | None = None) -> AsyncIterator[str]:
+                       answer_text: str | None = None, trace_id: str | None = None
+                       ) -> AsyncIterator[str]:
     """逐句校验页码并删除答案泄露句；不缓冲整篇讲解。"""
     buf = ""
     async for delta in stream:
@@ -301,7 +317,7 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
             sentence, buf = buf[:end], buf[end:]
             clean = sanitize_page_citations(sentence, textbook_page)
             if is_answer_leak(clean, answer_text):
-                logger.warning("检测到答案泄露句，已删除该句")
+                logger.warning("检测到答案泄露句 traceId=%s，已删除该句", trace_id or "-")
             else:
                 yield clean
     if buf:
@@ -309,7 +325,7 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
         if not is_answer_leak(clean, answer_text):
             yield clean
         else:
-            logger.warning("检测到答案泄露句，已删除该句")
+            logger.warning("检测到答案泄露句 traceId=%s，已删除该句", trace_id or "-")
 
 
 def _template_chunks(req: RagExplainRequest) -> list[str]:
@@ -362,7 +378,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                     "ref": f"《数据库系统概论（第6版）》{hit.chunk.ref or '页码待确认'}",
                 })
     except Exception as exc:  # 检索是增强项，不允许中断讲解
-        logger.warning("RAG 检索增强失败，保持单来源：%s", exc)
+        logger.warning("RAG 检索增强失败 traceId=%s，保持单来源：%s", trace_id, exc)
     blocked, block_tip = compliance_check(req.questionText or "")
 
     yield _sse("meta", {"traceId": trace_id, "sources": sources, "model": _model_hint()})
@@ -383,7 +399,8 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                 async for delta in _guard_pages(_buffered(_stream_openai(
                         f"{settings.deepseek_base_url.rstrip('/')}/chat/completions",
                         settings.deepseek_api_key, settings.llm_model_main, messages,
-                        usage, include_usage=True)), req.textbookPage, req.answerText):
+                        usage, include_usage=True)), req.textbookPage, req.answerText,
+                        trace_id):
                     delivered = True
                     yield _sse("chunk", {"content": delta})
                 if delivered:
@@ -394,16 +411,21 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                                         "promptTokens": int(usage.get("prompt_tokens", 0)),
                                         "elapsedMs": int((time.time() - start) * 1000)})
                     return
-                logger.warning("L1 %s 返回空流（第 %s 次尝试）", settings.llm_model_main, attempt)
+                logger.warning("L1 %s 返回空流（第 %s 次尝试）traceId=%s",
+                               settings.llm_model_main, attempt, trace_id)
             except Exception as exc:
                 if delivered:
-                    logger.warning("L1 %s 流式中断且已输出正文，不再重试：%s",
-                                   settings.llm_model_main, exc)
+                    logger.warning("L1 %s 流式中断且已输出正文，不再重试 traceId=%s：%s",
+                                   settings.llm_model_main, trace_id, exc)
                     raise
-                logger.warning("L1 %s 调用失败（第 %s 次尝试，共 2 次）：%s",
-                               settings.llm_model_main, attempt, exc)
+                logger.warning("L1 %s 调用失败（第 %s 次尝试，共 2 次）traceId=%s：%s",
+                               settings.llm_model_main, attempt, trace_id, exc)
                 usage.clear()
+            if attempt == 1:
+                await asyncio.sleep(RETRY_BACKOFF_SECONDS)
 
+    # L1 若返回空流但未抛异常，usage 可能残留上次尝试的计数；进入 L2 前必须清零
+    usage.clear()
     if settings.glm_api_key:
         delivered = False
         try:
@@ -412,7 +434,7 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
             async for delta in _guard_pages(_buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
                     settings.glm_api_key, settings.llm_model_fallback, messages, usage)),
-                    req.textbookPage, req.answerText):
+                    req.textbookPage, req.answerText, trace_id):
                 delivered = True
                 yield _sse("chunk", {"content": delta})
             if delivered:
@@ -423,14 +445,15 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                                     "promptTokens": int(usage.get("prompt_tokens", 0)),
                                     "elapsedMs": int((time.time() - start) * 1000)})
                 return
-            logger.warning("L2 输出全部被过滤，降级本地模板")
+            logger.warning("L2 输出全部被过滤 traceId=%s，降级本地模板", trace_id)
         except Exception as exc:
             if delivered:
                 # 已输出部分 GLM 正文时直接中断，由 Java 记为 L2（保留 glm 模型名），不再追加模板造成混合正文
-                logger.warning("L2 %s 流式中断且已输出正文，不再追加模板：%s",
-                               settings.llm_model_fallback, exc)
+                logger.warning("L2 %s 流式中断且已输出正文 traceId=%s，不再追加模板：%s",
+                               settings.llm_model_fallback, trace_id, exc)
                 raise
-            logger.warning("L2 %s 调用失败，降级本地模板：%s", settings.llm_model_fallback, exc)
+            logger.warning("L2 %s 调用失败 traceId=%s，降级本地模板：%s",
+                           settings.llm_model_fallback, trace_id, exc)
 
     yield _sse("degraded", {"level": LEVEL_L3, "reason": "L1/L2 均不可用，使用本地模板"})
     for chunk in _template_chunks(req):
