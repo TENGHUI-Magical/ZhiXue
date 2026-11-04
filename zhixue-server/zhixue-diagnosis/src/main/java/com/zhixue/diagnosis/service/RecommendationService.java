@@ -17,6 +17,7 @@ import com.zhixue.diagnosis.mapper.RecommendationRecordMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
@@ -93,6 +94,7 @@ public class RecommendationService {
      * @param courseId 课程 ID；为空时按知识点所属课程解析，显式传入时须与知识点课程一致
      * @return 1—3 条推荐；无题可推时返回空数组
      */
+    @Transactional
     public List<Recommendation> recommend(String logId, String kpId, Long courseId) {
         StudentErrorRecord record = null;
         String resolvedKp;
