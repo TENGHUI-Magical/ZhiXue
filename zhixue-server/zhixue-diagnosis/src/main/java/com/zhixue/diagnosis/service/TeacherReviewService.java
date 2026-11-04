@@ -292,6 +292,12 @@ public class TeacherReviewService {
                 && (request.comment() == null || request.comment().isBlank())) {
             throw new BizException(ErrorCode.PARAM_ERROR, "退回必须填写评语");
         }
+        // C3 证据门禁：PASS 必须有题干与参考答案，与前端 hasEvidence 同口径；
+        // 历史无题干日志可浏览、可 RETURN，不锁死队列。
+        if ("PASS".equals(result) && !hasReviewEvidence(row)) {
+            throw new BizException(ErrorCode.PARAM_ERROR,
+                    "PASS 需要题干与参考答案证据；缺证据仅允许 RETURN");
+        }
         int rows = logMapper.update(null, new LambdaUpdateWrapper<AiGenerationLog>()
                 .eq(AiGenerationLog::getLogPk, logPk)
                 .isNull(AiGenerationLog::getReviewedAt)
@@ -306,6 +312,25 @@ public class TeacherReviewService {
             }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该讲解已评阅: " + logPk);
         }
+    }
+
+    /**
+     * 证据完整性：关联错题（log_id）→ q_id → 题库须同时有非空题干与参考答案。
+     * 与前端 {@code hasEvidence} 及队列 DTO 的取数链路一致；历史无题干日志返回 false，仅允许 RETURN。
+     */
+    private boolean hasReviewEvidence(AiGenerationLog row) {
+        if (row.getLogId() == null || row.getLogId().isBlank()) {
+            return false;
+        }
+        StudentErrorRecord error = errorRecordMapper.selectById(row.getLogId());
+        if (error == null || error.getQId() == null || error.getQId().isBlank()) {
+            return false;
+        }
+        QuestionBank question = questionBankService.findByIds(List.of(error.getQId()))
+                .get(error.getQId());
+        return question != null
+                && question.getQuestionText() != null && !question.getQuestionText().isBlank()
+                && question.getAnswerText() != null && !question.getAnswerText().isBlank();
     }
 
     /** 按 logIds 分块回查错题记录（每块 500）：导出可达数万行，一次性 IN 全部 logId 是无界查询（红线）。 */

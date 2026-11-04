@@ -597,7 +597,11 @@ paths:
                   type: string
                   enum: [PASS, RETURN]
                   default: PASS
-                  description: 评阅结论；RETURN 时必须填写评语
+                  description: |
+                    评阅结论。RETURN 时必须填写评语。
+                    PASS 需要证据完整（关联错题可解析出题干与参考答案）；
+                    缺证据时仅允许 RETURN，否则 code=40000（参数校验失败）。
+                    历史无题干日志可正常浏览与退回，不锁死队列。
       responses:
         '200':
           description: 成功

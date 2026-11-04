@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
+import com.zhixue.course.entity.QuestionBank;
 import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
@@ -325,6 +326,7 @@ class TeacherReviewServiceTest {
         when(logMapper.selectById(10L)).thenReturn(log);
         when(logMapper.selectLinkedCourseIds("EL_10")).thenReturn(List.of());
         when(logMapper.update(isNull(), any())).thenReturn(1);
+        givenPassEvidence("EL_10");
 
         LocalDateTime shanghaiNow;
         LocalDateTime written;
@@ -435,6 +437,7 @@ class TeacherReviewServiceTest {
         when(logMapper.update(isNull(), any())).thenReturn(1);
         when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
         lenient().when(logMapper.countForReview(any(), any(), any(), any(), any())).thenReturn(0L);
+        givenPassEvidence("EL_10");
 
         Locale original = Locale.getDefault();
         try {
@@ -498,10 +501,12 @@ class TeacherReviewServiceTest {
     void submitWritesOnlyWhenReviewedAtIsNull() {
         AiGenerationLog log = new AiGenerationLog();
         log.setLogPk(10L);
+        log.setLogId("EL_10");
         log.setScene("RAG");
         log.setUserId(10L);
         when(logMapper.selectById(10L)).thenReturn(log);
         when(logMapper.update(isNull(), any())).thenReturn(1);
+        givenPassEvidence("EL_10");
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
@@ -544,6 +549,87 @@ class TeacherReviewServiceTest {
         }
     }
 
+    /** C3 证据门禁：无错题关联（log_id 空）时 PASS 返回 40000，且不写入。 */
+    @Test
+    void passWithoutEvidenceReturns40000() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(14L);
+        log.setScene("RAG");
+        log.setUserId(10L);
+        when(logMapper.selectById(14L)).thenReturn(log);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.submit(14L, new ReviewSubmitRequest(5, "讲解清晰")));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+            assertTrue(ex.getMessage().contains("PASS 需要题干与参考答案证据"));
+            verify(logMapper, never()).update(any(), any());
+        }
+    }
+
+    /** C3 证据门禁：有错题但题库缺参考答案时 PASS 仍返回 40000。 */
+    @Test
+    void passWithIncompleteEvidenceReturns40000() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(15L);
+        log.setLogId("EL_15");
+        log.setScene("RAG");
+        log.setUserId(10L);
+        when(logMapper.selectById(15L)).thenReturn(log);
+        StudentErrorRecord error = new StudentErrorRecord();
+        error.setLogId("EL_15");
+        error.setQId("Q_INCOMPLETE");
+        when(errorRecordMapper.selectById("EL_15")).thenReturn(error);
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_INCOMPLETE");
+        question.setQuestionText("题干");
+        question.setAnswerText(" ");
+        when(questionBankService.findByIds(List.of("Q_INCOMPLETE")))
+                .thenReturn(Map.of("Q_INCOMPLETE", question));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
+            BizException ex = assertThrows(BizException.class,
+                    () -> service.submit(15L, new ReviewSubmitRequest(5, "讲解清晰")));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+            verify(logMapper, never()).update(any(), any());
+        }
+    }
+
+    /** 历史无题干日志不锁队列：缺证据仍允许 RETURN（评语必填）。 */
+    @Test
+    void returnWithoutEvidenceIsAllowed() {
+        AiGenerationLog log = new AiGenerationLog();
+        log.setLogPk(16L);
+        log.setLogId("EL_16");
+        log.setScene("RAG");
+        log.setUserId(10L);
+        when(logMapper.selectById(16L)).thenReturn(log);
+        when(logMapper.update(isNull(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(10L);
+            service.submit(16L, new ReviewSubmitRequest(3, "缺题干，退回补充", "RETURN"));
+        }
+
+        verify(logMapper).update(isNull(), any());
+    }
+
+    /** 构造完整证据：错题 → q_id → 题库题干与参考答案非空。 */
+    private void givenPassEvidence(String logId) {
+        StudentErrorRecord error = new StudentErrorRecord();
+        error.setLogId(logId);
+        error.setQId("Q_EVIDENCE");
+        when(errorRecordMapper.selectById(logId)).thenReturn(error);
+        QuestionBank question = new QuestionBank();
+        question.setQId("Q_EVIDENCE");
+        question.setQuestionText("题干");
+        question.setAnswerText("参考答案");
+        when(questionBankService.findByIds(List.of("Q_EVIDENCE")))
+                .thenReturn(Map.of("Q_EVIDENCE", question));
+    }
+
     /** 写侧课程范围（与读侧同一口径）：记录可定位到登录教师范围外课程 → 40300，且不发生写入。 */
     @Test
     void submitRejectsRecordScopedToOtherTeachersCourse() {
@@ -581,6 +667,7 @@ class TeacherReviewServiceTest {
         when(logMapper.selectLinkedCourseIds("EL_12")).thenReturn(List.of());
         when(courseService.listActiveCourseIdsByTeacher(anyLong())).thenReturn(List.of(1L));
         when(logMapper.update(isNull(), any())).thenReturn(1);
+        givenPassEvidence("EL_11");
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(3L);
@@ -603,6 +690,7 @@ class TeacherReviewServiceTest {
         when(logMapper.selectById(13L)).thenReturn(own);
         when(logMapper.selectLinkedCourseIds("EL_13")).thenReturn(List.of());
         when(logMapper.update(isNull(), any())).thenReturn(1);
+        givenPassEvidence("EL_13");
 
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(9L);
