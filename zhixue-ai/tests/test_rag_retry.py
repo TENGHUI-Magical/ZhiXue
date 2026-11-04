@@ -143,10 +143,56 @@ def test_l1_fails_twice_then_degrades_to_l2(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert sum("deepseek" in url for url in urls) == 2, "L1 必须尝试两次"
     degraded = [data for name, data in events if name == "degraded"]
-    assert degraded and degraded[0]["level"] == "L2"
+    assert degraded and degraded[0]["level"] == rag_service.LEVEL_L2
+    assert degraded[0]["modelUsed"] == settings.llm_model_fallback, \
+        "L2 必须携带实际备用模型名，供 Java 落库保留真实 model"
     done = [data for name, data in events if name == "done"][-1]
     assert done["degraded"] is True
     assert done["modelUsed"] == settings.llm_model_fallback
+
+
+def test_meta_carries_primary_model_for_stream_break_attribution(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        yield "讲解正文。"
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+    events = _collect()
+    meta = [data for name, data in events if name == "meta"][-1]
+    assert meta["model"] == settings.llm_model_main, \
+        "meta 需告知 Java 首个候选模型，流中断时才能保留真实 model 而不是 local-template"
+
+
+def test_l1_partial_failure_raises_without_l3_template(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        yield "L1 第一段正文。"
+        raise httpx.ReadTimeout("L1 中途断流")
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+
+    async def run() -> list[str]:
+        frames = []
+        try:
+            async for frame in rag_service.stream_explain(RagExplainRequest(**PAYLOAD)):
+                frames.append(frame)
+        except httpx.ReadTimeout:
+            return frames
+        raise AssertionError("L1 中途断流应向上抛出，由 Java 记为 L2（部分产出）")
+
+    events = _parse(asyncio.run(run()))
+    names = [name for name, _ in events]
+    assert "chunk" in names, "断流前应已输出部分正文"
+    assert "done" not in names
+    assert all(data.get("level") != rag_service.LEVEL_L3
+               for name, data in events if name == "degraded"), \
+        "部分产出不得发 L3，L3 只留给远程零产出后的本地模板"
 
 
 def test_l2_partial_failure_does_not_append_template(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -168,13 +214,13 @@ def test_l2_partial_failure_does_not_append_template(monkeypatch: pytest.MonkeyP
                 frames.append(frame)
         except httpx.ReadTimeout:
             return frames
-        raise AssertionError("L2 中途断流应向上抛出，由 Java 标记 L3")
+        raise AssertionError("L2 中途断流应向上抛出，由 Java 记为 L2（保留实际模型名）")
 
     events = _parse(asyncio.run(run()))
     names = [name for name, _ in events]
     assert "chunk" in names, "断流前应已输出部分 GLM 正文"
     levels = [data.get("level") for name, data in events if name == "degraded"]
-    assert levels == ["L2"], "不得再追加 L3 降级事件"
+    assert levels == [rag_service.LEVEL_L2], "不得再追加 L3 降级事件"
     assert "done" not in names, "不得再发送完整模板后的 done"
 
 
@@ -267,6 +313,6 @@ def test_stream_explain_falls_back_to_template_when_all_sentences_leak(
     content = "".join(data["content"] for name, data in events if name == "chunk")
     levels = [data["level"] for name, data in events if name == "degraded"]
     done = [data for name, data in events if name == "done"][-1]
-    assert levels == ["L3"]
-    assert done["modelUsed"] == "local-template"
+    assert levels == [rag_service.LEVEL_L3]
+    assert done["modelUsed"] == rag_service.MODEL_LOCAL_TEMPLATE
     assert "答案是B" not in content

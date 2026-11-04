@@ -511,16 +511,18 @@ const loadLinkedQuestions = async () => {
 };
 watch(selectedKpId, loadLinkedQuestions);
 // 降级标签用学生话术，不暴露 L2/L3 内部词；标签保留可读文本，释义放 tooltip。
-// L3=本地教材知识卡（未调用大模型）；L2=备用模型讲解（静态文案，本机无 L2 样本，未实测）。
+// L3=本地教材知识卡（未调用大模型）；L2=备用模型完整产出或远程流中断仅返回部分正文，
+// 两种情形都没有切换本地模板，文案不能写成“已切换备用模型”。
 const degradeLabel = computed(() => {
   if (degradeLevel.value === "L3") return "本地教材知识卡";
-  if (degradeLevel.value === "L2") return "备用模型讲解";
-  return "备用讲解";
+  if (degradeLevel.value === "L4") return "暂未生成讲解";
+  return "简化讲解";
 });
 const degradeTip = computed(() => {
   if (degradeLevel.value === "L3") return "当前用教材原文作答，未调用大模型";
-  if (degradeLevel.value === "L2") return "主力模型暂不可用，已切换备用模型";
-  return "主力模型暂不可用，已切换备用讲解";
+  if (degradeLevel.value === "L4") return "知识点原文缺失，暂无法生成讲解，请联系教师补全";
+  if (degradeLevel.value === "L2") return "当前讲解由备用通道生成或只返回了部分内容，可重试获取完整讲解";
+  return "当前讲解未完整返回，可重试获取完整讲解";
 });
 
 let recSeq = 0;

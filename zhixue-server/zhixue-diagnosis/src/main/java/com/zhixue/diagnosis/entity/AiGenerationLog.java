@@ -31,7 +31,7 @@ public class AiGenerationLog {
     /** OCR / RAG / LLM / RECOMMEND */
     private String scene;
 
-    /** 实际使用的模型名（deepseek-chat / glm-4-flash / local-template） */
+    /** 实际产出模型名（deepseek-chat / glm-4-flash 等）；只有 L3 本地模板真正产出正文时才写 local-template */
     private String model;
 
     /** Prompt 模板版本（Prompt 库入 Git，版本可回溯） */
@@ -40,7 +40,10 @@ public class AiGenerationLog {
     /** 是否降级：1 是，0 否 */
     private Integer isDegraded;
 
-    /** 降级级别：L2（备用模型）/ L3（本地模板）/ L4（拒绝生成）；未降级为 NULL。L1 是主力模型，不写入本字段。 */
+    /**
+     * 降级级别：L2（备用模型完整产出，或远程流中断/超时只返回部分正文）/ L3（远程零产出、本地模板产出正文）/
+     * L4（拒绝生成）；未降级为 NULL。L1 是主力模型，不写入本字段。
+     */
     private String degradeLevel;
 
     /** 讲解耗时毫秒 */

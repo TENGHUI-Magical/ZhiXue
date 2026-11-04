@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS ai_generation_log (
   model            VARCHAR(50)  DEFAULT NULL        COMMENT '实际调用的模型名',
   prompt_version   VARCHAR(20)  DEFAULT NULL        COMMENT 'Prompt 模板版本号',
   is_degraded      TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '是否发生降级',
-  degrade_level    VARCHAR(10)  DEFAULT NULL        COMMENT '降级级别：L1 / L2 / L3 / L4',
+  degrade_level    VARCHAR(10)  DEFAULT NULL        COMMENT '降级级别：L2（备用/部分正文）/ L3（本地模板）/ L4（未生成）；L1 不写',
   latency_ms       INT          DEFAULT NULL        COMMENT '调用耗时毫秒',
   prompt_tokens    INT          NOT NULL DEFAULT 0  COMMENT '输入 token 数',
   completion_tokens INT         NOT NULL DEFAULT 0  COMMENT '输出 token 数',

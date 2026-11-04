@@ -52,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,6 +79,15 @@ public class RagExplainService {
 
     /** meta.model 暂用 auto；接入模型配置同步后改为真实模型名 */
     private static final String META_MODEL = "auto";
+
+    /**
+     * 降级级别与模型名常量：与 zhixue-ai/app/services/rag_service.py
+     * 的 LEVEL_L2 / LEVEL_L3 / MODEL_LOCAL_TEMPLATE 同口径，任一侧改动必须同步另一侧。
+     */
+    private static final String LEVEL_L2 = "L2";
+    private static final String LEVEL_L3 = "L3";
+    private static final String MODEL_LOCAL_TEMPLATE = "local-template";
+    private static final String MODEL_UNKNOWN = "unknown";
 
     /** Prompt 模板版本：必须与 zhixue-ai/app/services/rag_service.py 的 PROMPT_VERSION 一致（单测校验）。 */
     static final String PROMPT_VERSION = "v2";
@@ -125,6 +135,54 @@ public class RagExplainService {
     }
 
     private record PrereqCandidate(String kpId, double mastery) {
+    }
+
+    /**
+     * 降级判定结果。
+     *
+     * @param level    降级级别；null 表示 L1（主模型完整产出，不写降级级别）
+     * @param model    落库 model；L3 本地模板为 local-template，L2 保留实际模型名
+     * @param degraded 是否降级
+     */
+    record DegradeOutcome(String level, String model, boolean degraded) {
+    }
+
+    /**
+     * 降级口径唯一判定处（与 zhixue-ai/app/services/rag_service.py 的 LEVEL_L2/LEVEL_L3 同口径）。
+     * <ul>
+     *   <li>L1：主模型完整产出，degrade_level=null，model 为实际模型；</li>
+     *   <li>L2：有正文但非 L1 完整产出——备用模型完整产出，或远程流中断/超时截断；
+     *       保留实际模型名，degrade_level=L2 即截断/降级标记；</li>
+     *   <li>L3：本地模板产出（远程零产出），model=local-template；</li>
+     *   <li>零正文且未产出模板（首字节超时、客户端过早断开）：仍记 L3，model 保留实际值
+     *       或 unknown，不伪造 local-template。</li>
+     * </ul>
+     *
+     * @param hasContent    已收集正文长度 &gt; 0
+     * @param streamBroken  流未正常结束（未收到上游 done / 上游异常 / 整体超时 / 客户端断开）
+     * @param signaledLevel 上游 degraded 事件声明的级别（L2/L3），无则 null
+     * @param actualModel   当前已知的实际模型名
+     * @return 统一的降级判定结果
+     */
+    static DegradeOutcome classifyDegrade(boolean hasContent, boolean streamBroken,
+                                          String signaledLevel, String actualModel) {
+        String model = actualModel == null || actualModel.isBlank() ? MODEL_UNKNOWN : actualModel;
+        if (LEVEL_L3.equals(signaledLevel)) {
+            // 上游已产出本地学习卡，或 Java 自己补齐模板：L3 一律记 local-template
+            return new DegradeOutcome(LEVEL_L3, MODEL_LOCAL_TEMPLATE, true);
+        }
+        if (hasContent) {
+            if (streamBroken) {
+                // 有正文但流被打断/超时：部分产出，绝不能记成 L3 或 local-template
+                return new DegradeOutcome(LEVEL_L2, model, true);
+            }
+            if (signaledLevel != null && !signaledLevel.isBlank()) {
+                // 备用模型完整产出（现有 L2 语义），保留实际模型名
+                return new DegradeOutcome(signaledLevel, model, true);
+            }
+            return new DegradeOutcome(null, model, false);
+        }
+        return new DegradeOutcome(LEVEL_L3, model, true);
     }
 
     /** 心跳调度：固定 2 线程，取消的任务及时移除，避免高并发 SSE 下队列堆积 */
@@ -279,6 +337,9 @@ public class RagExplainService {
 
         AtomicBoolean closed = new AtomicBoolean(false);
         AtomicBoolean chunkReceived = new AtomicBoolean(false);
+        AtomicBoolean upstreamDone = new AtomicBoolean(false);
+        AtomicBoolean upstreamError = new AtomicBoolean(false);
+        AtomicBoolean degradedEventSent = new AtomicBoolean(false);
         AtomicInteger characters = new AtomicInteger();
         AtomicReference<Disposable> upstream = new AtomicReference<>();
 
@@ -290,22 +351,28 @@ public class RagExplainService {
                 },
                 HEARTBEAT_SECONDS, HEARTBEAT_SECONDS, TimeUnit.SECONDS);
 
-        Runnable cleanup = () -> {
+        // streamBroken：流没有正常收尾（未收到上游 done / 上游异常 / 整体超时 / 客户端断开）。
+        // 落库级别一律经 classifyDegrade，避免 L2 部分产出被散落的 if 误标成 L3。
+        Consumer<Boolean> cleanup = streamBroken -> {
             if (closed.compareAndSet(false, true)) {
                 heartbeat.cancel(false);
                 dispose(upstream.get());
+                DegradeOutcome outcome = blocked.get()
+                        ? new DegradeOutcome(null, modelUsed.get(), false)
+                        : classifyDegrade(content.length() > 0, streamBroken,
+                        degradeLevel.get(), modelUsed.get());
                 // 客户端断开也要留痕：契约 5.3 要求已生成内容与耗时照常记录
                 fallbackPool.execute(() -> writeLog(explainId, traceId, userId, request.getLogId(),
-                        kp.getKpId(), modelUsed.get(), degraded.get(), degradeLevel.get(),
+                        kp.getKpId(), outcome.model(), outcome.degraded(), outcome.level(),
                         System.currentTimeMillis() - start, promptVersion.get(),
                         promptTokens.get(), completionTokens.get(),
                         content.toString(), blocked.get(), logged));
             }
         };
-        emitter.onCompletion(cleanup);
-        emitter.onError(e -> cleanup.run());
+        emitter.onCompletion(() -> cleanup.accept(!upstreamDone.get()));
+        emitter.onError(e -> cleanup.accept(true));
         emitter.onTimeout(() -> {
-            cleanup.run();
+            cleanup.accept(true);
             sendError(emitter, ErrorCode.AI_TIMEOUT.getCode(), "讲解超时，请重试", true);
             emitter.complete();
         });
@@ -332,6 +399,11 @@ public class RagExplainService {
                         case "meta" -> {
                             // 上游 meta 携带检索增强来源；转成契约 source 事件，前端按 kpId 去重
                             Map<String, Object> meta = readMap(event.data());
+                            // 上游 meta 的 model 是服务间内部字段（不下发前端），用于流中断时保留真实模型名
+                            String model = meta.get("model") == null ? null : String.valueOf(meta.get("model"));
+                            if (model != null && !model.isBlank() && !META_MODEL.equals(model)) {
+                                modelUsed.set(model);
+                            }
                             Object sources = meta.get("sources");
                             if (sources instanceof List<?> list) {
                                 for (Object item : list) {
@@ -362,13 +434,26 @@ public class RagExplainService {
                         }
                         case "degraded" -> {
                             degraded.set(true);
+                            degradedEventSent.set(true);
                             String level = readString(event.data(), "level");
                             if (level != null && !level.isBlank()) {
                                 degradeLevel.set(level);
                             }
-                            sendRaw(emitter, "degraded", event.data());
+                            // modelUsed 是服务间内部字段：只用于留痕，不下发给前端（契约 §5.1 只暴露 level/reason）
+                            String model = readString(event.data(), "modelUsed");
+                            if (model != null && !model.isBlank()) {
+                                modelUsed.set(model);
+                            }
+                            Map<String, Object> out = new LinkedHashMap<>();
+                            out.put("level", degradeLevel.get());
+                            String reason = readString(event.data(), "reason");
+                            if (reason != null) {
+                                out.put("reason", reason);
+                            }
+                            send(emitter, "degraded", out);
                         }
                         case "done" -> {
+                            upstreamDone.set(true);
                             Map<String, Object> done = readMap(event.data());
                             completionTokens.set(intValue(done.get("tokens")));
                             promptTokens.set(intValue(done.get("promptTokens")));
@@ -394,8 +479,9 @@ public class RagExplainService {
                                 blocked.set(true);
                             }
                             sendRaw(emitter, "error", event.data());
+                            upstreamError.set(true);
                             emitter.complete();
-                            cleanup.run();
+                            cleanup.accept(true);
                         }
                         default -> {
                             // 未知事件忽略，保持前向兼容
@@ -403,42 +489,82 @@ public class RagExplainService {
                     }
                 },
                 error -> {
-                    log.warn("AI 讲解上游失败，切本地模板：{}", error.toString());
+                    log.warn("AI 讲解上游失败，按已产出内容标记降级：{}", error.toString());
                     fallback(emitter, kp, request, explainId, start, chunkReceived,
-                            characters, cleanup, content, modelUsed, degraded, degradeLevel);
+                            characters, cleanup, content, modelUsed, degraded, degradeLevel,
+                            degradedEventSent);
                 },
                 () -> {
-                    saveCache(cacheKey, kp, content, modelUsed, promptVersion, degraded, blocked);
+                    if (upstreamError.get()) {
+                        // 上游已发 error 事件并由该分支收尾，不再补模板/done
+                        cleanup.accept(true);
+                        return;
+                    }
+                    // 未收到上游 done 就结束 = 流被截断（如连接被干净关闭），同样按部分产出留痕
+                    boolean streamBroken = !upstreamDone.get();
+                    if (streamBroken && content.length() == 0) {
+                        // 零产出等价于上游不可用：走同一兜底（由 classifyDegrade 判为 L3）
+                        log.warn("AI 讲解上游提前结束且无正文，切本地模板");
+                        fallback(emitter, kp, request, explainId, start, chunkReceived,
+                                characters, cleanup, content, modelUsed, degraded, degradeLevel,
+                                degradedEventSent);
+                        return;
+                    }
+                    if (streamBroken) {
+                        degraded.set(true);
+                        DegradeOutcome outcome = classifyDegrade(content.length() > 0, true,
+                                degradeLevel.get(), modelUsed.get());
+                        degradeLevel.set(outcome.level());
+                        modelUsed.set(outcome.model());
+                        if (!degradedEventSent.getAndSet(true)) {
+                            send(emitter, "degraded", Map.of("level", outcome.level(),
+                                    "reason", "上游流中断，已返回部分内容"));
+                        }
+                    } else {
+                        saveCache(cacheKey, kp, content, modelUsed, promptVersion, degraded, blocked);
+                    }
                     sendDone(emitter, explainId, start, completionTokens.get(), false,
                             content.toString(), kp);
                     emitter.complete();
-                    cleanup.run();
+                    cleanup.accept(streamBroken);
                 });
         upstream.set(subscription);
         return emitter;
     }
 
-    /** 上游不可用时，用概念切片本地拼讲解；已收到部分 delta 时只补降级标记与 done。 */
+    /**
+     * 上游不可用时由 Java 兜底：远程零产出才用本地模板；已有部分正文则只标记部分产出（L2）。
+     * 级别与 model 统一由 {@link #classifyDegrade} 判定，禁止在这里另写 if 分支。
+     */
     private void fallback(SseEmitter emitter, KnowledgePoint kp, ExplainRequest request,
                           String explainId, long start, AtomicBoolean chunkReceived,
-                          AtomicInteger characters, Runnable cleanup, StringBuffer content,
+                          AtomicInteger characters, Consumer<Boolean> cleanup, StringBuffer content,
                           AtomicReference<String> modelUsed, AtomicBoolean degraded,
-                          AtomicReference<String> degradeLevel) {
+                          AtomicReference<String> degradeLevel, AtomicBoolean degradedEventSent) {
         fallbackPool.execute(() -> {
             try {
                 degraded.set(true);
-                degradeLevel.set("L3");
-                modelUsed.set("local-template");
-                if (!chunkReceived.get()) {
-                    send(emitter, "degraded", Map.of("level", "L3", "reason", "AI 服务不可用"));
+                boolean remoteContent = chunkReceived.get() || content.length() > 0;
+                if (!remoteContent) {
+                    // 远程零产出：真正回退本地模板，model 才写 local-template
+                    degradeLevel.set(LEVEL_L3);
+                    modelUsed.set(MODEL_LOCAL_TEMPLATE);
+                }
+                DegradeOutcome outcome = classifyDegrade(remoteContent, true,
+                        degradeLevel.get(), modelUsed.get());
+                degradeLevel.set(outcome.level());
+                modelUsed.set(outcome.model());
+                if (!degradedEventSent.getAndSet(true)) {
+                    send(emitter, "degraded", Map.of("level", outcome.level(), "reason",
+                            remoteContent ? "上游流中断，已返回部分内容" : "AI 服务不可用，已切换本地学习卡"));
+                }
+                if (!remoteContent) {
                     for (String part : localTemplate(kp, request)) {
                         characters.addAndGet(part.length());
                         content.append(part);
                         send(emitter, "delta", Map.of("text", part));
                         sleepQuietly(30);
                     }
-                } else {
-                    send(emitter, "degraded", Map.of("level", "L3", "reason", "上游中断"));
                 }
                 sendDone(emitter, explainId, start, 0, false, content.toString(), kp);
                 emitter.complete();
@@ -446,7 +572,7 @@ public class RagExplainService {
                 log.warn("本地模板讲解发送失败", e);
                 emitter.completeWithError(e);
             } finally {
-                cleanup.run();
+                cleanup.accept(true);
             }
         });
     }

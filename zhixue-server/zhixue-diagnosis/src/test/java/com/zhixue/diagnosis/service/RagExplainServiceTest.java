@@ -14,6 +14,7 @@ import com.zhixue.diagnosis.entity.PracticeRecord;
 import com.zhixue.diagnosis.entity.StudentErrorRecord;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
 import com.zhixue.diagnosis.mapper.PracticeRecordMapper;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +28,13 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +46,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
@@ -333,6 +342,207 @@ class RagExplainServiceTest {
 
         // kpName 进入 canonicalContext → 进入 sha256 键；知识点改名后旧缓存不再命中
         assertThat(afterRename).isNotEqualTo(beforeRename);
+    }
+
+    @Test
+    void classifyDegradeKeepsL1L2L3BoundariesInOnePlace() {
+        // L1：主模型完整产出，不写降级级别，model 为真实模型
+        assertThat(RagExplainService.classifyDegrade(true, false, null, "deepseek-chat"))
+                .isEqualTo(new RagExplainService.DegradeOutcome(null, "deepseek-chat", false));
+
+        // L2：中途断流/超时截断，有正文，保留真实模型名，绝不能是 L3/local-template
+        assertThat(RagExplainService.classifyDegrade(true, true, null, "deepseek-chat"))
+                .isEqualTo(new RagExplainService.DegradeOutcome("L2", "deepseek-chat", true));
+        assertThat(RagExplainService.classifyDegrade(true, true, "L2", "glm-4-flash"))
+                .isEqualTo(new RagExplainService.DegradeOutcome("L2", "glm-4-flash", true));
+
+        // L2 现有语义：备用模型完整产出
+        assertThat(RagExplainService.classifyDegrade(true, false, "L2", "glm-4-flash"))
+                .isEqualTo(new RagExplainService.DegradeOutcome("L2", "glm-4-flash", true));
+
+        // L3：远程零产出、本地模板真正产出正文
+        assertThat(RagExplainService.classifyDegrade(false, true, null, "local-template"))
+                .isEqualTo(new RagExplainService.DegradeOutcome("L3", "local-template", true));
+        assertThat(RagExplainService.classifyDegrade(true, false, "L3", "local-template"))
+                .isEqualTo(new RagExplainService.DegradeOutcome("L3", "local-template", true));
+    }
+
+    @Test
+    void fullRemoteSuccessIsLoggedAsL1WithRealModel() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        String frames = """
+                event: meta
+                data: {"sources":[],"model":"deepseek-chat"}
+
+                event: chunk
+                data: {"content":"完整讲解"}
+
+                event: done
+                data: {"degraded":false,"blocked":false,"modelUsed":"deepseek-chat","promptVersion":"v2","tokens":5,"promptTokens":3,"elapsedMs":10}
+
+
+                """;
+        FakeSseServer server = new FakeSseServer(frames, 0L);
+        try {
+            String body = runExplain(mvcFor("http://127.0.0.1:" + server.port()));
+
+            assertThat(body).contains("event:done", "完整讲解");
+            AiGenerationLog log = captureLog();
+            assertThat(log.getDegradeLevel()).isNull();
+            assertThat(log.getIsDegraded()).isZero();
+            assertThat(log.getModel()).isEqualTo("deepseek-chat");
+        } finally {
+            server.close();
+        }
+    }
+
+    @Test
+    void midStreamBreakIsLoggedAsL2WithRealModelNotTemplate() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        // meta + 一个 chunk 后干净关闭（无 done），模拟中途断流
+        String frames = """
+                event: meta
+                data: {"sources":[],"model":"deepseek-chat"}
+
+                event: chunk
+                data: {"content":"半截讲解"}
+
+                """;
+        FakeSseServer server = new FakeSseServer(frames, 0L);
+        try {
+            String body = runExplain(mvcFor("http://127.0.0.1:" + server.port()));
+
+            assertThat(body).contains("event:degraded", "\"level\":\"L2\"", "半截讲解");
+            AiGenerationLog log = captureLog();
+            assertThat(log.getDegradeLevel()).isEqualTo("L2");
+            assertThat(log.getIsDegraded()).isEqualTo(1);
+            assertThat(log.getModel()).isEqualTo("deepseek-chat");
+            assertThat(log.getModel()).isNotEqualTo("local-template");
+        } finally {
+            server.close();
+        }
+    }
+
+    @Test
+    void upstreamTimeoutAfterPartialOutputIsLoggedAsL2() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+        // meta + chunk 后停顿超过 1s 客户端超时，模拟超时截断
+        String frames = """
+                event: meta
+                data: {"sources":[],"model":"deepseek-chat"}
+
+                event: chunk
+                data: {"content":"超时前半截"}
+
+                """;
+        FakeSseServer server = new FakeSseServer(frames, 15_000L);
+        try {
+            runExplain(mvcFor("http://127.0.0.1:" + server.port(), 8));
+
+            AiGenerationLog log = captureLog();
+            assertThat(log.getDegradeLevel()).isEqualTo("L2");
+            assertThat(log.getIsDegraded()).isEqualTo(1);
+            assertThat(log.getModel()).isEqualTo("deepseek-chat");
+        } finally {
+            server.close();
+        }
+    }
+
+    @Test
+    void remoteZeroOutputFallsBackToLocalTemplateAsL3() throws Exception {
+        stubRecordAndKp("关系模型的核心概念");
+
+        String body = runExplain(mockMvc);
+
+        assertThat(body).contains("event:degraded", "\"level\":\"L3\"", "event:done");
+        AiGenerationLog log = captureLog();
+        assertThat(log.getDegradeLevel()).isEqualTo("L3");
+        assertThat(log.getIsDegraded()).isEqualTo(1);
+        assertThat(log.getModel()).isEqualTo("local-template");
+    }
+
+    private AiGenerationLog captureLog() {
+        ArgumentCaptor<AiGenerationLog> log = ArgumentCaptor.forClass(AiGenerationLog.class);
+        verify(aiGenerationLogMapper, timeout(3_000)).insert(log.capture());
+        return log.getValue();
+    }
+
+    /**
+     * 极简 SSE 假上游：手写 HTTP/1.1 chunked 响应，保证帧立即 flush 到 socket，
+     * 可模拟“中途断流（无 done 直接结束）”与“超时截断（写完后长时间无新帧）”。
+     */
+    private static final class FakeSseServer implements AutoCloseable {
+
+        private final ServerSocket serverSocket;
+
+        FakeSseServer(String frames, long stallMillis) throws Exception {
+            this.serverSocket = new ServerSocket(0, 50, InetAddress.getByName("127.0.0.1"));
+            byte[] body = frames.getBytes(StandardCharsets.UTF_8);
+            Thread acceptor = new Thread(() -> {
+                try (Socket socket = serverSocket.accept()) {
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.ISO_8859_1));
+                    String line;
+                    while ((line = reader.readLine()) != null && !line.isEmpty()) {
+                        // 只消费请求头；请求体未读不影响响应
+                    }
+                    OutputStream out = socket.getOutputStream();
+                    out.write(("HTTP/1.1 200 OK\r\n"
+                            + "Content-Type: text/event-stream; charset=utf-8\r\n"
+                            + "Transfer-Encoding: chunked\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                    out.write((Integer.toHexString(body.length) + "\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                    out.write(body);
+                    out.write("\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                    out.flush();
+                    if (stallMillis > 0) {
+                        Thread.sleep(stallMillis);
+                    }
+                    out.write("0\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
+                    out.flush();
+                } catch (Exception ignored) {
+                    // 客户端先断开（超时后 dispose）属预期
+                }
+            }, "fake-sse-server");
+            acceptor.setDaemon(true);
+            acceptor.start();
+        }
+
+        int port() {
+            return serverSocket.getLocalPort();
+        }
+
+        @Override
+        public void close() throws Exception {
+            serverSocket.close();
+        }
+    }
+
+    private MockMvc mvcFor(String baseUrl) {
+        return mvcFor(baseUrl, 10);
+    }
+
+    private MockMvc mvcFor(String baseUrl, int timeoutSeconds) {
+        AiClientProperties properties = new AiClientProperties(baseUrl, timeoutSeconds);
+        RagExplainService upstreamService = new RagExplainService(knowledgePointService, errorRecordService,
+                questionBankService, properties, new ObjectMapper(), aiGenerationLogMapper,
+                explainCacheService, practiceRecordMapper, portraitService, 30.0);
+        DiagnosisController controller = new DiagnosisController(
+                mock(KpMappingService.class), upstreamService, mock(RecommendationService.class),
+                mock(OcrService.class), explainRateLimiter, mock(ExplainQueryService.class));
+        return MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    private String runExplain(MockMvc mvc) throws Exception {
+        MvcResult result;
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            result = mvc.perform(post("/api/diagnosis/explain")
+                            .contentType(MediaType.APPLICATION_JSON).content(BODY))
+                    .andExpect(request().asyncStarted())
+                    .andReturn();
+            result = mvc.perform(asyncDispatch(result)).andExpect(status().isOk()).andReturn();
+        }
+        return result.getResponse().getContentAsString(StandardCharsets.UTF_8);
     }
 
     private void stubRecordAndKp(String conceptText) {
