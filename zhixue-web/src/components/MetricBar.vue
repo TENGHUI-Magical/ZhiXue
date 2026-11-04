@@ -1,5 +1,5 @@
 <template>
-  <div class="metric-bar">
+  <div class="metric-bar" :class="{ 'has-target': target != null }">
     <div v-if="!hideLabel" class="mb-head">
       <span class="mb-label">{{ label }}</span>
       <span class="mb-value" :class="{ empty: value == null }">{{ display }}</span>
@@ -12,10 +12,16 @@
         :style="{ left: target + '%' }"
         aria-hidden="true"
       ></span>
+      <!-- 目标文案贴在刻度正上方：放在右下角会让"线"与"说明"彻底脱节 -->
+      <span
+        v-if="target != null"
+        class="mb-target-label"
+        :style="{ left: clampedTarget + '%' }"
+        aria-hidden="true"
+      >目标 {{ target }}%</span>
     </div>
-    <div v-if="caption || target != null" class="mb-foot">
-      <span v-if="caption" class="mb-caption">{{ caption }}</span>
-      <span v-if="target != null" class="mb-target-text">目标 {{ target }}%</span>
+    <div v-if="caption" class="mb-foot">
+      <span class="mb-caption">{{ caption }}</span>
     </div>
   </div>
 </template>
@@ -71,6 +77,11 @@ const ariaText = computed(() => {
   const base = `${props.label} ${display.value}`;
   return props.target != null ? `${base}，目标 ${props.target}%` : base;
 });
+
+/** 目标文案居中对齐刻度，但夹在 8%–92% 内，避免贴边被裁 */
+const clampedTarget = computed(() =>
+  props.target == null ? 0 : Math.max(8, Math.min(92, props.target))
+);
 </script>
 
 <style scoped>
@@ -103,14 +114,22 @@ const ariaText = computed(() => {
   position: relative;
   height: 8px;
   border-radius: var(--app-radius-full);
-  background: var(--app-surface-muted);
-  overflow: hidden;
+  /* 轨道必须看得见，否则只剩一条填色，"60%" 的比例无从读起。
+     原 --app-surface-muted 在浅色卡上几乎与卡底同色（#eef2f7 on #fbfcff），比例信息丢失。 */
+  background: color-mix(in srgb, var(--app-text) 9%, var(--app-surface));
+  overflow: visible;
+}
+.metric-bar.has-target .mb-track {
+  margin-top: 15px;
 }
 .mb-fill {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--app-primary);
+  /* 顶边一道 0.25 白光泽：让填充条从"扁色块"变成有厚度的玻璃条，
+     与卡片顶光/底暗同一套光的语言（V4.0 视觉体系） */
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
   transition: width var(--app-dur-chart) var(--app-ease-emphasized);
 }
 .mb-fill.is-danger {
@@ -143,9 +162,14 @@ const ariaText = computed(() => {
 .mb-caption {
   min-width: 0;
 }
-.mb-target-text {
-  flex: none;
-  margin-left: auto;
+.mb-target-label {
+  position: absolute;
+  top: -15px;
+  transform: translateX(-50%);
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  line-height: 1;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 </style>
