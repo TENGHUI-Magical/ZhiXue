@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
@@ -454,6 +455,27 @@ class PracticeServiceTest {
                     () -> service.submit(request("PLAN", null, "token-4")));
             assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
         }
+    }
+
+    /** 主观题错因由学生自评定案，热路径不再查历史作答与距上次练习。 */
+    @Test
+    void subjectiveAnswerSkipsPracticeHistoryQueries() {
+        QuestionBank question = question("简答", "参考答案");
+        assertEquals(ErrorTypeClassifier.CALCULATION_ERROR,
+                service.resolveErrorType(2L, question, "我的答案", false, "CALCULATION_ERROR",
+                        "KP0201"));
+        verify(practiceRecordMapper, never()).countByUserAndQid(anyLong(), anyString());
+        verify(practiceRecordMapper, never()).selectLastPracticedAt(anyLong(), anyString());
+    }
+
+    /** 单选只看重复作答次数；「距上次练习」仅多选题需要。 */
+    @Test
+    void singleChoiceSkipsDaysSinceLastPracticeQuery() {
+        QuestionBank question = question("单选", "B");
+        assertEquals(ErrorTypeClassifier.CONCEPT_CONFUSION,
+                service.resolveErrorType(2L, question, "A", false, null, "KP0201"));
+        verify(practiceRecordMapper).countByUserAndQid(2L, "Q_0201");
+        verify(practiceRecordMapper, never()).selectLastPracticedAt(anyLong(), anyString());
     }
 
     private PracticeCreateRequest request(String source, Long recommendationId, String token) {
