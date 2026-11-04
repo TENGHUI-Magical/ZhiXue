@@ -67,6 +67,7 @@
             <ThemeSwitcher />
             <div ref="userRoot" class="user-switch">
               <button
+                ref="userTrigger"
                 type="button"
                 class="user-trigger"
                 aria-label="打开用户菜单"
@@ -104,7 +105,15 @@
         </el-main>
       </el-container>
 
-      <el-drawer v-model="navOpen" direction="ltr" size="240px" :with-header="false" class="nav-drawer" append-to-body>
+      <el-drawer
+        v-model="navOpen"
+        title="导航菜单"
+        direction="ltr"
+        size="240px"
+        :with-header="false"
+        class="nav-drawer"
+        append-to-body
+      >
         <div class="brand drawer-logo">
           <BrandMark :size="34" />
           <span class="brand-text">智学领航</span>
@@ -150,6 +159,7 @@ const userRole = ref("");
 const navOpen = ref(false);
 const userMenuOpen = ref(false);
 const userRoot = ref<HTMLElement | null>(null);
+const userTrigger = ref<HTMLButtonElement | null>(null);
 const NAV_STORAGE_KEY = "zhixue-nav-collapsed";
 const readNavCollapsed = () => {
   try {
@@ -282,7 +292,11 @@ const onDocClick = (event: MouseEvent) => {
   }
 };
 const onKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Escape") userMenuOpen.value = false;
+  if (event.key === "Escape" && userMenuOpen.value) {
+    userMenuOpen.value = false;
+    // 菜单项随 v-if 卸载后焦点会落到 body，Escape 关闭时把焦点还给触发按钮
+    userTrigger.value?.focus();
+  }
 };
 
 onMounted(() => {
