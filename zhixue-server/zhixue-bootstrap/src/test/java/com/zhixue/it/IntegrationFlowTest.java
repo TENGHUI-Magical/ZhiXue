@@ -1220,6 +1220,52 @@ class IntegrationFlowTest {
     }
 
     /**
+     * P1-6：归属不明记录不进入教师评阅队列 / COUNT / CSV 导出（DB 级，非 mock）。
+     * 两条留痕同一学生：A 的错题 q_id 指向课程 1 的真实题目（可归属），
+     * U 的错题 q_id 为 NULL（无法定位课程 → 归属不明）。
+     * 断言：队列 total=1 且只含 A、导出只含 A 不含 U。
+     * 改前（Mapper 没有 EXISTS 可归属守卫）本用例必红：total=2，且导出会带 EX_UNATTR_U。
+     */
+    @Test
+    void unattributedReviewLogExcludedFromQueueAndExport() throws Exception {
+        long student = userIdOf("it_user");
+        String qId = courseQids(1).get(0);
+        jdbcTemplate.update(
+                "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                        + "status, error_type, corrected_text) "
+                        + "VALUES ('EL_UNATTR_A', ?, 'unattr-a', ?, 'KP0201', 'CONFIRMED', "
+                        + "'CONCEPT_CONFUSION', '可归属')", student, qId);
+        // q_id 为 NULL：selectLinkedCourseIds 返回空 → 归属不明
+        jdbcTemplate.update(
+                "INSERT INTO student_error_record (log_id, user_id, client_token, q_id, kp_id, "
+                        + "status, error_type, corrected_text) "
+                        + "VALUES ('EL_UNATTR_U', ?, 'unattr-u', NULL, 'KP0201', 'CONFIRMED', "
+                        + "'CONCEPT_CONFUSION', '归属不明')", student);
+        jdbcTemplate.update(
+                "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                        + "model, content_text) VALUES ('EL_UNATTR_A', 'EX_UNATTR_A', 'TR_UNATTR_A', "
+                        + "?, 'RAG', 'deepseek-chat', '可归属讲解')", student);
+        jdbcTemplate.update(
+                "INSERT INTO ai_generation_log (log_id, explain_id, trace_id, user_id, scene, "
+                        + "model, content_text) VALUES ('EL_UNATTR_U', 'EX_UNATTR_U', 'TR_UNATTR_U', "
+                        + "?, 'RAG', 'deepseek-chat', '归属不明讲解')", student);
+        try {
+            String teacher = login("it_teacher");
+            String queue = body(getJson("/api/teacher/reviews?status=ALL&page=1&size=50", teacher));
+            assertThat((Object) JsonPath.read(queue, "$.data.total")).isEqualTo(1);
+            assertThat(queue).contains("EX_UNATTR_A").doesNotContain("EX_UNATTR_U");
+
+            String csv = body(getJson("/api/teacher/reviews/export?status=ALL", teacher));
+            assertThat(csv).contains("EX_UNATTR_A").doesNotContain("EX_UNATTR_U");
+            // COUNT / 分页 / 导出同一口径：CSV 数据行数 = 队列 total
+            assertThat(csv.lines().filter(line -> line.contains("EX_UNATTR_")).count()).isEqualTo(1);
+        } finally {
+            jdbcTemplate.update("DELETE FROM ai_generation_log WHERE log_id LIKE 'EL_UNATTR_%'");
+            jdbcTemplate.update("DELETE FROM student_error_record WHERE log_id LIKE 'EL_UNATTR_%'");
+        }
+    }
+
+    /**
      * 大批量导出不丢行（分块回查证明）：1200 条留痕各有独立错题（跨 3 个 500 块），
      * 导出必须 1200 行全在，且**每一行**的证据列（知识点/错因）都经分块回查拼上——
      * 若分块只查了前几块，第 501 行起证据列会空，计数即对不上。

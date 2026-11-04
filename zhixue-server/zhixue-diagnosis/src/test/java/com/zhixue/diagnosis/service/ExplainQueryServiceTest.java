@@ -1,6 +1,9 @@
 package com.zhixue.diagnosis.service;
 
 import cn.dev33.satoken.stp.StpUtil;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
 import com.zhixue.course.entity.KnowledgePoint;
@@ -9,9 +12,12 @@ import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.ExplainLogView;
 import com.zhixue.diagnosis.entity.AiGenerationLog;
 import com.zhixue.diagnosis.mapper.AiGenerationLogMapper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,6 +28,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -42,6 +49,15 @@ class ExplainQueryServiceTest {
     private CourseService courseService;
 
     private ExplainQueryService service;
+
+    /** MyBatis-Plus 的 lambda 列名缓存依赖表元数据；单测里手动初始化，便于断言 wrapper 的 SQL 片段。 */
+    @BeforeAll
+    static void initTableInfo() {
+        MybatisConfiguration configuration = new MybatisConfiguration();
+        configuration.setMapUnderscoreToCamelCase(true);
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(configuration, ""), AiGenerationLog.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -261,7 +277,7 @@ class ExplainQueryServiceTest {
         assertThat(view.content()).isEqualTo("本人正文");
     }
 
-    /** 学生本人读自己的讲解 → 200（学生只按本人 user_id 过滤，无归属收紧不影响本人）。 */
+    /** 学生本人读自己的讲解 → 200；并断言查询条件确实带 user_id = 登录人（删掉过滤即红）。 */
     @Test
     void studentCanReadOwnExplain() {
         AiGenerationLog row = new AiGenerationLog();
@@ -278,6 +294,14 @@ class ExplainQueryServiceTest {
             view = service.get("EX_student_own");
         }
 
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<AiGenerationLog>> wrapper =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(logMapper).selectOne(wrapper.capture());
+        assertThat(wrapper.getValue().getSqlSegment())
+                .contains("explain_id")
+                .contains("user_id");
+        assertThat(wrapper.getValue().getParamNameValuePairs().values()).contains(9002L);
         assertThat(view.content()).isEqualTo("自己的正文");
     }
 
