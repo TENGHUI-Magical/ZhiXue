@@ -8,6 +8,7 @@ import com.zhixue.diagnosis.service.OcrService;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -676,6 +677,81 @@ class IntegrationFlowTest {
         assertThat(code(second)).isZero();
         List<Integer> secondIds = JsonPath.read(body(second), "$.data[*].recommendationId");
         assertThat(secondIds).isEqualTo(firstIds);
+    }
+
+    /**
+     * 并发幂等证据：两个线程用 latch 同发，命中同一唯一键 (user, log, q)。
+     * 断言两请求都不抛异常、都拿到同一批 recommendationId、库里每组只有 1 行；
+     * 再把其中一行标记为已采用，第三次请求仍走唯一键冲突路径，验证 isAdopted 映射。
+     * 重复 5 次暴露偶发不稳定；全程用 latch 同步，不用 sleep 撞时序。
+     */
+    @RepeatedTest(5)
+    void recommendationsConcurrentCallsPersistSingleRow() throws Exception {
+        String token = login();
+        String logId = createAndConfirm(token, "ct-rec-concurrent");
+        long userId = userIdOf("it_user");
+        String path = "/api/recommendations?logId=" + logId + "&courseId=1";
+
+        CountDownLatch bothReady = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<HttpResponse<String>> left = pool.submit(() -> {
+                bothReady.countDown();
+                start.await();
+                return getJson(path, token);
+            });
+            Future<HttpResponse<String>> right = pool.submit(() -> {
+                bothReady.countDown();
+                start.await();
+                return getJson(path, token);
+            });
+            assertThat(bothReady.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            HttpResponse<String> first = left.get(60, TimeUnit.SECONDS);
+            HttpResponse<String> second = right.get(60, TimeUnit.SECONDS);
+
+            // 两个线程都不抛异常，且都是业务成功：并发冲突不再把正常请求变成错误码
+            assertThat(first.statusCode()).isEqualTo(200);
+            assertThat(second.statusCode()).isEqualTo(200);
+            assertThat(code(first)).isZero();
+            assertThat(code(second)).isZero();
+
+            List<Integer> firstIds = JsonPath.read(body(first), "$.data[*].recommendationId");
+            List<Integer> secondIds = JsonPath.read(body(second), "$.data[*].recommendationId");
+            List<String> firstQids = JsonPath.read(body(first), "$.data[*].qId");
+            List<String> secondQids = JsonPath.read(body(second), "$.data[*].qId");
+            assertThat(firstIds).isNotEmpty();
+            // 同一数据库行：两线程拿到的 recommendationId 完全一致
+            assertThat(secondIds).isEqualTo(firstIds);
+            assertThat(secondQids).isEqualTo(firstQids);
+
+            // 唯一键下落库且每个 (user, log, q) 只有 1 行
+            List<String> dbQids = jdbcTemplate.queryForList(
+                    "SELECT q_id FROM recommendation WHERE user_id = ? AND log_id = ? ORDER BY rank_no",
+                    String.class, userId, logId);
+            assertThat(dbQids).containsExactlyElementsOf(firstQids);
+            List<Integer> perQuestion = jdbcTemplate.queryForList(
+                    "SELECT COUNT(*) FROM recommendation WHERE user_id = ? AND log_id = ? GROUP BY q_id",
+                    Integer.class, userId, logId);
+            assertThat(perQuestion).hasSize(firstIds.size());
+            assertThat(perQuestion).allMatch(count -> count == 1);
+
+            // 冲突回查必须带回 is_adopted：标记一行后第三次请求仍走唯一键冲突路径
+            jdbcTemplate.update(
+                    "UPDATE recommendation SET is_adopted = 1 WHERE user_id = ? AND log_id = ? AND q_id = ?",
+                    userId, logId, firstQids.get(0));
+            HttpResponse<String> third = getJson(path, token);
+            assertThat(code(third)).isZero();
+            List<Integer> thirdIds = JsonPath.read(body(third), "$.data[*].recommendationId");
+            List<Boolean> thirdAdopted = JsonPath.read(body(third), "$.data[*].isAdopted");
+            assertThat(thirdIds).isEqualTo(firstIds);
+            assertThat(thirdAdopted.get(thirdIds.indexOf(firstIds.get(0)))).isTrue();
+            assertThat(thirdAdopted.stream().filter(Boolean::booleanValue).count()).isEqualTo(1);
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
