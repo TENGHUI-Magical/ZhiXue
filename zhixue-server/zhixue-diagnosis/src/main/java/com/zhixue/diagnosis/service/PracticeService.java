@@ -292,11 +292,22 @@ public class PracticeService {
         if (question.getAnswerText() == null || question.getAnswerText().isBlank()) {
             log.warn("题目 {} 缺少标准答案，错因无法细分，按 UNCLASSIFIED 落库", question.getQId());
         }
+        // 快路径：主观题/未作答/题库答案缺失等分支不依赖历史信号，跳过 DB 查询
+        var quick = ErrorTypeClassifier.quickVerdict(question, myAnswer, selfReported);
+        if (quick.isPresent()) {
+            return quick.get();
+        }
         int priorAttempts = practiceRecordMapper.countByUserAndQid(userId, question.getQId());
-        LocalDateTime lastPracticedAt = kpId == null || kpId.isBlank()
-                ? null : practiceRecordMapper.selectLastPracticedAt(userId, kpId);
-        Integer days = lastPracticedAt == null ? null
-                : (int) Math.max(0, Duration.between(lastPracticedAt, LocalDateTime.now(ZONE)).toDays());
+        // 距上次练习天数只影响多选「部分选中」的 CONCEPT/STEP 区分；
+        // 其余题型查了也用不上，省一次热路径往返
+        Integer days = null;
+        String type = question.getQuestionType() == null ? "" : question.getQuestionType().trim();
+        if ("多选".equals(type) && kpId != null && !kpId.isBlank()) {
+            LocalDateTime lastPracticedAt = practiceRecordMapper.selectLastPracticedAt(userId, kpId);
+            days = lastPracticedAt == null ? null
+                    : (int) Math.max(0, Duration.between(lastPracticedAt, LocalDateTime.now(ZONE))
+                            .toDays());
+        }
         return ErrorTypeClassifier.classify(question, myAnswer, false, selfReported,
                 priorAttempts, days);
     }

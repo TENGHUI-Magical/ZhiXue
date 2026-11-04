@@ -93,4 +93,36 @@ class ErrorTypeClassifierTest {
         question.setDifficulty(difficulty);
         return question;
     }
+
+    /** 重复作答口径：第 2 次仍错（priorAttempts=1）即判方法缺失，不再拖到第 3 次。 */
+    @Test
+    void secondAttemptStillWrongIsMethodMissing() {
+        QuestionBank multi = question("多选", "ABC", 2);
+        assertThat(ErrorTypeClassifier.classify(multi, "ABC", false, null, 1, null))
+                .isEqualTo(ErrorTypeClassifier.METHOD_MISSING);
+        assertThat(ErrorTypeClassifier.classify(multi, "ABC", false, null, 0, null))
+                .isEqualTo(ErrorTypeClassifier.UNCLASSIFIED);
+    }
+
+    /** 快路径：不依赖历史信号的分支直接定案，调用方可跳过 DB 查询。 */
+    @Test
+    void quickVerdictCoversHistoryIndependentBranches() {
+        assertThat(ErrorTypeClassifier.quickVerdict(question("简答", "参考答案", 2), "我的答案",
+                "CALCULATION_ERROR")).contains(ErrorTypeClassifier.CALCULATION_ERROR);
+        assertThat(ErrorTypeClassifier.quickVerdict(question("简答", "参考答案", 2), "我的答案",
+                null)).contains(ErrorTypeClassifier.UNCLASSIFIED);
+        assertThat(ErrorTypeClassifier.quickVerdict(question("单选", "B", 1), "",
+                null)).contains(ErrorTypeClassifier.METHOD_MISSING);
+        assertThat(ErrorTypeClassifier.quickVerdict(question("单选", "", 1), "A",
+                null)).contains(ErrorTypeClassifier.UNCLASSIFIED);
+        assertThat(ErrorTypeClassifier.quickVerdict(null, "A", null))
+                .contains(ErrorTypeClassifier.UNCLASSIFIED);
+    }
+
+    /** 客观题作答完整时快路径不越权判案，必须回落到历史信号分支。 */
+    @Test
+    void quickVerdictLeavesObjectiveAnsweredCasesToFullClassification() {
+        assertThat(ErrorTypeClassifier.quickVerdict(question("单选", "B", 2), "A", null)).isEmpty();
+        assertThat(ErrorTypeClassifier.quickVerdict(question("多选", "ABC", 2), "AC", null)).isEmpty();
+    }
 }

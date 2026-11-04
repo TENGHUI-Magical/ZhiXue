@@ -3,6 +3,7 @@ package com.zhixue.diagnosis.service;
 import com.zhixue.course.entity.QuestionBank;
 
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -60,22 +61,14 @@ public final class ErrorTypeClassifier {
         if (isCorrect) {
             return null;
         }
-        if (question == null) {
-            return UNCLASSIFIED;
-        }
-        String type = question.getQuestionType() == null ? "" : question.getQuestionType().trim();
-        if (!AnswerGrader.isObjective(type)) {
-            return normalizeAllowed(selfReportedErrorType);
+        Optional<String> quick = quickVerdict(question, myAnswer, selfReportedErrorType);
+        if (quick.isPresent()) {
+            return quick.get();
         }
 
+        String type = question.getQuestionType().trim();
         String chosen = AnswerGrader.normalize(myAnswer);
-        if (chosen.isEmpty()) {
-            return METHOD_MISSING;
-        }
         String answer = AnswerGrader.normalize(question.getAnswerText());
-        if (answer.isEmpty()) {
-            return UNCLASSIFIED;
-        }
         Set<String> correct = AnswerGrader.optionSet(answer);
         Set<String> selected = AnswerGrader.optionSet(chosen);
         boolean partial = correct.containsAll(selected) && !selected.containsAll(correct);
@@ -91,10 +84,34 @@ public final class ErrorTypeClassifier {
             }
             return CONCEPT_CONFUSION;
         }
-        if (priorAttempts >= 2) {
+        // 重复作答仍错（第 2 次起）→ 解题方法未建立；对齐 javadoc「重复作答仍错」
+        if (priorAttempts >= 1) {
             return METHOD_MISSING;
         }
         return UNCLASSIFIED;
+    }
+
+    /**
+     * 不依赖历史信号（priorAttempts / days）即可定案的分支：
+     * 主观题、未作答、题库答案缺失。调用方可在这些分支上跳过 DB 查询。
+     * 答对由 {@link #classify} 顶层短路，不在此处。
+     */
+    public static Optional<String> quickVerdict(QuestionBank question, String myAnswer,
+                                                String selfReportedErrorType) {
+        if (question == null) {
+            return Optional.of(UNCLASSIFIED);
+        }
+        String type = question.getQuestionType() == null ? "" : question.getQuestionType().trim();
+        if (!AnswerGrader.isObjective(type)) {
+            return Optional.of(normalizeAllowed(selfReportedErrorType));
+        }
+        if (AnswerGrader.normalize(myAnswer).isEmpty()) {
+            return Optional.of(METHOD_MISSING);
+        }
+        if (AnswerGrader.normalize(question.getAnswerText()).isEmpty()) {
+            return Optional.of(UNCLASSIFIED);
+        }
+        return Optional.empty();
     }
 
     /** 大小写/空白归一后只接受契约枚举；非法或空值落 UNCLASSIFIED。 */

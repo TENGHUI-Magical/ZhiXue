@@ -45,6 +45,22 @@ class MasteryCalculatorTest {
         assertEquals(0.0992125657, calculator.decay(T0, T0.plusDays(100)), 1e-9);
     }
 
+    /**
+     * 衰减天数按“满 24 小时”截断，与 SQL {@code TIMESTAMPDIFF(DAY, created_at, now)} 同口径。
+     * 锁死跨夜 2 小时（23:00→次日 01:00）不算 1 天，避免 DATEDIFF 日历口径回潮。
+     */
+    @Test
+    void decayCountsFull24hPeriodsNotCalendarDays() {
+        // 跨夜 2 小时：0 天 → 衰减 = 1
+        assertEquals(1.0, calculator.decay(T0, T0.plusHours(2)), 1e-9);
+        // 23 小时：不足 24h → 0 天 → 衰减 = 1
+        assertEquals(1.0, calculator.decay(T0, T0.plusHours(23)), 1e-9);
+        // 25 小时：满 1 个 24h 周期 → 衰减 = 0.5^(1/30)
+        assertEquals(Math.pow(0.5, 1.0 / 30.0), calculator.decay(T0, T0.plusHours(25)), 1e-9);
+        // 49 小时：满 2 个 24h 周期 → 衰减 = 0.5^(2/30)
+        assertEquals(Math.pow(0.5, 2.0 / 30.0), calculator.decay(T0, T0.plusHours(49)), 1e-9);
+    }
+
     @Test
     void oldCorrectPlusRecentErrorIsNotOverestimated() {
         // 手算：10 次正确在 100 天前 → S=10×0.5^(100/30)=0.9921256575；
