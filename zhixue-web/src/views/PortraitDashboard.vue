@@ -54,6 +54,7 @@
               </strong>
             </div>
             <MetricBar
+              class="baseline-row"
               label="综合掌握度"
               hide-label
               :value="hasMastery ? masteryPct : null"
@@ -64,6 +65,7 @@
 
           <div class="baseline-grid">
             <MetricBar
+              class="baseline-row"
               label="作答正确率（估算）"
               :value="hasSamples ? accuracyPct : null"
               :target="60"
@@ -75,6 +77,7 @@
           <div class="confidence">
             <div class="confidence-title">数据可信度 <span>（不是分数）</span></div>
             <MetricBar
+              class="baseline-row"
               label="样本充分度"
               :value="samplePct"
               tone="neutral"
