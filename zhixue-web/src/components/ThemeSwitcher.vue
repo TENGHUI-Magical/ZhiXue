@@ -1,6 +1,7 @@
 <template>
   <div ref="rootEl" class="theme-switch">
     <button
+      ref="triggerEl"
       type="button"
       class="theme-trigger"
       :aria-expanded="open"
@@ -43,12 +44,19 @@ import { applyTheme, getStoredTheme, THEMES, type ThemeKey } from "../composable
 const active = ref<ThemeKey>(getStoredTheme());
 const open = ref(false);
 const rootEl = ref<HTMLElement | null>(null);
+const triggerEl = ref<HTMLButtonElement | null>(null);
 const current = computed(() => THEMES.find((theme) => theme.key === active.value) ?? THEMES[0]);
+
+const closeAndRestoreFocus = () => {
+  open.value = false;
+  // 选项按钮随 v-if 卸载，显式把焦点还给触发按钮，避免键盘用户失焦
+  triggerEl.value?.focus();
+};
 
 const select = (key: ThemeKey) => {
   active.value = key;
   applyTheme(key);
-  open.value = false;
+  closeAndRestoreFocus();
 };
 
 const onDocClick = (event: MouseEvent) => {
@@ -59,7 +67,7 @@ const onDocClick = (event: MouseEvent) => {
 
 const onKeydown = (event: KeyboardEvent) => {
   if (event.key === "Escape" && open.value) {
-    open.value = false;
+    closeAndRestoreFocus();
   }
 };
 

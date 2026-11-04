@@ -103,6 +103,12 @@ public class RagExplainService {
                     + "|第\\s*(\\d+)(?:\\s*[—–-]\\s*(\\d+))?\\s*页",
             Pattern.CASE_INSENSITIVE);
 
+    /** 教材页码上限位数：4 位（9999 页）足够覆盖任何教材，更长数字串按脏数据忽略。 */
+    private static final int MAX_PAGE_DIGITS = 4;
+
+    /** 单条引用区间上限：500 页；超过视为脏数据，防止数亿级区间撑爆内存或长时间占满 CPU。 */
+    private static final int MAX_PAGE_SPAN = 500;
+
     /** SSE 帧显式 UTF-8：TEXT_PLAIN 默认 ISO-8859-1 会把中文写成问号 */
     private static final MediaType TEXT_PLAIN_UTF8 =
             MediaType.parseMediaType("text/plain;charset=UTF-8");
@@ -614,21 +620,42 @@ public class RagExplainService {
         return out.toString();
     }
 
-    private Set<Integer> pageNumbers(String text) {
+    /** 解析引用页码（包级可见，便于单测覆盖脏数据边界）。 */
+    Set<Integer> pageNumbers(String text) {
         Set<Integer> pages = new HashSet<>();
         if (text == null) {
             return pages;
         }
         Matcher matcher = PAGE_CITATION.matcher(text);
         while (matcher.find()) {
-            int start = Integer.parseInt(matcher.group(1) != null ? matcher.group(1) : matcher.group(3));
+            String startValue = matcher.group(1) != null ? matcher.group(1) : matcher.group(3);
             String endValue = matcher.group(2) != null ? matcher.group(2) : matcher.group(4);
-            int end = endValue == null ? start : Integer.parseInt(endValue);
-            for (int page = Math.min(start, end); page <= Math.max(start, end); page++) {
-                pages.add(page);
+            // 缓存正文与教材页码都不是受控输入：先按位数筛掉超长数字串，
+            // 否则裸 parseInt 抛 NumberFormatException 会直接打挂讲解接口。
+            if (!isPageNumber(startValue) || (endValue != null && !isPageNumber(endValue))) {
+                continue;
+            }
+            // 全部转 long 计算，避免 int 自增在上界 Integer.MAX_VALUE 处回绕造成死循环。
+            long start = Long.parseLong(startValue);
+            long end = endValue == null ? start : Long.parseLong(endValue);
+            long lo = Math.min(start, end);
+            long hi = Math.max(start, end);
+            // 单条引用区间超过阈值视为脏数据并忽略整段：正常教材引用远小于该跨度，
+            // 不设上限时 1—20 亿的区间会向 HashSet 塞数亿整数（OOM）或长时间占满 CPU。
+            if (hi - lo + 1 > MAX_PAGE_SPAN) {
+                log.warn("讲解页码引用区间异常，已忽略 text={}", matcher.group());
+                continue;
+            }
+            for (long page = lo; page <= hi; page++) {
+                pages.add((int) page);
             }
         }
         return pages;
+    }
+
+    /** 教材页码最多 4 位（9999 页）；超长数字串不是页码，按脏数据拒绝。 */
+    private static boolean isPageNumber(String value) {
+        return value != null && value.length() <= MAX_PAGE_DIGITS;
     }
 
     /** 上游 ref 形如「《数据库系统概论（第6版）》P38」，只取页码部分回给前端。 */

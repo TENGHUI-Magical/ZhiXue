@@ -152,6 +152,21 @@ class PracticeServiceTest {
         }
     }
 
+    /** Redis 不可用时 begin 不能把“开始作答”打成 50000：与提交侧计时读取同口径，降级为服务端当前时刻。 */
+    @Test
+    void beginDegradesToServerClockWhenRedisUnavailable() {
+        when(valueOps.setIfAbsent(anyString(), anyString(), any(java.time.Duration.class)))
+                .thenThrow(new RuntimeException("redis down"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            var view = service.begin(new com.zhixue.diagnosis.dto.PracticeStartRequest(
+                    "Q_0201", "begin-token"));
+            assertEquals("begin-token", view.clientToken());
+            assertNotNull(view.startedAt());
+        }
+    }
+
     /** 带 startToken：服务端计时落库并返回；客户端自报 costSeconds=30 被忽略。 */
     @Test
     void submitWithStartTokenUsesServerClock() {

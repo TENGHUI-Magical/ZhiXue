@@ -166,6 +166,19 @@ def test_meta_carries_primary_model_for_stream_break_attribution(
         "meta 需告知 Java 首个候选模型，流中断时才能保留真实 model 而不是 local-template"
 
 
+def test_meta_model_is_unknown_when_no_api_keys(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """无任何模型密钥时 meta 不得伪造 local-template；L3 的 done 才落 local-template。"""
+    monkeypatch.setattr(settings, "deepseek_api_key", "")
+    monkeypatch.setattr(settings, "glm_api_key", "")
+
+    events = _collect()
+    meta = [data for name, data in events if name == "meta"][-1]
+    assert meta["model"] == rag_service.MODEL_UNKNOWN
+    done = [data for name, data in events if name == "done"][-1]
+    assert done["modelUsed"] == rag_service.MODEL_LOCAL_TEMPLATE
+
+
 def test_l1_partial_failure_raises_without_l3_template(
         monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
@@ -281,6 +294,11 @@ def test_stream_explain_sanitizes_model_pages_before_emitting(
     ("不应选B。", "B", False),
     ("答案不是 B，先别急着下结论。", "B", False),
     ("这里讨论的是 SQL 的 BETWEEN。", "B", False),
+    # 短答案（<4 字）不得按子串误判，否则正常讲解会被整句删除
+    ("数据的语义是指数据所表达的含义。", "语义", False),
+    ("正确处理数据冗余需要规范化设计。", "正确", False),
+    ("本题答案是语义。", "语义", True),
+    ("请在答完后核对。", "正确", False),
 ])
 def test_answer_leak_controlled_samples(sentence: str, answer: str, expected: bool) -> None:
     detector = getattr(rag_service, "is_answer_leak")

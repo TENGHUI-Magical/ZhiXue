@@ -85,10 +85,20 @@ public class PracticeService {
         long userId = StpUtil.getLoginIdAsLong();
         String key = START_KEY_PREFIX + userId + ":" + request.clientToken();
         String now = String.valueOf(System.currentTimeMillis());
-        Boolean first = redisTemplate.opsForValue()
-                .setIfAbsent(key, now, START_TTL);
-        String stored = Boolean.TRUE.equals(first) ? now : redisTemplate.opsForValue().get(key);
-        String startedAt = stored == null ? now : stored;
+        String startedAt = now;
+        try {
+            Boolean first = redisTemplate.opsForValue()
+                    .setIfAbsent(key, now, START_TTL);
+            String stored = Boolean.TRUE.equals(first) ? now : redisTemplate.opsForValue().get(key);
+            if (stored != null && !stored.isBlank()) {
+                Long.parseLong(stored); // 损坏值按本次 now，避免下面格式化时抛 NumberFormatException
+                startedAt = stored;
+            }
+        } catch (Exception e) {
+            // 与提交侧计时读取同口径：Redis 故障不阻断“开始作答”，降级为服务端当前时刻
+            log.warn("作答打点 Redis 不可用，本次降级为服务端当前时刻 userId={} token={} reason={}",
+                    userId, request.clientToken(), e.toString());
+        }
         return new PracticeStartView(request.clientToken(),
                 LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(Long.parseLong(startedAt)),
                         ZONE).format(DATE_TIME));

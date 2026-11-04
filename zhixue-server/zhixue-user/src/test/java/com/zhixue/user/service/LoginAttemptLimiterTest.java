@@ -93,6 +93,13 @@ class LoginAttemptLimiterTest {
     }
 
     @Test
+    void checkDegradesToAllowWhenRedisUnavailable() {
+        when(redisTemplate.getExpire(anyString())).thenThrow(new RuntimeException("redis down"));
+
+        assertThat(limiter.check("alice", "10.0.0.1").allowed()).isTrue();
+    }
+
+    @Test
     void successfulLoginClearsAccountCounterAndLock() {
         limiter.recordFailure("carol", "10.0.0.3");
         limiter.clearAccount("carol");

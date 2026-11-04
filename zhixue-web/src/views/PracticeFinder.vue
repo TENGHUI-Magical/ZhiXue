@@ -56,6 +56,11 @@
         <div v-if="selectedKpId" class="question-panel">
           <h3 class="panel-title">{{ selectedKpId }} 的题目</h3>
           <div v-if="loadingQuestions" class="finder-state">加载题目中…</div>
+          <div v-else-if="questionError" class="finder-state">
+            <p class="state-title">题目加载失败</p>
+            <p class="state-note">{{ questionError }}</p>
+            <el-button size="small" type="primary" @click="retryQuestions">重试</el-button>
+          </div>
           <div v-else-if="!selectedQuestions.length" class="finder-state">
             该知识点暂无题目，换一个知识点试试。
           </div>
@@ -106,6 +111,7 @@ const chapters = ref<Chapter[]>([]);
 const loadingMeta = ref(false);
 const metaError = ref("");
 const questionsByKp = ref<Map<string, QuestionBrief[]>>(new Map());
+const questionErrors = ref<Record<string, string>>({});
 const selectedKpId = ref("");
 const practiceVisible = ref(false);
 const practiceQId = ref("");
@@ -146,8 +152,11 @@ const fetchQuestions = (ids: string[]) => {
     listQuestionsByKp(id, 50)
       .then((list) => {
         questionsByKp.value.set(id, list ?? []);
+        delete questionErrors.value[id];
       })
-      .catch(() => {
+      .catch((e) => {
+        // 记住失败原因，避免把“请求失败”展示成“该知识点暂无题目”
+        questionErrors.value[id] = (e as Error)?.message || "题目加载失败";
         questionsByKp.value.set(id, []);
       })
       .finally(() => {
@@ -156,12 +165,21 @@ const fetchQuestions = (ids: string[]) => {
   }
 };
 
+const retryQuestions = () => {
+  const id = selectedKpId.value;
+  if (!id) return;
+  questionsByKp.value.delete(id);
+  delete questionErrors.value[id];
+  fetchQuestions([id]);
+};
+
 watch(matchedKey, (key) => {
   fetchQuestions(key ? key.split("|") : []);
 });
 
 const selectedQuestions = computed(() => questionsByKp.value.get(selectedKpId.value) ?? []);
 const loadingQuestions = computed(() => !!selectedKpId.value && !questionsByKp.value.has(selectedKpId.value));
+const questionError = computed(() => questionErrors.value[selectedKpId.value] ?? "");
 
 const countText = (id?: string) => {
   if (!id) return "题量 -";

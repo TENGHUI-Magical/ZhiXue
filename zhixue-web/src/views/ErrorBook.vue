@@ -189,8 +189,8 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
@@ -200,6 +200,7 @@ import { getKnowledgeGraph } from "../api/course";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
 
 const router = useRouter();
+const route = useRoute();
 const records = ref<ErrorRecordItem[]>([]);
 const total = ref(0);
 const page = ref(1);
@@ -228,6 +229,17 @@ const ERROR_LABELS: Record<string, string> = {
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? value;
 const statusLabel = (value?: string) =>
   value === "CONFIRMED" ? "已确认" : value === "DRAFT" ? "草稿" : value || "—";
+
+const STATUS_FILTERS = new Set(["DRAFT", "CONFIRMED"]);
+/** 学情首页的“去练这道错题”会带 ?status=CONFIRMED，这里必须生效，否则会把草稿也列出来 */
+const syncStatusFromQuery = () => {
+  const raw = route.query.status;
+  const next = typeof raw === "string" && STATUS_FILTERS.has(raw) ? raw : "";
+  if (next === status.value) return false;
+  status.value = next;
+  page.value = 1;
+  return true;
+};
 
 let loadSeq = 0;
 
@@ -316,9 +328,17 @@ const loadKpOptions = async () => {
 };
 
 onMounted(() => {
+  syncStatusFromQuery();
   loadKpOptions();
   load();
 });
+
+watch(
+  () => route.query.status,
+  () => {
+    if (syncStatusFromQuery()) load();
+  }
+);
 </script>
 
 <style scoped>

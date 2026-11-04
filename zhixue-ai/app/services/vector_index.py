@@ -81,7 +81,8 @@ def chunk_text(text: str, kp_id: str, size: int | None = None,
     size = int(size or settings.rag_chunk_size)
     overlap = int(overlap if overlap is not None else settings.rag_chunk_overlap)
     if size <= 0:
-        size = settings.rag_chunk_size
+        # 配置写 0/负数时若继续用 settings 原值仍会 <=0，切片步长退化为 0 → 死循环
+        size = max(1, settings.rag_chunk_size)
     if overlap < 0:
         overlap = 0
     if overlap >= size:

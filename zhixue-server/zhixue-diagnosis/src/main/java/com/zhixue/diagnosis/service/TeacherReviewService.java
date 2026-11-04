@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -100,7 +101,8 @@ public class TeacherReviewService {
         if (size < 1 || size > 50) {
             throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
         }
-        String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
+        String st = status == null || status.isBlank() ? "PENDING"
+                : status.trim().toUpperCase(Locale.ROOT);
         if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "status 仅允许 PENDING/REVIEWED/ALL");
         }
@@ -115,9 +117,13 @@ public class TeacherReviewService {
         String kp = kpId == null || kpId.isBlank() ? null : kpId.trim();
         List<Long> courseIds = scopedCourseIds();
         long total = logMapper.countForReview(reviewed, kp, fromTime, toTime, courseIds);
-        List<AiGenerationLog> rows = total == 0 ? List.of()
+        // 页码从 1 起；page 由前端传入，超大页码时 (page - 1) * size 在 int 上会溢出成负数，
+        // 直接拼进 SQL OFFSET 会报错/越界。用 long 计算并把越过总数的页直接返回空页。
+        long offset = (long) (page - 1) * size;
+        List<AiGenerationLog> rows = total == 0 || offset >= total || offset > Integer.MAX_VALUE
+                ? List.of()
                 : logMapper.selectForReview(reviewed, kp, fromTime, toTime, courseIds,
-                size, (page - 1) * size);
+                size, (int) offset);
         return new ReviewPageView(page, size, total, toViews(rows));
     }
 
@@ -169,7 +175,8 @@ public class TeacherReviewService {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public StreamingResponseBody exportCsv(String status, String kpId, LocalDate from, LocalDate to) {
         StpUtil.checkRole("TEACHER");
-        String st = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
+        String st = status == null || status.isBlank() ? "PENDING"
+                : status.trim().toUpperCase(Locale.ROOT);
         if (!Set.of("PENDING", "REVIEWED", "ALL").contains(st)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "status 仅允许 PENDING/REVIEWED/ALL");
         }
@@ -277,7 +284,7 @@ public class TeacherReviewService {
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该讲解已评阅: " + logPk);
         }
         String result = request.result() == null || request.result().isBlank()
-                ? "PASS" : request.result().trim().toUpperCase();
+                ? "PASS" : request.result().trim().toUpperCase(Locale.ROOT);
         if (!Set.of("PASS", "RETURN").contains(result)) {
             throw new BizException(ErrorCode.PARAM_ERROR, "result 仅允许 PASS/RETURN");
         }

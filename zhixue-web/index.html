@@ -8,11 +8,15 @@
     <script>
       // 首屏前应用主题，避免暗色主题闪白；key 与 useTheme.ts 保持一致
       try {
-        var theme = localStorage.getItem('zhixue-theme') || 'glass';
+        var stored = localStorage.getItem('zhixue-theme');
+        // 只接受当前注册的主题，历史值（academic/ink/paper/mono）一律回退默认
+        var theme = stored === 'glass-dark' ? 'glass-dark' : 'glass';
         document.documentElement.dataset.theme = theme;
-        if (theme === 'ink' || theme === 'glass-dark') {
+        if (theme === 'glass-dark') {
           document.documentElement.classList.add('dark');
         }
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = theme === 'glass-dark' ? '#080d17' : '#d7e0ec';
       } catch (e) {}
     </script>
     <title>智学领航：高校课程学情诊断系统</title>
