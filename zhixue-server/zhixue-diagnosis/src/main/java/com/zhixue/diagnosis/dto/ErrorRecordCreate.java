@@ -6,6 +6,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -20,7 +21,8 @@ import java.math.BigDecimal;
  * 长度约束与 {@code docs/openapi.yaml} 2.0.8 保持一致；contract-first 下契约是源，代码 @Size 只做运行时保护。
  */
 public record ErrorRecordCreate(
-        @NotNull(message = "courseId 不能为空") Long courseId,
+        @NotNull(message = "courseId 不能为空")
+        @Positive(message = "courseId 必须为正数") Long courseId,
 
         /** 客户端幂等键，与 userId 组成唯一键 */
         @NotBlank(message = "clientToken 不能为空")

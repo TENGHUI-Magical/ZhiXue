@@ -5,9 +5,12 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.zhixue.common.api.ErrorCode;
 import com.zhixue.common.exception.BizException;
+import com.zhixue.course.entity.Course;
 import com.zhixue.course.entity.KnowledgePoint;
 import com.zhixue.course.entity.QuestionBank;
+import com.zhixue.course.service.CourseService;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.course.service.QuestionBankService;
 import com.zhixue.diagnosis.dto.ConfirmRequest;
@@ -45,6 +48,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -69,6 +73,9 @@ class StudentErrorRecordServiceTest {
     @Mock
     private QuestionBankService questionBankService;
 
+    @Mock
+    private CourseService courseService;
+
     private StudentErrorRecordService service;
 
     /** 纯单测无 SqlSessionFactory，需手动初始化实体 TableInfo 供 LambdaUpdateWrapper 解析列名 */
@@ -81,7 +88,26 @@ class StudentErrorRecordServiceTest {
     @BeforeEach
     void setUp() {
         service = new StudentErrorRecordService(mapper, aiLogMapper, knowledgePointService,
-                questionBankService);
+                questionBankService, courseService);
+        // 课程存在性校验对所有 create 用例生效；默认放行，个别用例再覆盖
+        lenient().when(courseService.getActiveById(anyLong())).thenReturn(new Course());
+    }
+
+    /** 边界探针 E06：Long.MAX 这类"正数但不存在"的 courseId 必须在落库前判 40400 */
+    @Test
+    void createRejectsNonexistentCourse() {
+        when(mapper.selectOne(any())).thenReturn(null);
+        lenient().when(courseService.getActiveById(999L))
+                .thenThrow(new BizException(ErrorCode.NOT_FOUND, "课程不存在: 999"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.create(new ErrorRecordCreate(999L, "ct-course",
+                    null, null, null, null, null, null, null, null)))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("课程不存在");
+        }
+        verify(mapper, never()).insert(any(StudentErrorRecord.class));
     }
 
     @Test
