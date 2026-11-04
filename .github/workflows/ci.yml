@@ -94,6 +94,77 @@ jobs:
           path: zhixue-web/e2e-artifacts/
           if-no-files-found: warn
 
+  # 真实后端 E2E：与上方 mock e2e 完全独立（真 MySQL/Redis/后端/前端/浏览器，无 mock server）
+  e2e-real:
+    name: 真实后端 E2E（MySQL/Redis + Spring Boot + Vite + Chrome）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: change-me
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pchange-me"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: zhixue-web/package-lock.json
+      # 单测由 backend job 覆盖，这里只要可执行 jar 给 runner 用
+      - name: 打包后端可执行 jar
+        working-directory: zhixue-server
+        run: mvn -B -ntp -DskipTests package
+      - name: 安装前端依赖
+        working-directory: zhixue-web
+        run: npm ci
+      # 取证：真实 MySQL/Redis/浏览器版本写进 CI 日志，便于回溯“真容器、真浏览器”
+      - name: 环境取证（MySQL/Redis/浏览器/Java）
+        run: |
+          docker exec "${{ job.services.mysql.id }}" mysql -uroot -pchange-me -N -B -e "SELECT VERSION(), @@character_set_server, @@collation_server"
+          docker exec "${{ job.services.redis.id }}" redis-cli INFO server | grep redis_version
+          google-chrome --version
+          java -version
+      # 真实链路 5 场景 / 30 子断言；runner 内部失败或异常一律非 0 退出
+      - name: 真实后端 E2E（5 场景 / 30 子断言）
+        working-directory: zhixue-web
+        env:
+          MYSQL_DOCKER_CONTAINER: ${{ job.services.mysql.id }}
+          MYSQL_USER: root
+          MYSQL_PASSWORD: change-me
+          E2E_DB_NAME: zhixue_e2e_ci
+          E2E_CHANNEL: chrome
+          E2E_REAL_OUT: e2e-real-artifacts
+        run: npm run e2e:real:ci
+      - name: Upload 真实 E2E 证据
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-real-report
+          path: zhixue-web/e2e-real-artifacts/
+          if-no-files-found: warn
+
   ai:
     name: AI 服务 lint 与单测（FastAPI）
     runs-on: ubuntu-latest

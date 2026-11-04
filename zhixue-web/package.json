@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "gen:types": "openapi-typescript ../docs/openapi.yaml -o src/api/types.generated.ts",
     "e2e:real": "node e2e/real/api-smoke.mjs",
-    "e2e:real:ui": "node e2e/real/ui-real.mjs"
+    "e2e:real:ui": "node e2e/real/ui-real.mjs",
+    "e2e:real:ci": "node e2e/real/ci-smoke.mjs"
   },
   "dependencies": {
     "@lucide/vue": "^1.62.0",
