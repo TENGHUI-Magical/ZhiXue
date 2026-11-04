@@ -1,1 +1,0 @@
-{"code":0,"message":"success","data":{"taskId":"cdcd6c58787d4defa7c8c2f1fb2c313a","status":"FAILED","ocrText":null,"confidence":null,"fields":null,"errorCode":60002,"errorMessage":"OCR 识别失败，请手动录入题干"},"timestamp":1793801191347}

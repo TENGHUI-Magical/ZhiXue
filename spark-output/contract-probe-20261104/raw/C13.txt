@@ -1,1 +1,0 @@
-{"code":0,"message":"success","data":{"qId":"Q_0101","courseId":1,"kpId":"KP0101","kpName":"数据库的4个基本概念（数据、数据库、DBMS、DBS）","questionType":"单选","questionText":"长期存储在计算机内、有组织的、可共享的大量数据的集合是（ ）。","options":[{"key":"A","text":"数据"},{"key":"B","text":"数据库"},{"key":"C","text":"数据库管理系统"},{"key":"D","text":"数据库系统"}],"difficulty":1},"timestamp":1793801189109}

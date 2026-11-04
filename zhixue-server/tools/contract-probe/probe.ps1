@@ -1,7 +1,21 @@
-param([string]$Base = 'http://127.0.0.1:8080')
+# 契约边界黑盒探测脚本（一次性工具，非生产代码）。
+# 用法：先起后端，再设置环境变量，最后 pwsh -File probe.ps1
+#   PROBE_BASE      后端地址，默认 http://127.0.0.1:8080
+#   PROBE_PASSWORD  演示账号密码（必填，脚本不内置口令）
+#   PROBE_OUT_DIR   输出目录，默认系统临时目录下的 zhixue-contract-probe
+# 输出：probe-matrix.csv / probe-matrix.md / raw/<ID>.txt，均不写进仓库。
+param(
+    [string]$Base = $(if ($env:PROBE_BASE) { $env:PROBE_BASE } else { 'http://127.0.0.1:8080' }),
+    [string]$OutDir = $(if ($env:PROBE_OUT_DIR) { $env:PROBE_OUT_DIR } else { Join-Path ([System.IO.Path]::GetTempPath()) 'zhixue-contract-probe' })
+)
 
 $ErrorActionPreference = 'Continue'
-$outDir = Join-Path $PSScriptRoot 'raw'
+$Password = $env:PROBE_PASSWORD
+if ([string]::IsNullOrWhiteSpace($Password)) {
+    throw '请先设置环境变量 PROBE_PASSWORD（演示账号密码），脚本不内置口令。'
+}
+$outDir = Join-Path $OutDir 'raw'
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $rows = [System.Collections.Generic.List[object]]::new()
 # 泄露判定：只看“技术栈痕迹”，不匹配业务文本。
 # 早期把 'SELECT ' 当 SQL 泄露，误报了 2 条（K21/K26 返回的是数据库题目原文），已剔除；
@@ -124,10 +138,10 @@ function Upload([string]$id, [string]$token, [string]$filePath, [string]$clientT
 }
 
 # ---- tokens ----
-$stu = Login 'demo_stu01' 'Demo@2026'
-$stu2 = Login 'demo_stu02' 'Demo@2026'
-$tea = Login 'teacher01' 'Demo@2026'
-$tmpToken = Login 'demo_stu03' 'Demo@2026'
+$stu = Login 'demo_stu01' $Password
+$stu2 = Login 'demo_stu02' $Password
+$tea = Login 'teacher01' $Password
+$tmpToken = Login 'demo_stu03' $Password
 Write-Host "tokens: stu=$stu stu2=$stu2 tea=$tea"
 
 $kp = 'KP0201'
@@ -145,7 +159,7 @@ $xss = '<script>alert(1)</script>'
 $sqli = "' OR 1=1 --"
 
 # ---- A auth ----
-Exec 'A01' 'Auth' 'POST' '/api/auth/login' '' (J @{username='student01';password='Demo@2026'}) 'application/json' 'valid credentials' '0'
+Exec 'A01' 'Auth' 'POST' '/api/auth/login' '' (J @{username='student01';password=$Password}) 'application/json' 'valid credentials' '0'
 Exec 'A02' 'Auth' 'POST' '/api/auth/login' '' (J @{username='student01';password='wrongpass'}) 'application/json' 'wrong password' '40100'
 Exec 'A03' 'Auth' 'POST' '/api/auth/login' '' (J @{username='student01'}) 'application/json' 'missing password' '40000'
 Exec 'A04' 'Auth' 'POST' '/api/auth/login' '' (J @{username=123;password='Valid@2026'}) 'application/json' 'username as number (Jackson coercion)' '40100'
@@ -404,7 +418,7 @@ Exec 'M05' 'Container' 'GET' '/api/plans?from=2026-11-04T23:59:59Z' $stu $null '
 Exec 'M06' 'Container' 'GET' '/api/plans?from=2026-02-30' $stu $null '' '2026-02-30' '40000'
 
 # ---- S 鉴权全覆盖：35 个 operation 无 token 调用 ----
-Exec 'S01' 'AuthSweep' 'POST' '/api/auth/login' '' (J @{username='student01';password='Demo@2026'}) 'application/json' 'public login' '0'
+Exec 'S01' 'AuthSweep' 'POST' '/api/auth/login' '' (J @{username='student01';password=$Password}) 'application/json' 'public login' '0'
 Exec 'S02' 'AuthSweep' 'POST' '/api/auth/logout' '' $null '' 'logout without token' '40100'
 Exec 'S03' 'AuthSweep' 'GET' '/api/auth/me' '' $null '' 'me without token' '40100'
 Exec 'S04' 'AuthSweep' 'GET' '/api/courses' '' $null '' 'courses without token' '40100'
@@ -456,9 +470,9 @@ Exec 'T12' 'Extra' 'POST' '/api/practices/start' $stu (J @{qId='';clientToken="p
 Exec 'T13' 'Extra' 'GET' '/api/error/records?page=1&size=50&errorType=HACK' $stu $null '' 'errorType=HACK filter' '40000'
 Exec 'T14' 'Extra' 'POST' '/api/error/records' $stu (J @{courseId=1;clientToken="probe-t14-$runId";clientToken2='x'}) 'application/json' 'duplicate/extra field' '0'
 
-$csv = Join-Path $PSScriptRoot 'probe-matrix.csv'
+$csv = Join-Path $OutDir 'probe-matrix.csv'
 $rows | Export-Csv -Path $csv -NoTypeInformation -Encoding utf8
-$md = Join-Path $PSScriptRoot 'probe-matrix.md'
+$md = Join-Path $OutDir 'probe-matrix.md'
 $lines = @('| ID | 分组 | 方法 | 端点 | 输入 | 期望 | HTTP | code | 判定 | 泄露 | 耗时ms | 响应摘要 |', '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |')
 foreach ($r in $rows) {
     $resp = ($r.Resp -replace '\|', '/')
