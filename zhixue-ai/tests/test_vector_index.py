@@ -40,6 +40,14 @@ def test_overlap_not_smaller_than_size_is_clamped():
     assert all(len(chunk.content) <= 110 for chunk in chunks)
 
 
+def test_chunk_size_zero_falls_back_to_one_instead_of_hanging(monkeypatch):
+    """配置误写 RAG_CHUNK_SIZE=0 时不得让切片步长退化为 0（否则 while 死循环）。"""
+    monkeypatch.setattr(settings, "rag_chunk_size", 0)
+    chunks = vector_index.chunk_text("数据库系统", "KP0201")
+    assert len(chunks) == 5
+    assert all(len(chunk.content) == 1 for chunk in chunks)
+
+
 def test_bm25_counts_ignore_punctuation_and_case():
     assert vector_index._bigram_counts("关系，模型") == vector_index._bigram_counts("关系模型")
     assert vector_index._bigram_counts("SQL 查询") == vector_index._bigram_counts("sql查询")

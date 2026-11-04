@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     glm_api_key: str = ""
     glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     # 契约 2.4 降级链：L1 主力 → L2 GLM → L3 本地模板（Java 侧）→ L4 60001
-    # 流式超时分三级：连接 3s / 首字节 10s / 整体 60s
+    # 流式超时：连接 3s（rag_service 固定）/ 读空闲 10s（覆盖首字节与帧间停顿）；
+    # 契约 §5.2 的“整体 60s”由 Java 侧 SSE 收口，不在本服务内实现
     llm_timeout_seconds: int = 10
 
     # OCR 落盘与质量阈值（契约 2.2 节：置信度 < 0.75 前端强制人工确认）
