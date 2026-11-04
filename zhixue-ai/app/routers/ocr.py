@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import time
 from typing import Any
 
@@ -18,6 +19,7 @@ from app.config import settings
 from app.schemas import OcrLine, OcrRecognizeOut
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 _engine: Any = None
 
@@ -65,4 +67,5 @@ async def recognize(image: UploadFile = File(..., description="错题图片，�
     try:
         return await run_in_threadpool(_recognize, data)
     except Exception as exc:  # 图片损坏、引擎异常等
+        logger.warning("OCR 识别失败 fileName=%s：%s", image.filename or "-", exc)
         raise HTTPException(status_code=422, detail=f"OCR 识别失败: {exc}") from exc
