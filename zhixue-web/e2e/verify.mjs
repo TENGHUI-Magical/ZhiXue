@@ -396,7 +396,10 @@ async function writeFailureArtifacts(error) {
 }
 
 // 兜底：任何一步卡死也要留下现场（CI 的 job 级超时不会产出 artifact）
-const WATCHDOG_MS = Number(process.env.E2E_WATCHDOG_MS || 25 * 60 * 1000)
+// 预算必须小于 .github/workflows/ci.yml 中「前端 E2E」job 的 timeout-minutes（20），
+// 留 2 分钟给写报告/截图/上传 artifact；调大 ci.yml 超时前不要只改这里。
+// 本地可用 E2E_WATCHDOG_MS 覆盖（可上调，做故障演练时可下调）。
+const WATCHDOG_MS = Number(process.env.E2E_WATCHDOG_MS || 18 * 60 * 1000)
 setTimeout(() => {
   ;(async () => {
     console.error(`E2E 看门狗触发：${WATCHDOG_MS}ms 未结束，当前阶段=${currentStage}`)
