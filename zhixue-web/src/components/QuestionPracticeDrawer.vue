@@ -323,6 +323,7 @@ const clearFields = () => {
   revealed.value = false;
   selfErrorType.value = "";
   submissionResult.value = null;
+  completedResult.value = null;
   nextQuestion.value = null;
   nextLoading.value = false;
   timingUnavailable.value = false;

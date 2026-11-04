@@ -398,6 +398,8 @@ let controller: AbortController | null = null;
 /** 本轮流是否收到 done；连接提前结束且无 done 时不能把半截内容当完成 */
 let doneSeen = false;
 let authExpired = false;
+/** 上一次轮询未返回时跳过本次 tick，避免慢响应下并发分析、重复生成讲解 */
+let pollBusy = false;
 
 const stopPolling = () => {
   if (pollTimer !== null) {
@@ -410,11 +412,14 @@ const pollTask = (taskId: string) => {
   let attempts = 0;
   stopPolling();
   pollTimer = window.setInterval(async () => {
+    if (pollBusy) return;
+    pollBusy = true;
     attempts += 1;
     if (attempts > 30) {
       stopPolling();
       parsing.value = false;
       ocrError.value = "识别超时，请手动录入题干";
+      pollBusy = false;
       return;
     }
     try {
@@ -462,6 +467,8 @@ const pollTask = (taskId: string) => {
       stopPolling();
       parsing.value = false;
       ocrError.value = "识别状态查询失败，请手动录入题干";
+    } finally {
+      pollBusy = false;
     }
   }, 2000);
 };

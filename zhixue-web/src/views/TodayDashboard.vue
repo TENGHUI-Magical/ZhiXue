@@ -398,39 +398,48 @@ const layerLabel = (layer?: string) => {
   return layer || "推荐";
 };
 
-const loadPlans = async () => {
-  planError.value = "";
+let loadSeq = 0;
+
+const loadPlans = async (seq: number) => {
   try {
-    allPlans.value = await listPlans(overdueStart, weekEnd);
+    const data = await listPlans(overdueStart, weekEnd);
+    if (seq !== loadSeq) return; // 刷新/练习完成可能并发触发，只认最新一轮
+    allPlans.value = data;
+    planError.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     planError.value = (e as Error).message || "计划加载失败";
     allPlans.value = [];
   }
 };
 
-const loadPortrait = async () => {
-  portraitError.value = "";
+const loadPortrait = async (seq: number) => {
   try {
-    portrait.value = await getPortrait();
+    const data = await getPortrait();
+    if (seq !== loadSeq) return;
+    portrait.value = data;
+    portraitError.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     portraitError.value = (e as Error).message || "画像加载失败";
     portrait.value = null;
   }
 };
 
-const loadLatestError = async () => {
-  latestErrorMsg.value = "";
+const loadLatestError = async (seq: number) => {
   try {
     const page = await listErrorRecords({ page: 1, size: 1, status: "CONFIRMED" });
+    if (seq !== loadSeq) return;
     latestError.value = page.records?.[0] ?? null;
+    latestErrorMsg.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     latestErrorMsg.value = (e as Error).message || "最近错题加载失败";
     latestError.value = null;
   }
 };
 
-const loadRecommendations = async () => {
-  recError.value = "";
+const loadRecommendations = async (seq: number) => {
   const params = latestError.value?.logId
     ? { logId: latestError.value.logId, courseId: DEFAULT_COURSE_ID }
     : weakest.value?.kpId
@@ -438,31 +447,42 @@ const loadRecommendations = async () => {
       : null;
   if (!params) {
     recommendations.value = [];
+    recError.value = "";
     return;
   }
   try {
-    recommendations.value = await getRecommendations(params);
+    const data = await getRecommendations(params);
+    if (seq !== loadSeq) return;
+    recommendations.value = data;
+    recError.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     recError.value = (e as Error).message || "推荐加载失败";
     recommendations.value = [];
   }
 };
 
-const loadDueReviews = async () => {
-  dueError.value = "";
+const loadDueReviews = async (seq: number) => {
   try {
     // 到期复习独立降级：失败只影响本卡片，不阻断计划/画像
-    dueReviews.value = (await getDueReviews(DEFAULT_COURSE_ID)) ?? [];
+    const data = (await getDueReviews(DEFAULT_COURSE_ID)) ?? [];
+    if (seq !== loadSeq) return;
+    dueReviews.value = data;
+    dueError.value = "";
   } catch (e) {
+    if (seq !== loadSeq) return;
     dueError.value = (e as Error).message || "到期复习加载失败";
     dueReviews.value = [];
   }
 };
 
 const loadAll = async () => {
+  const seq = ++loadSeq;
   loading.value = true;
-  await Promise.all([loadPlans(), loadPortrait(), loadLatestError(), loadDueReviews()]);
-  await loadRecommendations();
+  await Promise.all([loadPlans(seq), loadPortrait(seq), loadLatestError(seq), loadDueReviews(seq)]);
+  if (seq !== loadSeq) return;
+  await loadRecommendations(seq);
+  if (seq !== loadSeq) return;
   loading.value = false;
 };
 
