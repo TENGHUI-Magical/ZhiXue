@@ -40,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mockStatic;
@@ -330,6 +331,64 @@ class TeacherStudentServiceTest {
             assertEquals(1, detail.kpMastery().size());
             assertTrue(detail.errors().isEmpty());
             assertNull(detail.practices().records().get(0).errorType());
+        }
+    }
+
+    @Test
+    void pageWithHugePageNumberReturnsEmptyInsteadOfServerError() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
+        List<String> qIds = List.of("Q_1");
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
+                agg(2L, 2, 1, 1, 20.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
+                kp(2L, "KP01", 2, 1.0, 1)));
+        when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            TeacherStudentViews.Page result = service.page(1L, Integer.MAX_VALUE, 20, "lastActiveDesc");
+            assertEquals(1, result.total());
+            assertTrue(result.records().isEmpty());
+        }
+    }
+
+    @Test
+    void learningRecordsHugePageNumberDoesNotUseNegativeOffset() {
+        when(courseService.getActiveById(1L)).thenReturn(courseOwnedBy(2L));
+        List<String> qIds = List.of("Q_1");
+        when(questionBankService.listQidsByCourse(1L)).thenReturn(qIds);
+        when(practiceRecordMapper.aggregateByUser(eq(qIds), any(), any())).thenReturn(List.of(
+                agg(2L, 1, 0, 0, 30.0, LocalDateTime.of(2026, 10, 30, 20, 0))));
+        when(practiceRecordMapper.aggregateByUserKp(eq(qIds), any(), eq(30.0), any(), any())).thenReturn(List.of(
+                kp(2L, "KP01", 1, 0.0, 0)));
+        when(practiceRecordMapper.countByUserPaged(eq(2L), eq(qIds), any(), any())).thenReturn(1L);
+        PracticeRecord record = new PracticeRecord();
+        record.setPracticeId(11L);
+        record.setQId("Q_1");
+        record.setKpId("KP01");
+        record.setIsCorrect(1);
+        record.setCreatedAt(LocalDateTime.of(2026, 10, 30, 20, 0));
+        // 当前实现会把超大 page 溢出成负 offset 仍去查库；修复后不应再查
+        org.mockito.Mockito.lenient().when(practiceRecordMapper.selectByUserPaged(
+                eq(2L), eq(qIds), any(), any(), eq(20), anyInt())).thenReturn(List.of(record));
+
+        KnowledgePoint kp = new KnowledgePoint();
+        kp.setKpId("KP01");
+        kp.setName("数据模型");
+        when(knowledgePointService.findByIds(any())).thenReturn(Map.of("KP01", kp));
+        when(courseService.listActiveKnowledgePoints(1L)).thenReturn(List.of(kp));
+        when(userQueryService.findDisplayNames(any())).thenReturn(Map.of(2L, "张三"));
+        when(studyPlanMapper.aggregateProgress(any(), any(), any())).thenReturn(List.of());
+        when(errorRecordMapper.selectList(any())).thenReturn(List.of());
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            TeacherStudentViews.LearningRecord detail =
+                    service.learningRecords(1L, 2L, null, null, Integer.MAX_VALUE, 20);
+            assertEquals(1, detail.practices().total());
+            assertTrue(detail.practices().records().isEmpty());
         }
     }
 
