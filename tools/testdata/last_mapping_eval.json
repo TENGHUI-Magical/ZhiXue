@@ -1,96 +1,21 @@
 {
   "generated_at": "2026-10-25 02:11:52",
+  "artifact_status": "INVALID_RUN",
+  "invalid_reason": "该次在线评测 32/32 用例返回成功但候选大面积为空、top1=0，判定为知识点语料未加载或服务未就绪时的无效产物。0.0 不是映射算法的真实准确率，禁止引用。",
+  "superseded_by": "tools/testdata/mapping_offline.json",
+  "superseded_note": "可引用的映射准确率证据请用离线评测：python tools/eval_mapping_offline.py 可复现。",
   "endpoint": "/api/diagnosis/map",
   "cases_file": "D:\\Desktop\\智学领航：高校课程学情诊断系统\\zhixue\\tools\\testdata\\mapping_cases.csv",
   "n_cases": 32,
   "n_ok": 32,
   "n_failed": 0,
+  "n_empty_candidates": 32,
+  "valid": false,
   "top1_hits": 0,
   "top3_hits": 0,
   "top1_accuracy": 0.0,
   "top3_accuracy": 0.0,
   "auto_rate": 0.0,
-  "by_kp": {
-    "KP0201": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0202": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0203": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0204": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0205": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0206": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0207": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0208": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0209": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0210": {
-      "hit": 0,
-      "total": 3
-    },
-    "KP0301": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0302": {
-      "hit": 0,
-      "total": 3
-    },
-    "KP0303": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0304": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0305": {
-      "hit": 0,
-      "total": 3
-    },
-    "KP0306": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0307": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0308": {
-      "hit": 0,
-      "total": 1
-    },
-    "KP0309": {
-      "hit": 0,
-      "total": 2
-    },
-    "KP0310": {
-      "hit": 0,
-      "total": 1
-    }
-  },
-  "failed_cases": []
+  "failed_cases": [],
+  "historical_note": "保留原始计数仅供追溯；逐知识点明细（原 by_kp）全部为 0，已删除以免被误读为算法准确率证据。2026-11-03 审计：根因是评测跑在语料不完整的服务实例上，非 KpMappingService 算法缺陷。"
 }

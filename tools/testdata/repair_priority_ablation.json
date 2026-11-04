@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-11-03 01:16:35",
+  "formula": "score = prereqWeight × urgency × repairability (docs/05 §3.7)",
+  "half_life_days": 30.0,
+  "n_kp": 50,
+  "n_edges": 55,
+  "n_scenarios": 32,
+  "results": [
+    {
+      "variant": "V0 全因子（先修×遗忘×错因）",
+      "n": 32,
+      "top1_recall": 0.9688,
+      "top3_recall": 1.0,
+      "mrr": 0.9792,
+      "score_gap": 0.1811
+    },
+    {
+      "variant": "V1 去先修权重",
+      "n": 32,
+      "top1_recall": 0.125,
+      "top3_recall": 0.2188,
+      "mrr": 0.256,
+      "score_gap": 0.028
+    },
+    {
+      "variant": "V2 去遗忘紧迫度",
+      "n": 32,
+      "top1_recall": 0.0,
+      "top3_recall": 1.0,
+      "mrr": 0.5,
+      "score_gap": 0.3261
+    },
+    {
+      "variant": "V3 去错因可修复性",
+      "n": 32,
+      "top1_recall": 0.9688,
+      "top3_recall": 1.0,
+      "mrr": 0.9792,
+      "score_gap": 0.3622
+    },
+    {
+      "variant": "V4 仅先修权重",
+      "n": 32,
+      "top1_recall": 1.0,
+      "top3_recall": 1.0,
+      "mrr": 1.0,
+      "score_gap": 0.6652
+    }
+  ]
+}

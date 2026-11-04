@@ -205,8 +205,13 @@ def main():
 
     results, skipped = [], []
     for c in cases:
+        # 章先知：CSV 带 chapter 列时传入，命中与 docs/05 §1.4 的章过滤口径一致；
+        # 不传则走全课程排序（离线基线 V0）。两口径数字不同，报告里注明。
+        chapter_id = (c.get("chapter") or "").strip()
         payload = {"text": c["question_text"], "questionText": c["question_text"],
                    "courseId": args.course_id, "topN": 10, "topK": 10}
+        if chapter_id.isdigit():
+            payload["chapterId"] = int(chapter_id)
         st, body = post_json(base + endpoint, payload, args.token, args.timeout)
         row = {"case_id": c["case_id"], "true_kp": c["true_kp_id"], "http": st}
         biz = body.get("code") if isinstance(body, dict) else None
@@ -239,6 +244,15 @@ def main():
             agg[g][0] += 1 if r["top1_hit"] else 0
         return {k: {"hit": v[0], "total": v[1]} for k, v in sorted(agg.items())}
 
+    # 有效性判定：全 0 命中且候选大面积为空，多半是语料未加载/服务未就绪，
+    # 不能把 0.0 当成算法准确率引用（2026-10-25 那次就是这种无效产物）。
+    invalid_reason = None
+    if n_ok and n_top1 == 0 and n_empty >= max(1, n_ok // 2):
+        invalid_reason = ("候选大面积为空（%d/%d），疑似知识点语料未加载或服务未就绪；"
+                          "本次结果不可作为准确率证据" % (n_empty, n_ok))
+    elif n_ok == 0:
+        invalid_reason = "全部用例请求失败，无有效样本"
+
     report = {
         "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "endpoint": endpoint, "cases_file": cases_path,
@@ -248,6 +262,9 @@ def main():
         "top1_accuracy": round(n_top1 / n_ok, 4) if n_ok else None,
         "top3_accuracy": round(n_top3 / n_ok, 4) if n_ok else None,
         "auto_rate": round(n_auto / n_ok, 4) if n_ok else None,
+        "chapter_prior": any((c.get("chapter") or "").strip().isdigit() for c in cases),
+        "valid": invalid_reason is None,
+        "invalid_reason": invalid_reason,
         "by_kp": per_group(lambda r: r["true_kp"]),
         "results": results,
         "failed_cases": skipped,
@@ -257,7 +274,8 @@ def main():
     Path(out_path).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print("\n===== 映射评测（DQ-01） =====")
-    print("端点: %s  有效用例: %d/%d  失败: %d" % (endpoint, n_ok, len(cases), len(skipped)))
+    print("端点: %s  有效用例: %d/%d  失败: %d  候选为空: %d"
+          % (endpoint, n_ok, len(cases), len(skipped), n_empty))
     if n_ok:
         print("top-1 命中: %d/%d = %.1f%%   （G3 门禁 >= 70%%）"
               % (n_top1, n_ok, report["top1_accuracy"] * 100))
@@ -265,11 +283,16 @@ def main():
         if any(r.get("decision") for r in ok):
             print("AUTO 占比: %.1f%%" % (report["auto_rate"] * 100))
         print("分知识点:", json.dumps(report["by_kp"], ensure_ascii=False))
+    if invalid_reason:
+        print("[无效运行] " + invalid_reason)
+        print("可引用证据请改用离线评测：python tools/eval_mapping_offline.py")
     if skipped:
         print("失败用例:", [(r["case_id"], r["status"]) for r in skipped][:10])
     print("报告已写入:", out_path)
 
-    if not n_ok:
+    if invalid_reason:
+        verdict = "INVALID_RUN"
+    elif not n_ok:
         verdict = "BLOCKED"
     elif n_empty == n_ok:
         # 全部用例零候选：不是"算法准确率为 0"，而是管道/数据态坏
@@ -284,7 +307,7 @@ def main():
               % (n_empty, n_ok))
         print("  判定 SQL: SELECT COUNT(*) FROM knowledge_point "
               "WHERE course_id=%d AND is_active=1;" % args.course_id)
-    return {"PASS": 0, "BLOCKED": 1, "NEED_DATA": 3, "PIPELINE_BROKEN": 4}[verdict]
+    return {"PASS": 0, "BLOCKED": 1, "INVALID_RUN": 1, "NEED_DATA": 3, "PIPELINE_BROKEN": 4}[verdict]
 
 
 if __name__ == "__main__":
