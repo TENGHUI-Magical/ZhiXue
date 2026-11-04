@@ -189,6 +189,56 @@ function trackProcess(child, name) {
   return child
 }
 
+// Vite 冷缓存首次访问新页面会重新预构建依赖并整页刷新；若落在 goto/断言窗口，
+// 会表现为 ERR_ABORTED 或表格迟迟不出现。先遍历 UI 路由把依赖预构建跑完。
+async function waitLoadQuiet(page, quietMs = 2500, maxMs = 15000) {
+  let last = Date.now()
+  const onLoad = () => { last = Date.now() }
+  page.on('load', onLoad)
+  try {
+    const start = Date.now()
+    while (Date.now() - start < maxMs && Date.now() - last < quietMs) await sleep(250)
+  } finally {
+    page.off('load', onLoad)
+  }
+}
+
+async function gotoWithRetry(page, urlPath, attempts = 3) {
+  for (let i = 1; ; i++) {
+    try {
+      await page.goto(WEB_BASE + urlPath, { waitUntil: 'domcontentloaded', timeout: 20000 })
+      return
+    } catch (e) {
+      if (i >= attempts) throw e
+      log(`  导航 ${urlPath} 被 Vite 依赖重载打断，重试 ${i}/${attempts - 1}`)
+      await sleep(1000)
+    }
+  }
+}
+
+async function warmUpWeb(studentToken, teacherToken) {
+  log('  预热 Vite 依赖预构建（避免测试中途整页刷新）')
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
+  const page = await ctx.newPage()
+  const asUser = (token, role) => page.evaluate(([t, r]) => {
+    localStorage.setItem('satoken', t)
+    localStorage.setItem('zhixue_user', JSON.stringify({ role: r }))
+  }, [token, role])
+  await page.goto(WEB_BASE + '/login', { waitUntil: 'domcontentloaded', timeout: 20000 })
+  await waitLoadQuiet(page)
+  await asUser(studentToken, 'STUDENT')
+  for (const p of ['/today', '/practice', '/portrait']) {
+    await gotoWithRetry(page, p)
+    await waitLoadQuiet(page)
+  }
+  await asUser(teacherToken, 'TEACHER')
+  for (const p of ['/teacher', '/teacher/reviews']) {
+    await gotoWithRetry(page, p)
+    await waitLoadQuiet(page)
+  }
+  await ctx.close()
+}
+
 function killTree(child) {
   if (!child || child.exitCode !== null) return
   if (process.platform === 'win32') {
@@ -411,6 +461,8 @@ try {
     channel: process.env.E2E_CHANNEL || 'msedge',
     headless: true
   })
+  // 冷启动 Vite 会在首访页面时重载；先预热，避免把开发服务器刷新误判成业务失败
+  await warmUpWeb(studentToken, teacherToken)
   const stCtx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN' })
   const stPage = await stCtx.newPage()
   stPage.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text().slice(0, 200)) })
@@ -541,7 +593,8 @@ try {
   await tp.getByRole('button', { name: '登录' }).click()
   await tp.waitForURL((url) => new URL(url).pathname === '/teacher', { timeout: 20000 })
 
-  await tp.goto(WEB_BASE + '/teacher/reviews', { waitUntil: 'domcontentloaded' })
+  await gotoWithRetry(tp, '/teacher/reviews')
+  await waitLoadQuiet(tp)
   await tp.waitForSelector('.el-table__row', { timeout: 20000 })
   const uiRows = await tp.locator('.el-table__row').count()
   assert('3.3 教师 UI 评阅队列有数据', uiRows >= 1, `rows=${uiRows}`)
