@@ -1,8 +1,11 @@
 package com.zhixue.diagnosis.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -29,11 +32,16 @@ public record ErrorRecordCreate(
         @Size(max = 8000) String ocrText,
         @Size(max = 3000) String correctedText,
 
-        /** OCR 置信度；[0, 1] 范围由 OCR 服务保证 */
+        /** OCR 置信度，契约 2.2.9 定义 [0, 1]；越界必须在入口拒绝，不能落库 */
+        @DecimalMin(value = "0", message = "ocrConfidence 不能小于 0")
+        @DecimalMax(value = "1", message = "ocrConfidence 不能大于 1")
         BigDecimal ocrConfidence,
 
         @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
                 "CALCULATION_ERROR", "BOUNDARY_ERROR"}, nullable = true)
+        @Pattern(regexp = "CONCEPT_CONFUSION|METHOD_MISSING|STEP_OMISSION"
+                + "|CALCULATION_ERROR|BOUNDARY_ERROR",
+                message = "errorType 必须是契约枚举之一")
         String errorType,
 
         @Size(max = 500) String studentNote) {

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -21,7 +22,9 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -76,5 +79,51 @@ class UploadValidationTest {
         assertThat(result.getResponse().getContentAsString())
                 .contains("\"code\":40000")
                 .contains("clientToken");
+    }
+
+    @Test
+    void wrongHttpMethodReturnsParamError() throws Exception {
+        // GET 打到只支持 POST 的上传端点：405 也必须收敛为 40000，不能落兜底 50000
+        MvcResult result = mockMvc.perform(get("/api/error/upload"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
+    }
+
+    @Test
+    void unsupportedMediaTypeReturnsParamError() throws Exception {
+        // text/plain 请求体打到 JSON 端点：415 也必须收敛为 40000
+        MvcResult result = mockMvc.perform(post("/api/diagnosis/map")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("not-json"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
+    }
+
+    @Test
+    void malformedMultipartReturnsParamError() throws Exception {
+        // 声明 multipart 但无 boundary：MultipartException 也必须收敛为 40000
+        MvcResult result = mockMvc.perform(post("/api/error/upload")
+                        .header("Content-Type", "multipart/form-data"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
+    }
+
+    @Test
+    void explainWithIllegalErrorTypeReturnsParamError() throws Exception {
+        // 契约枚举外的 errorType 必须在进入 SSE/服务层前拒绝
+        MvcResult result = mockMvc.perform(post("/api/diagnosis/explain")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"logId\":\"EL_1\",\"kpId\":\"KP0201\","
+                                + "\"errorType\":\"HACK\",\"questionText\":\"q\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
     }
 }
