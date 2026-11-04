@@ -56,6 +56,20 @@ class ErrorRecordValidationTest {
         assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
     }
 
+    /** courseId=0 是边界探针 E05 的输入：此前会落库成孤儿记录，必须在入口按 40000 拦掉 */
+    @Test
+    void zeroCourseIdReturnsParamError() throws Exception {
+        MvcResult result = create("{\"courseId\":0,\"clientToken\":\"ct-1\"}");
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
+    }
+
+    /** 负数 courseId 同属越界；Long.MAX 是"正数但不存在"，由 Service 判 40400，不在此用例覆盖 */
+    @Test
+    void negativeCourseIdReturnsParamError() throws Exception {
+        MvcResult result = create("{\"courseId\":-1,\"clientToken\":\"ct-1\"}");
+        assertThat(result.getResponse().getContentAsString()).contains("\"code\":40000");
+    }
+
     @Test
     void illegalErrorTypeReturnsParamError() throws Exception {
         MvcResult result = create("{\"courseId\":1,\"clientToken\":\"ct-1\",\"errorType\":\"HACK\"}");

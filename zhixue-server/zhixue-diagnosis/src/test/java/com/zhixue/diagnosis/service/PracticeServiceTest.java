@@ -29,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -166,6 +167,22 @@ class PracticeServiceTest {
             assertEquals("begin-token", view.clientToken());
             assertNotNull(view.startedAt());
         }
+    }
+
+    /** 边界探针 H03：qId 不存在时不能发一个注定失败的打点令牌，应就地 40400 */
+    @Test
+    void beginRejectsUnknownQid() {
+        lenient().when(questionBankService.getById("Q_NOPE"))
+                .thenThrow(new BizException(ErrorCode.NOT_FOUND, "题目不存在: Q_NOPE"));
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            assertThatThrownBy(() -> service.begin(
+                    new com.zhixue.diagnosis.dto.PracticeStartRequest("Q_NOPE", "begin-token")))
+                    .isInstanceOf(BizException.class)
+                    .hasMessageContaining("题目不存在");
+        }
+        verify(redisTemplate, never()).opsForValue();
     }
 
     /** 带 startToken：服务端计时落库并返回；客户端自报 costSeconds=30 被忽略。 */

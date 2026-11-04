@@ -82,6 +82,9 @@ public class PracticeService {
      * 幂等：同 clientToken 重复打点返回首次开始时刻。
      */
     public PracticeStartView begin(PracticeStartRequest request) {
+        // 题目必须存在且启用：不存在就地 40400，避免发一个提交时必然失败的打点令牌（探针 H03）
+        // 错误码复用 QuestionBankService#getById 的既有 "题目不存在" 口径，不新造码
+        questionBankService.getById(request.qId());
         long userId = StpUtil.getLoginIdAsLong();
         String key = START_KEY_PREFIX + userId + ":" + request.clientToken();
         String now = String.valueOf(System.currentTimeMillis());
