@@ -84,6 +84,6 @@ public class TeacherReviewController {
     public ApiResponse<Void> submit(@PathVariable long logPk,
                                     @Valid @RequestBody ReviewSubmitRequest request) {
         teacherReviewService.submit(logPk, request);
-        return ApiResponse.ok(null);
+        return ApiResponse.ok();
     }
 }

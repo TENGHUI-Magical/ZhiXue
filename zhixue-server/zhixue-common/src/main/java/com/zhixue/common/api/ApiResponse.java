@@ -29,6 +29,12 @@ public class ApiResponse<T> {
         return new ApiResponse<>(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMsg(), data);
     }
 
+    /** 无数据成功响应：data 落空对象占位 {@code {}}，契约与 docs/03 同口径，禁止写成 null。 */
+    @SuppressWarnings("unchecked")
+    public static <T> ApiResponse<T> ok() {
+        return new ApiResponse<>(ErrorCode.SUCCESS.getCode(), ErrorCode.SUCCESS.getMsg(), (T) EMPTY);
+    }
+
     public static <T> ApiResponse<T> fail(ErrorCode errorCode) {
         return fail(errorCode, errorCode.getMsg());
     }

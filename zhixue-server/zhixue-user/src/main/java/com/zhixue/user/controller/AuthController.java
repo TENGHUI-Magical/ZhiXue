@@ -60,7 +60,7 @@ public class AuthController {
     @PostMapping("/logout")
     public ApiResponse<Void> logout() {
         StpUtil.logout();
-        return ApiResponse.ok(null);
+        return ApiResponse.ok();
     }
 
     @GetMapping("/me")
