@@ -280,6 +280,19 @@ class PlanServiceTest {
                 2L, "Q_0201", "KP0201", "token-cost", "A", true, null, null);
     }
 
+    /** 契约 V2.3.0：weekStart 必须是周一；周三会被当成“一周起点”生成错位计划，入口直接拒绝。 */
+    @Test
+    void nonMondayWeekStartReturnsParamError() {
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                    () -> service.generate(new com.zhixue.plan.dto.PlanGenerateRequest(
+                            1L, LocalDate.of(2026, 11, 4), 3)));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+        }
+        org.mockito.Mockito.verifyNoInteractions(courseService);
+    }
+
     @Test
     void pastPendingPlanIsDerivedOverdue() {
         StudyPlan plan = new StudyPlan();

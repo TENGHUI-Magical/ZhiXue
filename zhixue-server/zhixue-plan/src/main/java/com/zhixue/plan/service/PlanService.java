@@ -119,6 +119,10 @@ public class PlanService {
         if (weekStart == null) {
             throw new BizException(ErrorCode.PARAM_ERROR, "weekStart 不能为空");
         }
+        // 契约 V2.3.0：一周计划固定按自然周（周一至周日）生成，非周一会与“本周进度”聚合口径错位
+        if (weekStart.getDayOfWeek() != DayOfWeek.MONDAY) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "weekStart 必须为周一");
+        }
         Course course = courseService.getActiveById(request.courseId());
         // 05 §3.7：补漏排序（先修 1—2 跳 × 遗忘紧迫度 × 错因可修复性）与推荐共用同一口径
         RepairPriorityService.RankedCourse ranked =

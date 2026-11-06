@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: 智学领航 API
-  version: 2.2.9
+  version: 2.3.0
   description: |
     高校课程学情诊断系统接口契约 V2（唯一机器可读源）。
     人读语义、状态机与降级规则见 docs/01-接口契约V2.md；本文档只定义结构与字段，不重复业务解释。
@@ -467,7 +467,11 @@ paths:
               required: [courseId, weekStart]
               properties:
                 courseId: { type: integer, format: int64 }
-                weekStart: { type: string, format: date, example: '2026-11-02' }
+                weekStart:
+                  type: string
+                  format: date
+                  description: 自然周起始日，必须为周一；非周一返回 40000（业务错误仍 HTTP 200）
+                  example: '2026-11-02'
                 dailyQuestionCount: { type: integer, minimum: 3, maximum: 5, default: 3 }
       responses:
         '200':

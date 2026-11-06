@@ -13,6 +13,7 @@ import java.time.LocalDate;
 public record PlanGenerateRequest(
         @NotNull(message = "courseId 不能为空") Long courseId,
 
+        @Schema(description = "自然周起始日，必须为周一", example = "2026-11-02")
         @NotNull(message = "weekStart 不能为空") LocalDate weekStart,
 
         @Schema(minimum = "3", maximum = "5", defaultValue = "3")
