@@ -370,7 +370,10 @@ public class OcrService {
             throw new BizException(ErrorCode.PARAM_ERROR, "图片不能为空");
         }
         if (image.getSize() > maxImageBytes) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "图片不能超过 5MB");
+            // 文案跟随 zhixue.ocr.max-image-bytes，运维放大/收紧上限后不能仍提示 5MB
+            long limitMb = maxImageBytes / (1024 * 1024);
+            String limit = limitMb > 0 ? limitMb + "MB" : maxImageBytes + " 字节";
+            throw new BizException(ErrorCode.PARAM_ERROR, "图片不能超过 " + limit);
         }
         String contentType = image.getContentType();
         if (contentType == null || !contentType.startsWith("image/")) {

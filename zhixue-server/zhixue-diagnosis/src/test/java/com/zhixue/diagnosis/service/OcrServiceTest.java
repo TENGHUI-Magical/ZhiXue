@@ -130,6 +130,19 @@ class OcrServiceTest {
                 .hasMessageContaining("JPG");
     }
 
+    /** 大小限制文案必须跟随配置：把上限改为 1MB 后仍提示 5MB 会误导运维与用户。 */
+    @Test
+    void oversizeMessageFollowsConfiguredLimit() {
+        org.springframework.test.util.ReflectionTestUtils.setField(
+                service, "maxImageBytes", 1024 * 1024L);
+        MockMultipartFile big = new MockMultipartFile("file", "big.jpg", "image/jpeg",
+                new byte[1024 * 1024 + 1]);
+
+        assertThatThrownBy(() -> service.submit(big, "ct-big", 9001L))
+                .isInstanceOf(BizException.class)
+                .hasMessageContaining("1MB");
+    }
+
     /** 契约 §4 周清理：只删过期文件，保留新文件；腾空的子目录一并移除，根目录保留。 */
     @Test
     void purgeExpiredImagesDeletesOnlyStaleFilesAndEmptyDirs(@TempDir Path root) throws IOException {
