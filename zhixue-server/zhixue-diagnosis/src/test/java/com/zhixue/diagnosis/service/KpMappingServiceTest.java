@@ -1,5 +1,9 @@
 package com.zhixue.diagnosis.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.zhixue.course.dto.KpMatchProfile;
 import com.zhixue.course.service.KnowledgePointService;
 import com.zhixue.diagnosis.dto.MapCandidate;
@@ -11,12 +15,28 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -29,6 +49,14 @@ import static org.mockito.Mockito.when;
  *   <li>UT3/UT4 —— 章过滤只缩小候选集合、不改 IDF 统计范围（D2），空章回退；</li>
  *   <li>UT5 —— 排序键必须是原始余弦，不是饱和后的 score（D3）；</li>
  *   <li>UT7 —— 决策三段随配置生效（confirm-floor 0.35）。</li>
+ *   <li>UT13 —— CountDownLatch 并发交替画像 A/B，断言缓存内容不自洽（D-01）；</li>
+ *   <li>UT14/UT15 —— 空白 chapterId（0/负数/JSON 空串）按未传章处理，不误报降级 warn；</li>
+ *   <li>UT16 —— DEBUG 诊断分支开启前后 decision/top1/score 逐位一致。</li>
+ *   <li>UT17/UT18 —— hubness 交换阈值 p95 与判定规则，对 Python 原型导出的
+ *       81 个 hub / 233 条逐题中间量<b>逐条一致</b>（跨语言一致性，不靠肉眼）；</li>
+ *   <li>UT19/UT20 —— 交换只动前两位、score 跟候选走（允许倒挂）、四条排除条件与严格边界；</li>
+ *   <li>UT21/UT22/UT23 —— 用真实语料统计验证接线、开关可观测（默认不打 warn / 开启即 warn）、
+ *       开启后 match 的 top3 集合 / decision / 「只可能换前两位」三条结构不变量。</li>
  * </ul>
  * 全部离线指标（含两个语料口径 N=20 / N=60）见 tools/eval_mapping_offline.py，
  * 单测不承担精度门禁。
@@ -57,8 +85,13 @@ class KpMappingServiceTest {
     // ---------- 构造 helper ----------
 
     private KpMappingService newService(double scoreScale, double floor, boolean useMisconception) {
+        return newService(scoreScale, floor, useMisconception, false);
+    }
+
+    private KpMappingService newService(double scoreScale, double floor, boolean useMisconception,
+                                        boolean hubnessSwapEnabled) {
         return new KpMappingService(knowledgePointService, scoreScale,
-                AUTO_THRESHOLD, MARGIN, floor, useMisconception);
+                AUTO_THRESHOLD, MARGIN, floor, useMisconception, hubnessSwapEnabled);
     }
 
     private KpMatchProfile profile(String kpId, String name, Long chapterId, String concept) {
@@ -358,5 +391,481 @@ class KpMappingServiceTest {
         assertEquals(scoreOf(result, "KP0201"), scoreOf(result, "KP0202"), 1e-9,
                 "null 与空串必须产生完全相同的语料");
         assertEquals("KP0201", result.top1().kpId());
+    }
+
+    // ---------- 2026-11-05 增量：语料统计缓存与 hubness 诊断量 ----------
+
+    @Test
+    @DisplayName("UT10 画像内容不变时复用语料统计，内容变化按指纹自动重建")
+    void corpusStatsReuseAndInvalidateByFingerprint() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组的属性组。"),
+                profile("KP0401", "数据库安全性", 4L, "数据库安全性防止不合法使用造成数据泄露。"));
+
+        KpMappingService.CorpusStats first = service.statsFor(profiles);
+        KpMappingService.CorpusStats second = service.statsFor(profiles);
+        assertSame(first, second, "相同画像必须复用同一份语料统计，避免逐请求重建 TF-IDF 向量");
+
+        KpMappingService.CorpusStats changed = service.statsFor(List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组的属性组。"),
+                profile("KP0401", "数据库安全性", 4L, "改写后的概念切片。")));
+        assertNotSame(first, changed, "画像内容变化必须让指纹失效并重建");
+
+        KpMappingService.CorpusStats backToOld = service.statsFor(profiles);
+        assertNotSame(changed, backToOld, "换回旧画像会再次重建；缓存只保留当前内容，行为仍正确");
+    }
+
+    @Test
+    @DisplayName("UT11 hubness 诊断量：通用表述的知识点比专指术语更靠近语料质心")
+    void hubnessIsHigherForGenericWording() {
+        // 前两个知识点共享大量通用词，第三个只用专指术语；质心方向应更偏向通用词一侧。
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0001", "数据", 1L, "数据库系统中的数据关系查询与数据管理"),
+                profile("KP0002", "数据", 1L, "数据库系统中的数据关系查询与数据处理"),
+                profile("KP0003", "外码", 1L, "外码参照完整性违约处理级联 Restrict"));
+
+        KpMappingService.CorpusStats stats = service.statsFor(profiles);
+        double generic1 = stats.hubnessOf("KP0001");
+        double generic2 = stats.hubnessOf("KP0002");
+        double specific = stats.hubnessOf("KP0003");
+
+        assertTrue(generic1 >= 0.0 && generic1 <= 1.0, "hubness 应落在 [0,1]");
+        assertTrue(specific >= 0.0 && specific <= 1.0, "hubness 应落在 [0,1]");
+        assertTrue(generic1 > specific && generic2 > specific,
+                "共享通用词的知识点应比专指术语知识点更靠近语料质心（吸引子特征）");
+        assertEquals(0.0, stats.hubnessOf("不存在的KP"), "未知知识点诊断量应为 0，不抛异常");
+    }
+
+    @Test
+    @DisplayName("UT12 诊断量与缓存不改变任何对外行为（回归护栏）")
+    void diagnosticsDoNotChangeMappingBehaviour() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组且真子集不能唯一标识的属性组。"),
+                profile("KP0401", "数据库安全性", 4L,
+                        "数据库安全性是指保护数据库，防止不合法使用造成数据泄露、篡改或破坏。"));
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(profiles);
+
+        MapRequest req = request("候选码的真子集不能唯一标识元组", null);
+        MapResult first = service.match(req);
+        MapResult second = service.match(req);
+
+        assertEquals(first.decision(), second.decision());
+        assertEquals(first.top1().kpId(), second.top1().kpId());
+        assertEquals(first.candidates().size(), second.candidates().size());
+        assertEquals(first.candidates().get(0).score(), second.candidates().get(0).score(), 1e-9);
+    }
+
+    // ---------- 2026-11-06 增量：D-01 并发护栏 / 空章归一化 / debug 分支 ----------
+
+    @Test
+    @DisplayName("UT13 并发交替画像 A/B 时缓存不撕裂：A 永远拿不到 B 的分数")
+    void cachedStatsNeverTearUnderConcurrentProfileSwitch() throws Exception {
+        // 两份画像的 kpId 集合完全相同、概念文本明显不同：缓存撕裂时不会抛异常，
+        // 只会静默拿到另一份画像的 df/N/向量，正是 D-01 的故障形态。
+        List<KpMatchProfile> profilesA = List.of(
+                profile("KP0203", "候选码", 2L,
+                        "候选码是能唯一标识元组且真子集不能唯一标识的属性组，主码从候选码中选定。"),
+                profile("KP0401", "数据库安全性", 4L,
+                        "数据库安全性是指保护数据库，防止不合法使用造成数据泄露、篡改或破坏。"));
+        List<KpMatchProfile> profilesB = List.of(
+                profile("KP0203", "连接查询", 2L,
+                        "连接查询把两个表按连接条件组合成结果表，嵌套循环与排序合并是常见实现，与候选码无关。"),
+                profile("KP0401", "事务", 4L,
+                        "事务是用户定义的一个数据库操作序列，具有原子性一致性隔离性持久性，与数据库安全性无关。"));
+
+        ThreadLocal<List<KpMatchProfile>> current = new ThreadLocal<>();
+        when(knowledgePointService.listMatchProfiles(COURSE_ID))
+                .thenAnswer(invocation -> current.get());
+
+        String stem = "候选码的真子集不能唯一标识元组，主码从候选码中选定";
+        current.set(profilesA);
+        MapResult baselineA = service.match(request(stem, null));
+        current.set(profilesB);
+        MapResult baselineB = service.match(request(stem, null));
+        current.remove();
+
+        double scoreA = scoreOf(baselineA, "KP0203");
+        double scoreB = scoreOf(baselineB, "KP0203");
+        assertTrue(Math.abs(scoreA - scoreB) > 1e-6,
+                "用例失效：两份画像对同一 kpId 的分数必须明显不同，实得 A=" + scoreA + " B=" + scoreB);
+
+        int threads = 8;
+        int rounds = 300;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        for (int index = 0; index < threads; index++) {
+            final boolean useA = (index % 2 == 0);
+            final double expected = useA ? scoreA : scoreB;
+            pool.execute(() -> {
+                current.set(useA ? profilesA : profilesB);
+                try {
+                    start.await();
+                    for (int round = 0; round < rounds; round++) {
+                        MapResult result = service.match(request(stem, null));
+                        double actual = scoreOf(result, "KP0203");
+                        if (Math.abs(actual - expected) > 1e-9) {
+                            throw new AssertionError(
+                                    "缓存撕裂：" + (useA ? "画像A" : "画像B")
+                                            + " 期望 KP0203 分数=" + expected
+                                            + "，实得=" + actual
+                                            + "（疑似复用了另一份画像的语料统计）");
+                        }
+                    }
+                } catch (Throwable error) {
+                    failure.compareAndSet(null, error);
+                } finally {
+                    current.remove();
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        assertTrue(done.await(60, TimeUnit.SECONDS), "并发用例超时（60s）");
+        pool.shutdownNow();
+        if (failure.get() != null) {
+            throw new AssertionError("并发交替画像时缓存内容不自洽", failure.get());
+        }
+    }
+
+    @Test
+    @DisplayName("UT14 chapterId 为 0/负数时视为未传章：不过滤、不误报降级 warn")
+    void blankChapterIdIsTreatedAsAbsent() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组的属性组。"),
+                profile("KP0401", "数据库安全性", 4L, "数据库安全性防止不合法使用造成数据泄露。"));
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(profiles);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(KpMappingService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String stem = "候选码的真子集不能唯一标识元组";
+            MapResult absent = service.match(request(stem, null));
+            MapResult zero = service.match(request(stem, 0L));
+            MapResult negative = service.match(request(stem, -1L));
+
+            assertEquals(absent.candidates().size(), zero.candidates().size());
+            assertEquals(absent.candidates().size(), negative.candidates().size());
+            assertEquals(absent.top1().kpId(), zero.top1().kpId());
+            assertEquals(absent.top1().kpId(), negative.top1().kpId());
+            assertEquals(absent.top1().score(), zero.top1().score(), 1e-9);
+            assertEquals(absent.top1().score(), negative.top1().score(), 1e-9);
+            assertEquals(absent.decision(), zero.decision());
+            assertEquals(absent.decision(), negative.decision());
+            assertTrue(appender.list.stream().noneMatch(event -> event.getLevel() == Level.WARN),
+                    "空白章不应触发「章过滤降级」warn");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("UT15 空白章不误报 warn，但真实错章仍按既有语义降级并留痕")
+    void blankChapterIdDoesNotSuppressRealFallbackWarning() {
+        // 契约 MapRequest.chapterId 是 Long（不是 String），空白章在上层应
+        // 归一化为 null/0；本模块 test classpath 无 jackson-databind（不新增依赖），
+        // 反序列化层行为未实测，故只验证归一化后的 null/0/负数路径，
+        // 以及「真实错章仍必须 warn」的对照面。
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0203", "候选码", 2L, "候选码是能唯一标识元组的属性组。"),
+                profile("KP0401", "数据库安全性", 4L, "数据库安全性防止不合法使用造成数据泄露。"));
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(profiles);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(KpMappingService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String stem = "候选码的真子集不能唯一标识元组";
+            MapResult absent = service.match(request(stem, null));
+            appender.list.clear();
+            MapResult blank = service.match(request(stem, 0L));
+            assertTrue(appender.list.stream()
+                            .noneMatch(event -> event.getLevel() == Level.WARN),
+                    "空白章（0）不得触发章过滤降级 warn");
+
+            MapResult wrongChapter = service.match(request(stem, 99L));
+            assertEquals(absent.candidates().size(), blank.candidates().size());
+            assertEquals(absent.candidates().size(), wrongChapter.candidates().size());
+            assertEquals(absent.top1().kpId(), wrongChapter.top1().kpId());
+            assertEquals(absent.top1().score(), wrongChapter.top1().score(), 1e-9);
+            assertTrue(appender.list.stream().anyMatch(
+                            event -> event.getLevel() == Level.WARN
+                                    && event.getFormattedMessage().contains("章过滤降级")),
+                    "真实错章仍必须保留降级 warn（AGENTS §3.10）");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("UT16 开启 DEBUG 诊断日志后 decision/top1/score 与关闭时逐位一致")
+    void debugDiagnosticsDoNotChangeMappingBehaviour() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0203", "候选码", 2L,
+                        "候选码是能唯一标识元组且真子集不能唯一标识的属性组。"),
+                profile("KP0401", "数据库安全性", 4L,
+                        "数据库安全性是指保护数据库，防止不合法使用造成数据泄露、篡改或破坏。"));
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(profiles);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(KpMappingService.class);
+        Level original = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        MapRequest req = request("候选码的真子集不能唯一标识元组", null);
+        try {
+            MapResult debugOff = service.match(req);
+
+            logger.setLevel(Level.DEBUG);
+            assertTrue(logger.isDebugEnabled(), "用例失效：DEBUG 级别未生效");
+            MapResult debugOn = service.match(req);
+
+            assertEquals(debugOff.decision(), debugOn.decision());
+            assertEquals(debugOff.top1().kpId(), debugOn.top1().kpId());
+            assertEquals(debugOff.top1().score(), debugOn.top1().score(), 1e-9);
+            assertEquals(debugOff.candidates().size(), debugOn.candidates().size());
+            for (int index = 0; index < debugOff.candidates().size(); index++) {
+                assertEquals(debugOff.candidates().get(index).score(),
+                        debugOn.candidates().get(index).score(), 1e-9);
+            }
+            assertTrue(appender.list.stream().anyMatch(event -> event.getLevel() == Level.DEBUG),
+                    "用例失效：debug 诊断分支未被执行，无法证明零覆盖已补齐");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            logger.setLevel(original);
+        }
+    }
+
+    // ---------- hubness 交换实验开关（默认关闭） ----------
+
+    /** Python 原型导出的逐题中间量：v1 TSV，见 mapping-swap-20261106/make_java_fixture.py */
+    private record SwapCase(String qId, double hub, double score1, double score2,
+                            boolean swapped, String scopes) {
+    }
+
+    private record SwapFixture(double threshold, List<Double> hubs, List<SwapCase> cases) {
+    }
+
+    private static SwapFixture loadSwapFixture() {
+        InputStream in = KpMappingServiceTest.class
+                .getResourceAsStream("/mapping/hubness_swap_fixture.tsv");
+        assertNotNull(in, "测试资源缺失：/mapping/hubness_swap_fixture.tsv");
+        double threshold = Double.NaN;
+        List<Double> hubs = new ArrayList<>();
+        List<SwapCase> cases = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(in, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank() || line.startsWith("#")) {
+                    continue;
+                }
+                String[] parts = line.split("\t");
+                switch (parts[0]) {
+                    case "THRESHOLD" -> threshold = Double.parseDouble(parts[1]);
+                    case "HUB" -> hubs.add(Double.parseDouble(parts[1]));
+                    case "CASE" -> cases.add(new SwapCase(parts[1],
+                            Double.parseDouble(parts[2]), Double.parseDouble(parts[3]),
+                            Double.parseDouble(parts[4]), "1".equals(parts[5]), parts[6]));
+                    default -> {
+                        // META 行只用于人读，测试不依赖
+                    }
+                }
+            }
+        } catch (IOException failure) {
+            throw new AssertionError("读取交换 fixture 失败", failure);
+        }
+        assertTrue(threshold > 0 && !Double.isNaN(threshold), "fixture 缺少 THRESHOLD");
+        return new SwapFixture(threshold, hubs, cases);
+    }
+
+    private static List<String> ids(List<MapCandidate> candidates) {
+        return candidates.stream().map(MapCandidate::kpId).toList();
+    }
+
+    private boolean swapOf(double hubness, double score1, double score2, double threshold) {
+        List<MapCandidate> candidates = new ArrayList<>(List.of(
+                new MapCandidate("KP0001", "第一名", score1, "VECTOR"),
+                new MapCandidate("KP0002", "第二名", score2, "VECTOR")));
+        return KpMappingService.applyHubnessSwap(candidates, threshold, kpId -> hubness);
+    }
+
+    @Test
+    @DisplayName("UT17 p95 阈值对 Python 导出的 81 个 hubness 复算逐位一致，且空/单元素边界正确")
+    void percentileNinetyFiveMatchesPythonFixture() {
+        SwapFixture fixture = loadSwapFixture();
+        assertEquals(81, fixture.hubs().size(), "fixture 必须含全量 81 个 hubness");
+        assertEquals(fixture.threshold(),
+                KpMappingService.percentile95(fixture.hubs()), 0.0,
+                "Java p95 必须与 Python sorted(hub)[int(0.95*(n-1))] 逐位相同");
+        // 空语料 → 正无穷，等价于永不交换（不是抛异常、不是 0）
+        assertEquals(Double.POSITIVE_INFINITY, KpMappingService.percentile95(List.of()));
+        assertEquals(0.42, KpMappingService.percentile95(List.of(0.42)), 0.0);
+        // 11 个点：index = (int)(0.95*10) = 9 → 取第 10 个，不等于最大值
+        List<Double> eleven = new ArrayList<>();
+        for (int index = 0; index < 11; index++) {
+            eleven.add(0.10 + index * 0.01);
+        }
+        double p95 = KpMappingService.percentile95(eleven);
+        assertEquals(0.10 + 9 * 0.01, p95, 1e-12);
+        assertTrue(p95 < eleven.get(10), "p95 不应等于最大值，否则阈值退化为 max");
+    }
+
+    @Test
+    @DisplayName("UT18 交换判定对 Python 原型 233 条逐题中间量逐条一致（233:8 / 66:5 命中）")
+    void shouldSwapMatchesPythonFixtureCaseByCase() {
+        SwapFixture fixture = loadSwapFixture();
+        assertEquals(233, fixture.cases().size(), "fixture 必须覆盖 8 章 233 题");
+        int hits = 0;
+        int hits66 = 0;
+        for (SwapCase item : fixture.cases()) {
+            boolean actual = KpMappingService.shouldSwap(item.hub(), item.score1(),
+                    item.score2(), fixture.threshold());
+            assertEquals(item.swapped(), actual,
+                    "与 Python 原型不一致：" + item.qId() + " hub=" + item.hub()
+                            + " score1=" + item.score1() + " score2=" + item.score2());
+            if (actual) {
+                hits++;
+                if (item.scopes().contains("66")) {
+                    hits66++;
+                }
+            }
+        }
+        assertEquals(8, hits, "233 口径命中数须与 results.json 的 swap_n=8 一致");
+        assertEquals(5, hits66, "66 口径命中数须与 results.json 的 swap_n=5 一致");
+    }
+
+    @Test
+    @DisplayName("UT19 交换只动前两位：score 跟候选走并允许倒挂，第 3 位以后顺序不变")
+    void hubnessSwapOnlySwapsTopTwo() {
+        List<MapCandidate> candidates = new ArrayList<>(List.of(
+                new MapCandidate("KP0001", "通用吸引子", 0.5000, "VECTOR"),
+                new MapCandidate("KP0002", "正确答案", 0.4400, "VECTOR"),
+                new MapCandidate("KP0003", "第三名", 0.2000, "VECTOR")));
+        // hub 0.30 > 阈值 0.25，分差 0.06 < G 0.08 → 交换
+        assertTrue(KpMappingService.applyHubnessSwap(candidates, 0.25, kpId -> 0.30));
+        assertEquals(List.of("KP0002", "KP0001", "KP0003"), ids(candidates));
+        // score 跟候选走：交换后 top1.score(0.44) < 第二位.score(0.50)，即分数倒挂
+        assertEquals(0.44, candidates.get(0).score(), 0.0);
+        assertEquals(0.50, candidates.get(1).score(), 0.0);
+        assertTrue(candidates.get(0).score() < candidates.get(1).score(),
+                "分数倒挂是该路径的已知代价，必须显式断言而不是掩盖");
+    }
+
+    @Test
+    @DisplayName("UT20 四条排除条件：hub 不过阈值、分差等于/超过 G、候选不足两个")
+    void hubnessSwapIsSkippedWhenConditionsFail() {
+        // hub 恰好等于阈值：严格 > 才交换
+        assertFalse(swapOf(0.25, 0.50, 0.44, 0.25));
+        // hub 低于阈值
+        assertFalse(swapOf(0.24, 0.50, 0.44, 0.25));
+        // 分差恰好等于 G=0.08：严格 < 才交换（0.08 - 0.0 在 double 里精确等于 0.08）
+        assertFalse(swapOf(0.30, 0.08, 0.0, 0.25));
+        // 分差超过 G
+        assertFalse(swapOf(0.30, 0.53, 0.44, 0.25));
+        // 候选不足两个
+        List<MapCandidate> single = new ArrayList<>(List.of(
+                new MapCandidate("KP0001", "唯一", 0.5000, "VECTOR")));
+        assertFalse(KpMappingService.applyHubnessSwap(single, 0.25, kpId -> 0.30));
+        assertFalse(KpMappingService.applyHubnessSwap(new ArrayList<>(), 0.25, kpId -> 0.30));
+        assertFalse(KpMappingService.applyHubnessSwap(null, 0.25, kpId -> 0.30));
+    }
+
+    @Test
+    @DisplayName("UT21 用真实语料统计接线：hub 最高的 top1 + 小分差 → 换位")
+    void hubnessSwapWiredWithRealCorpusStats() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0501", "数据库完整性概述", 5L,
+                        "数据库完整性是指数据的正确性、相容性以及防止数据泄露与篡改"),
+                profile("KP0502", "实体完整性", 5L, "实体完整性要求主码非空且唯一"),
+                profile("KP0203", "候选码", 2L,
+                        "候选码是能唯一标识元组且真子集不能唯一标识的属性组"));
+        // 本用例只验证「交换调用点 + 真实语料统计」的接线，不经过 mock，故不 stub
+        KpMappingService.CorpusStats stats = service.statsFor(profiles);
+
+        String hubMax = profiles.stream()
+                .map(KpMatchProfile::kpId)
+                .max((left, right) -> Double.compare(stats.hubnessOf(left), stats.hubnessOf(right)))
+                .orElseThrow();
+        String other = profiles.stream()
+                .map(KpMatchProfile::kpId)
+                .filter(kpId -> !kpId.equals(hubMax))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(stats.hubnessOf(hubMax) > stats.hubnessThreshold(),
+                "用例失效：小语料里最大 hubness 应严格超过 p95 阈值");
+
+        List<MapCandidate> candidates = new ArrayList<>(List.of(
+                new MapCandidate(hubMax, "hub 最高", 0.5000, "VECTOR"),
+                new MapCandidate(other, "第二名", 0.4500, "VECTOR")));
+        service.applyHubnessSwapWithLog(candidates, stats);
+        assertEquals(other, candidates.get(0).kpId(), "生产调用点必须换位");
+        assertEquals(hubMax, candidates.get(1).kpId());
+    }
+
+    @Test
+    @DisplayName("UT22 开关可观测：默认不打 warn，显式开启时启动即 warn（误开有痕）")
+    void hubnessSwapSwitchIsObservable() {
+        Logger logger = (Logger) LoggerFactory.getLogger(KpMappingService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            newService(SCORE_SCALE, CONFIRM_FLOOR, true);
+            assertTrue(appender.list.stream().noneMatch(event ->
+                            event.getLevel() == Level.WARN
+                                    && event.getFormattedMessage().contains("hubness-swap-enabled")),
+                    "默认关闭时不得产生交换开关 warn");
+
+            newService(SCORE_SCALE, CONFIRM_FLOOR, true, true);
+            assertTrue(appender.list.stream().anyMatch(event ->
+                            event.getLevel() == Level.WARN
+                                    && event.getFormattedMessage().contains("hubness-swap-enabled")),
+                    "显式开启时必须 warn（AGENTS §3.10 降级/实验留痕）");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("UT23 开启后 match 的结构不变量：候选数、decision、top3 集合不变，只可能换前两位")
+    void enabledSwitchKeepsStructuralInvariants() {
+        List<KpMatchProfile> profiles = List.of(
+                profile("KP0501", "数据库完整性概述", 5L,
+                        "数据库完整性是指数据的正确性、相容性以及防止数据泄露与篡改"),
+                profile("KP0502", "实体完整性", 5L, "实体完整性要求主码非空且唯一"),
+                profile("KP0203", "候选码", 2L,
+                        "候选码是能唯一标识元组且真子集不能唯一标识的属性组"));
+        when(knowledgePointService.listMatchProfiles(COURSE_ID)).thenReturn(profiles);
+        KpMappingService off = newService(SCORE_SCALE, CONFIRM_FLOOR, true, false);
+        KpMappingService on = newService(SCORE_SCALE, CONFIRM_FLOOR, true, true);
+        MapRequest req = request("数据库完整性是指数据的正确性、相容性", null);
+
+        MapResult baseline = off.match(req);
+        MapResult switched = on.match(req);
+
+        assertEquals(baseline.candidates().size(), switched.candidates().size());
+        assertEquals(baseline.decision(), switched.decision(),
+                "G=0.08 ≤ margin=0.10 保证交换不改变 AUTO/CONFIRM 归属");
+        int top = Math.min(3, baseline.candidates().size());
+        assertEquals(new HashSet<>(ids(baseline.candidates()).subList(0, top)),
+                new HashSet<>(ids(switched.candidates()).subList(0, top)),
+                "交换只能在同一集合内换序，不得引入/移除 top3 成员");
+        List<String> left = ids(baseline.candidates());
+        List<String> right = ids(switched.candidates());
+        if (!left.equals(right)) {
+            List<String> expectedSwap = new ArrayList<>(left);
+            expectedSwap.set(0, left.get(1));
+            expectedSwap.set(1, left.get(0));
+            assertEquals(expectedSwap, right, "差异只允许是前两位互换");
+        }
     }
 }
