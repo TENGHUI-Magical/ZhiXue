@@ -2,6 +2,7 @@ package com.zhixue.diagnosis.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -13,6 +14,9 @@ public class ConfirmRequest {
     private String kpId;
 
     @NotBlank(message = "errorType 不能为空")
+    @Pattern(regexp = "CONCEPT_CONFUSION|METHOD_MISSING|STEP_OMISSION"
+            + "|CALCULATION_ERROR|BOUNDARY_ERROR",
+            message = "errorType 必须是契约枚举之一")
     @Schema(allowableValues = {"CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
             "CALCULATION_ERROR", "BOUNDARY_ERROR"},
             description = "五类标准错因枚举（契约）")
