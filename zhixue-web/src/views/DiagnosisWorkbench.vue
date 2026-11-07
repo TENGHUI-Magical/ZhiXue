@@ -86,7 +86,12 @@
             </el-select>
           </el-form-item>
           <div class="actions">
-            <el-button type="primary" :loading="matching" :disabled="lowConfidence" @click="analyze">
+            <el-button
+              type="primary"
+              :loading="matching"
+              :disabled="lowConfidence || answerKeyDetected"
+              @click="analyze"
+            >
               匹配知识点
             </el-button>
             <el-tag v-if="mapResult" :type="decisionType">{{ decisionLabel }}</el-tag>
@@ -288,7 +293,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { UploadRequestOptions } from "element-plus";
 import { Upload as UploadIcon } from "@lucide/vue";
@@ -315,6 +320,11 @@ import {
   type Recommendation,
   type SourceRef
 } from "../api/diagnosis";
+import {
+  DIAGNOSIS_PREFILL_KEY,
+  MAX_MAPPING_TEXT_CHARS,
+  isAnswerKeyText
+} from "../utils/diagnosisText";
 
 const ERROR_TYPES = [
   { value: "CONCEPT_CONFUSION", label: "概念混淆" },
@@ -387,6 +397,9 @@ const errorMsg = ref("");
 
 const parsing = ref(false);
 const lowConfidence = ref(false);
+// 规则 14 例外（2026-11-08）：本视图已超行数线，本次新增预填/答案页状态；
+// 原因：必须复用既有 questionText/lowConfidence 生命周期；回滚：删除本次 hunk；到期：下次拆 composable。
+const answerKeyDetected = ref(false);
 const ocrError = ref("");
 const ocrFollowUp = ref("");
 let pollTimer: number | null = null;
@@ -429,11 +442,16 @@ const pollTask = (taskId: string) => {
         parsing.value = false;
         const text = task.fields?.stem || task.fields?.rawText || "";
         lowConfidence.value = (task.confidence ?? 0) < LOW_CONFIDENCE_THRESHOLD;
+        answerKeyDetected.value = isAnswerKeyText(text);
         if (!text) {
           ocrFollowUp.value = "未识别到题干，请手动输入后匹配知识点";
           return;
         }
         questionText.value = text;
+        if (answerKeyDetected.value) {
+          ocrFollowUp.value = "识别到答案页/答案区，请上传题干页或手动输入题干";
+          return;
+        }
         if (lowConfidence.value) {
           ocrFollowUp.value = "识别完成。请先核对题干，再点击匹配知识点";
           return;
@@ -477,6 +495,7 @@ const handleUpload = async (options: UploadRequestOptions) => {
   stopPolling();
   parsing.value = false;
   lowConfidence.value = false;
+  answerKeyDetected.value = false;
   ocrError.value = "";
   ocrFollowUp.value = "";
   // 拖拽上传不受 accept 限制，浏览器不会替我们过滤文件，先做与后端一致的预校验
@@ -581,6 +600,10 @@ const resetExplainState = () => {
 const analyze = async () => {
   if (!questionText.value.trim()) {
     ElMessage.warning("请先输入题干");
+    return;
+  }
+  if (answerKeyDetected.value) {
+    ElMessage.warning("识别到答案页，请先换成题干页或手动输入题干");
     return;
   }
   // 先中止在途讲解流，避免旧流继续写入已清空的 explainText（竞态）
@@ -788,6 +811,7 @@ watch(
       const detail = await getQuestionDetail(qId);
       if (seq !== autoExplainSeq) return;
       questionText.value = detail.questionText || "";
+      answerKeyDetected.value = false;
       selectedKpId.value = detail.kpId || kpId;
       // 让常规“题干/知识点变化” watcher 先完成，再恢复本题关联并自动讲解。
       await nextTick();
@@ -893,6 +917,8 @@ watch(errorType, () => resetForChange(false));
 /** 用户在题干框手动输入 / 粘贴：视为完成人工核对，解除低置信禁止 */
 const onManualInput = () => {
   lowConfidence.value = false;
+  // 用户改写了文本，不再按答案页拦截；改错后仍可在映射结果里人工调整
+  answerKeyDetected.value = false;
   if (ocrFollowUp.value) ocrFollowUp.value = "题干已更新，请点击匹配知识点";
 };
 
@@ -901,6 +927,27 @@ const acknowledgeLowConfidence = () => {
   lowConfidence.value = false;
   ocrError.value = "";
 };
+
+/** 错题本“去诊断”带入原文（含选项）；长文本走 sessionStorage，不占 URL */
+onMounted(() => {
+  let prefill = "";
+  try {
+    prefill = (sessionStorage.getItem(DIAGNOSIS_PREFILL_KEY) || "")
+      .slice(0, MAX_MAPPING_TEXT_CHARS);
+    if (prefill) sessionStorage.removeItem(DIAGNOSIS_PREFILL_KEY);
+  } catch {
+    // 隐私模式/存储被禁用：按未预填处理，不阻断诊断
+    prefill = "";
+  }
+  if (route.query.autoExplain === "1" || !prefill) return;
+  if (!questionText.value.trim()) {
+    questionText.value = prefill;
+    answerKeyDetected.value = isAnswerKeyText(prefill);
+    if (answerKeyDetected.value) {
+      ocrFollowUp.value = "带入的原文像答案页，请改成题干后再匹配";
+    }
+  }
+});
 
 onBeforeUnmount(() => {
   controller?.abort();

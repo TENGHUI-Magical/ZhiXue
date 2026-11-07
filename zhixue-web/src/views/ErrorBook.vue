@@ -198,6 +198,12 @@ import ReviewStatus from "../components/ReviewStatus.vue";
 import { getErrorRecord, listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
 import { getKnowledgeGraph } from "../api/course";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
+import {
+  DIAGNOSIS_PREFILL_KEY,
+  MAX_MAPPING_TEXT_CHARS,
+  buildMappingText,
+  extractOptionBlock
+} from "../utils/diagnosisText";
 
 const router = useRouter();
 const route = useRoute();
@@ -307,8 +313,19 @@ const openPractice = (row: ErrorRecordItem) => {
   drawerVisible.value = true;
 };
 
-/** 未关联题库题目的错题：去诊断台重新录入，并带上知识点预选，减少一次重复匹配 */
+/** 未关联题库题目的错题：去诊断台重新录入，并带上知识点预选与原文（含选项） */
 const goDiagnosis = (row: ErrorRecordItem) => {
+  const stem = (row.correctedText || row.ocrText || "").trim();
+  // 学生修正题干时可能删掉选项；从 OCR 原文补回选项块，避免映射丢信号
+  const optionBlock = row.ocrText ? extractOptionBlock(row.ocrText) : "";
+  const text = buildMappingText(stem, optionBlock).slice(0, MAX_MAPPING_TEXT_CHARS);
+  try {
+    // 同标签页跳转，长文本走 sessionStorage，避免 URL 长度限制
+    if (text) sessionStorage.setItem(DIAGNOSIS_PREFILL_KEY, text);
+    else sessionStorage.removeItem(DIAGNOSIS_PREFILL_KEY);
+  } catch {
+    // 隐私模式/配额满时预填失败，不阻断跳转
+  }
   router.push({
     path: "/diagnosis",
     query: row.kpId ? { kpId: row.kpId } : undefined
