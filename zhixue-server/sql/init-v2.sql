@@ -3,6 +3,13 @@
 -- 数据库 V2 · MySQL 8.0+
 -- 本文件是表结构的唯一权威来源，设计说明见 03-数据库设计-V2.md
 -- 约定：不用外键（关联关系在应用层维护）、表名小写下划线、单数、字段带注释
+--
+-- 【practice_record 索引口径】以本文件为准，空库建完即等于顺序执行
+-- sql/migration/ 后的终态。历史迁移里的 idx_user_agg 已废弃（被 idx_user_window
+-- 取代：窗口聚合 430ms→150ms，原索引 created_at 在第 6 位无法裁剪 180 天窗口），
+-- 勿再新增；idx_course_agg 仍服务无 user 过滤的课程维度聚合，保留。
+-- 新增/更名索引前先跑 sql/migration 与本文件的不变量测试（InitV2IndexInvariantTest、
+-- PracticeRecordMapperSqlTest），确保 Mapper 的 /*+ INDEX(...) */ 目标索引真实存在。
 -- ============================================================
 
 -- 时间戳口径（2026-11-03）：业务时间只由应用写（Java 侧 LocalDateTime.now(Asia/Shanghai)）。
