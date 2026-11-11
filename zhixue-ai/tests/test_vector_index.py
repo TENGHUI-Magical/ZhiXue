@@ -189,3 +189,56 @@ def test_save_leaves_no_temp_files(tmp_path, monkeypatch):
     _prepare(tmp_path, monkeypatch)
     vector_index.embed_document("KP0201", "关系模型是二维表。", "关系模型", course_id=1)
     assert not list(tmp_path.glob("*.tmp"))
+
+
+# ---- numpy 快路径与纯 Python 回退路径的数学等价性（升级新增） ----
+
+def _build_equivalence_corpus():
+    texts = [
+        "关系数据库的标准语言SQL支持数据定义、数据查询、数据操纵和数据控制",
+        "事务的ACID特性包括原子性、一致性、隔离性和持久性",
+        "B+树索引的所有关键字都出现在叶子节点，非叶节点仅作索引导向",
+        "查询优化的目标是选择高效合理的等价查询表达式",
+        "实体完整性要求主属性不能取空值",
+    ]
+    chunks = [vector_index.Chunk(f"KPEQ{i}#1", f"KPEQ{i}", "测试", 9, None, "", t)
+              for i, t in enumerate(texts)]
+    return chunks, [vector_index._hash_vector(t) for t in texts]
+
+
+def test_fast_path_matches_fallback_ranking_and_scores(monkeypatch):
+    """numpy GEMV+倒排快路径 与 逐文档循环回退路径：排序与分数一致（<1e-3）。"""
+    chunks, vectors = _build_equivalence_corpus()
+    original_np = vector_index._np
+
+    fast = vector_index.VectorIndex()
+    fast.add(chunks, vectors, "hash-bigram")
+    assert fast._matrix is not None  # 快路径缓存已建立
+
+    monkeypatch.setattr(vector_index, "_np", None)
+    slow = vector_index.VectorIndex()
+    slow.add(chunks, [list(v) for v in vectors], "hash-bigram")
+    assert slow._matrix is None  # 无 numpy 环境不建矩阵
+    monkeypatch.setattr(vector_index, "_np", original_np)
+
+    queries = ["什么是SQL的标准语言", "事务的特性有哪些", "B+树叶子节点",
+               "主属性空值", "查询优化目标", "完全无关的查询词xyz"]
+    for query in queries:
+        fast_hits = fast.search(query, top_k=5, threshold=0.0)
+        slow_hits = slow.search(query, top_k=5, threshold=0.0)
+        assert [h.chunk.chunk_id for h in fast_hits] == [h.chunk.chunk_id for h in slow_hits]
+        for f, s in zip(fast_hits, slow_hits):
+            assert abs(f.score - s.score) < 1e-3, (query, f.chunk.chunk_id)
+            assert abs(f.vector_score - s.vector_score) < 1e-3
+            assert abs(f.keyword_score - s.keyword_score) < 1e-3
+
+
+def test_fast_path_respects_kp_and_course_filters():
+    chunks, vectors = _build_equivalence_corpus()
+    index = vector_index.VectorIndex()
+    index.add(chunks, vectors, "hash-bigram")
+    hits = index.search("SQL 数据定义", top_k=10, threshold=0.0, kp_id="KPEQ0")
+    assert hits and all(h.chunk.kp_id == "KPEQ0" for h in hits)
+    hits = index.search("SQL 数据定义", top_k=10, threshold=0.0, course_id=9)
+    assert hits and all(h.chunk.course_id == 9 for h in hits)
+    assert index.search("SQL 数据定义", top_k=10, threshold=0.0, course_id=8) == []

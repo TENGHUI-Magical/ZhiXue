@@ -105,6 +105,8 @@ def recognize_page(engine, png_path: Path) -> dict:
     from PIL import Image
     import numpy as np
 
+    from app.services.ocr_quality import aggregate_confidence
+
     image = Image.open(png_path).convert("RGB")
     started = time.time()
     raw, _ = engine(np.array(image))
@@ -113,10 +115,17 @@ def recognize_page(engine, png_path: Path) -> dict:
         text = str(item[1]).strip()
         if text:
             lines.append({"text": text, "score": round(float(item[2]), 4)})
-    confidence = round(sum(line["score"] for line in lines) / len(lines), 4) if lines else 0.0
+    # 置信度族：mean 兼容旧口径；weighted/wilsonLower 为长度加权与 95% 下界
+    stats = aggregate_confidence([(line["text"], line["score"]) for line in lines])
     return {
         "text": "\n".join(line["text"] for line in lines),
-        "confidence": confidence,
+        "confidence": stats.mean,
+        "weightedConfidence": stats.weighted,
+        "wilsonLower": stats.wilson_lower,
+        "nEff": stats.n_eff,
+        # 脏样本：点估计 < 0.80，或证据不足（Wilson 下界 < 0.60）且非高置信
+        "dirty": stats.weighted < 0.80
+        or (stats.wilson_lower < 0.60 and stats.weighted < 0.90),
         "lines": lines,
         "elapsedMs": int((time.time() - started) * 1000),
     }

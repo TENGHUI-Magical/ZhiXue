@@ -17,6 +17,7 @@ from PIL import Image, ImageOps
 
 from app.config import settings
 from app.schemas import OcrLine, OcrRecognizeOut
+from app.services.ocr_quality import aggregate_confidence
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -47,10 +48,14 @@ def _recognize(data: bytes) -> OcrRecognizeOut:
         if text:
             lines.append(OcrLine(text=text, score=round(float(item[2]), 4)))
     text = "\n".join(line.text for line in lines)
-    confidence = round(sum(line.score for line in lines) / len(lines), 3) if lines else 0.0
+    # 置信度升级（docs/05 口径）：字符长度加权均值替代行数算术平均——
+    # 每个字符是一次识别试验，长行证据权重更高；契约字段与 0.75 告警阈值不变
+    stats = aggregate_confidence([(line.text, line.score) for line in lines])
+    logger.info("OCR 置信度 stats weighted=%.3f wilsonLower=%.3f nEff=%.1f lines=%d",
+                stats.weighted, stats.wilson_lower, stats.n_eff, stats.line_count)
     return OcrRecognizeOut(
         text=text,
-        confidence=confidence,
+        confidence=round(stats.weighted, 3),
         lines=lines,
         elapsedMs=int((time.time() - start) * 1000),
     )

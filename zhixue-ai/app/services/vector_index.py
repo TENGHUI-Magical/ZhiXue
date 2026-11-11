@@ -8,7 +8,8 @@
   取 0.15、以 BM25 为主。60 题检索评测（tools/eval_retrieval.py，真实种子数据）：
   recall@5 70.0%→88.3%，top-5 含 gold 58.3%→78.3%，过阈但 gold 不在 32.7%→11.3%；
 - topK 默认 5，阈值 0.35；hash 模式按比例换算，下限 0.10（评测扫描的最优点）；
-- 不引入 Chroma/Milvus；200 条量级直接矩阵点积。
+- 不引入 Chroma/Milvus；200 条量级直接矩阵点积（numpy 可用时单次 GEMV +
+  BM25 倒排索引快路径，无 numpy 环境自动回退逐文档循环，两路径数学等价）。
 """
 from __future__ import annotations
 
@@ -267,6 +268,11 @@ class VectorIndex:
         self.mode = "hash-bigram"
         # BM25 语料统计：add() 是唯一写入口，写完整体重建，避免增量失效
         self._stats: dict | None = None
+        # numpy 快路径缓存（add() 时与 _stats 一起重建）：
+        # _matrix: (N, d) float32 堆叠矩阵，查询时一次 GEMV 替代逐文档 np.asarray+_dot；
+        # _ids: 与矩阵行对齐的 chunk_id 列表
+        self._matrix = None
+        self._ids: list[str] = []
 
     @property
     def size(self) -> int:
@@ -302,16 +308,18 @@ class VectorIndex:
             return len(chunks)
 
     def _rebuild_stats(self) -> None:
-        """重建 BM25 统计；调用方必须已持有 self._lock。"""
+        """重建 BM25 统计与 numpy 矩阵缓存；调用方必须已持有 self._lock。"""
         counts: dict[str, dict[str, int]] = {}
         lengths: dict[str, int] = {}
         df: dict[str, int] = {}
+        gram_docs: dict[str, set[str]] = {}  # 倒排：gram → 含该 gram 的 chunk_id 集
         for chunk_id, chunk in self._chunks.items():
             doc = _bigram_counts(chunk.content)
             counts[chunk_id] = doc
             lengths[chunk_id] = sum(doc.values())
             for gram in doc:
                 df[gram] = df.get(gram, 0) + 1
+                gram_docs.setdefault(gram, set()).add(chunk_id)
         total = sum(lengths.values())
         self._stats = {
             "counts": counts,
@@ -319,7 +327,15 @@ class VectorIndex:
             "df": df,
             "avgdl": total / len(lengths) if lengths else 0.0,
             "n": len(lengths),
+            "gram_docs": gram_docs,
         }
+        self._ids = list(self._chunks.keys())
+        if _np is not None and self._ids:
+            # 堆叠矩阵：连续 float32 内存，查询侧一次 GEMV 算全部余弦点积
+            self._matrix = _np.asarray(
+                [self._vectors[cid] for cid in self._ids], dtype=_np.float32)
+        else:
+            self._matrix = None
 
     def _effective_threshold(self, threshold: float) -> float:
         if self.mode != "hash-bigram":
@@ -342,6 +358,8 @@ class VectorIndex:
             dim = self._dim
             stats = self._stats
             mode = self.mode
+            matrix = self._matrix
+            ids = self._ids
         if not _clean(query):
             return []
         query_vector, _ = embed_texts([query])
@@ -358,26 +376,64 @@ class VectorIndex:
         vector_weight = settings.rag_hybrid_vector if mode == "bge" else _HASH_VECTOR_WEIGHT
         hits: list[tuple[float, Hit]] = []
         with self._lock:
-            for chunk_id, chunk in snapshot:
-                if kp_id and chunk.kp_id != kp_id:
-                    continue
-                if course_id is not None and chunk.course_id != course_id:
-                    continue
-                vector = self._vectors.get(chunk_id)
-                if vector is None:  # 已被并发 add 删除
-                    continue
-                vec_score = max(0.0, _dot(qv, vector))
-                kw_score = 0.0
+            if (_np is not None and matrix is not None
+                    and matrix.shape[0] == len(ids) and len(qv) == dim):
+                # ---- numpy 快路径：Y = M·q 单次 GEMV + 倒排索引算 BM25 ----
+                # 向量分全部一次算出；BM25 只对与查询有 bigram 重合的文档计算
+                # （倒排并集），零重合文档 kw_score=0 与原逐文档循环数学等价。
+                qv_np = _np.asarray(qv, dtype=_np.float32)
+                vec_all = _np.maximum(0.0, matrix @ qv_np).astype(_np.float64)
+                position = {cid: i for i, cid in enumerate(ids)}
+                kw_arr = _np.zeros(len(ids), dtype=_np.float64)
                 if stats:
-                    bm25 = _bm25(query_counts, stats["counts"].get(chunk_id, {}),
-                                 stats["df"], stats["n"], stats["avgdl"],
-                                 stats["lengths"].get(chunk_id, 0))
-                    kw_score = min(1.0, bm25 / self_score)
-                final = vector_weight * vec_score + (1 - vector_weight) * kw_score
-                if final >= effective_threshold:
-                    # 排序用未取整分数，避免四舍五入制造并列、改变 top-k 顺序
-                    hits.append((final, Hit(chunk, round(final, 4),
-                                            round(vec_score, 4), round(kw_score, 4))))
+                    candidates: set[str] = set()
+                    for gram in query_counts:
+                        candidates.update(stats["gram_docs"].get(gram, ()))
+                    for cid in candidates:
+                        pos = position.get(cid)
+                        if pos is None:
+                            continue
+                        bm25 = _bm25(query_counts, stats["counts"].get(cid, {}),
+                                     stats["df"], stats["n"], stats["avgdl"],
+                                     stats["lengths"].get(cid, 0))
+                        kw_arr[pos] = min(1.0, bm25 / self_score)
+                finals = vector_weight * vec_all + (1.0 - vector_weight) * kw_arr
+                for i, cid in enumerate(ids):
+                    chunk = self._chunks.get(cid)
+                    if chunk is None:  # 已被并发 add 删除
+                        continue
+                    if kp_id and chunk.kp_id != kp_id:
+                        continue
+                    if course_id is not None and chunk.course_id != course_id:
+                        continue
+                    final = float(finals[i])
+                    if final >= effective_threshold:
+                        # 排序用未取整分数，避免四舍五入制造并列、改变 top-k 顺序
+                        hits.append((final, Hit(chunk, round(final, 4),
+                                                round(float(vec_all[i]), 4),
+                                                round(float(kw_arr[i]), 4))))
+            else:
+                # ---- 纯 Python 回退路径（无 numpy 环境，如 CI requirements-dev）----
+                for chunk_id, chunk in snapshot:
+                    if kp_id and chunk.kp_id != kp_id:
+                        continue
+                    if course_id is not None and chunk.course_id != course_id:
+                        continue
+                    vector = self._vectors.get(chunk_id)
+                    if vector is None:  # 已被并发 add 删除
+                        continue
+                    vec_score = max(0.0, _dot(qv, vector))
+                    kw_score = 0.0
+                    if stats:
+                        bm25 = _bm25(query_counts, stats["counts"].get(chunk_id, {}),
+                                     stats["df"], stats["n"], stats["avgdl"],
+                                     stats["lengths"].get(chunk_id, 0))
+                        kw_score = min(1.0, bm25 / self_score)
+                    final = vector_weight * vec_score + (1 - vector_weight) * kw_score
+                    if final >= effective_threshold:
+                        # 排序用未取整分数，避免四舍五入制造并列、改变 top-k 顺序
+                        hits.append((final, Hit(chunk, round(final, 4),
+                                                round(vec_score, 4), round(kw_score, 4))))
         hits.sort(key=lambda item: (-item[0], item[1].chunk.chunk_id))
         return [hit for _, hit in hits[:top_k]]
 
