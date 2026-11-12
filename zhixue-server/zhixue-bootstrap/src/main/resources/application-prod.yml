@@ -29,3 +29,8 @@ logging:
   level:
     root: info
     com.zhixue: info
+
+# 生产健康端点匿名可达（编排探针不带 token），但不暴露 db/redis/ai 内部拓扑（Java_10 P1）
+zhixue:
+  system:
+    health-expose-details: false

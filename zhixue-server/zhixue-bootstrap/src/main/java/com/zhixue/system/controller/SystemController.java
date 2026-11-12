@@ -41,6 +41,15 @@ public class SystemController {
     private final RedisConnectionFactory redisConnectionFactory;
     private final WebClient webClient;
 
+    /**
+     * 是否对外暴露 db/redis/ai 组件明细（Java_10 P1）。
+     * 默认 true：dev/CI 的 E2E 健康检查断言依赖 data.db / data.redis，且 openapi Health 契约为四字段。
+     * prod 由 application-prod.yml 设 false，收敛为 status + 三个 HIDDEN，避免暴露内部依赖拓扑。
+     * 测试用三参构造器不注入该字段，保持默认以满足缓存断言。
+     */
+    @org.springframework.beans.factory.annotation.Value("${zhixue.system.health-expose-details:true}")
+    private boolean exposeDetails = true;
+
     private volatile Health cachedHealth;
     private volatile long cachedAtNanos;
 
@@ -84,18 +93,24 @@ public class SystemController {
         Health snapshot = cachedHealth;
         long now = System.nanoTime();
         if (snapshot != null && now - cachedAtNanos < CACHE_TTL_NANOS) {
-            return ApiResponse.ok(snapshot);
+            return ApiResponse.ok(mask(snapshot));
         }
         synchronized (this) {
             now = System.nanoTime();
             if (cachedHealth != null && now - cachedAtNanos < CACHE_TTL_NANOS) {
-                return ApiResponse.ok(cachedHealth);
+                return ApiResponse.ok(mask(cachedHealth));
             }
             Health fresh = probeAll();
             cachedHealth = fresh;
             cachedAtNanos = now;
-            return ApiResponse.ok(fresh);
+            return ApiResponse.ok(mask(fresh));
         }
+    }
+
+    /** prod 收敛：只保留总体 status，组件拓扑不外泄；dev/CI 原样返回（E2E 与契约依赖）。 */
+    private Health mask(Health health) {
+        return exposeDetails ? health
+                : new Health(health.status(), "HIDDEN", "HIDDEN", "HIDDEN");
     }
 
     /** 实探 db / redis / ai 三个组件。 */

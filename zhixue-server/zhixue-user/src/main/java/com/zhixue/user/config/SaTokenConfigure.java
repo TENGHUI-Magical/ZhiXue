@@ -36,7 +36,9 @@ public class SaTokenConfigure implements WebMvcConfigurer {
                     }
                 }))
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/auth/login");
+                // /health 必须匿名可达：K8s/编排探针与 runbook 启动顺序检查都不带 token；
+                // 组件明细的暴露由 SystemController 的 health-expose-details 开关按 profile 收敛。
+                .excludePathPatterns("/api/auth/login", "/api/system/health");
 
         // 教师端路由级角色校验（P0 修复：纵深防御，不依赖各 Service 手写 checkRole）
         registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkRole("TEACHER")))

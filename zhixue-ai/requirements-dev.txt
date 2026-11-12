@@ -8,3 +8,6 @@ bcrypt>=4.0,<6.0
 httpx>=0.27,<1.0
 # rag_service 顶层引入 run_in_threadpool；AI job 只装 dev 依赖时必须显式包含
 fastapi>=0.110,<1.0
+# ocr.py 路由用 File(...)/UploadFile，FastAPI 在路由导入期即要求 python-multipart
+# （否则 test_health / test_ocr_route 收集期 RuntimeError）；与 requirements.txt 同版本约束
+python-multipart>=0.0.9,<1.0
