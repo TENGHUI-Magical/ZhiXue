@@ -92,9 +92,14 @@
             <el-tag size="small" type="info">{{ row.practiceCount ?? 0 }} 次练习</el-tag>
           </div>
           <div class="mobile-meta">
-            正确率 {{ pct(row.correctRate) }} · 平均 {{ duration(row.avgCostSeconds) }} · 掌握度 {{ pct(row.avgMastery) }}
+            <span><span class="meta-label">正确率</span>{{ pct(row.correctRate) }}</span>
+            <span><span class="meta-label">平均</span>{{ duration(row.avgCostSeconds) }}</span>
+            <span><span class="meta-label">掌握度</span>{{ pct(row.avgMastery) }}</span>
           </div>
-          <div class="mobile-meta">错题 {{ row.errorCount ?? 0 }} · 本周 {{ row.planDone ?? 0 }}/{{ row.planTotal ?? 0 }}</div>
+          <div class="mobile-meta">
+            <span><span class="meta-label">错题</span>{{ row.errorCount ?? 0 }}</span>
+            <span><span class="meta-label">本周</span>{{ row.planDone ?? 0 }}/{{ row.planTotal ?? 0 }}</span>
+          </div>
           <div class="mobile-foot">
             <span class="muted">{{ shortTime(row.lastActiveAt) }}</span>
             <el-button type="primary" size="small" @click="openDetail(row)">学习记录</el-button>
@@ -111,7 +116,15 @@
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="学生学习记录" size="640px" class="student-drawer" append-to-body>
+    <el-drawer
+      v-model="drawerVisible"
+      title="学生学习记录"
+      :direction="isMobile ? 'btt' : 'rtl'"
+      :size="isMobile ? '92%' : '640px'"
+      :class="['student-drawer', { 'glass-sheet': isMobile }]"
+      append-to-body
+    >
+      <div v-if="isMobile" class="sheet-grabber" aria-hidden="true"></div>
       <PageState
         :loading="detailLoading"
         :error="detailError"
@@ -131,25 +144,60 @@
           </div>
 
           <div class="section-label">作答明细</div>
-          <el-table :data="detail.practices.records" row-key="practiceId" size="small" stripe>
-            <el-table-column label="题目" min-width="200" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.questionText || row.qId || "—" }}</template>
-            </el-table-column>
-            <el-table-column label="知识点" width="110" show-overflow-tooltip>
-              <template #default="{ row }">{{ row.kpId || "—" }} {{ row.kpName || "" }}</template>
-            </el-table-column>
-            <el-table-column label="结果" width="72">
-              <template #default="{ row }">
+          <div class="desktop-only">
+            <el-table :data="detail.practices.records" row-key="practiceId" size="small" stripe>
+              <el-table-column label="题目" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.questionText || row.qId || "—" }}</template>
+              </el-table-column>
+              <el-table-column label="知识点" width="110" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.kpId || "—" }} {{ row.kpName || "" }}</template>
+              </el-table-column>
+              <el-table-column label="学生答案" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ answerText(row.myAnswer) }}</template>
+              </el-table-column>
+              <el-table-column label="参考答案" min-width="160" show-overflow-tooltip>
+                <template #default="{ row }">{{ answerText(row.correctAnswer) }}</template>
+              </el-table-column>
+              <el-table-column label="结果" width="72">
+                <template #default="{ row }">
+                  <el-tag v-if="row.isCorrect === true" size="small" type="success">正确</el-tag>
+                  <el-tag v-else-if="row.isCorrect === false" size="small" type="danger">错误</el-tag>
+                  <el-tag v-else size="small" type="info">未验证</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="用时" width="72">
+                <template #default="{ row }">{{ duration(row.costSeconds) }}</template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="时间" width="150" show-overflow-tooltip />
+            </el-table>
+          </div>
+          <div class="mobile-only practice-cards">
+            <div
+              v-for="row in detail.practices.records"
+              :key="row.practiceId"
+              class="practice-card"
+            >
+              <div class="practice-head">
+                <span class="practice-q">{{ row.questionText || row.qId || "—" }}</span>
                 <el-tag v-if="row.isCorrect === true" size="small" type="success">正确</el-tag>
                 <el-tag v-else-if="row.isCorrect === false" size="small" type="danger">错误</el-tag>
                 <el-tag v-else size="small" type="info">未验证</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="用时" width="80">
-              <template #default="{ row }">{{ duration(row.costSeconds) }}</template>
-            </el-table-column>
-            <el-table-column prop="createdAt" label="时间" width="150" show-overflow-tooltip />
-          </el-table>
+              </div>
+              <div class="practice-meta">
+                <span><span class="meta-label">知识点</span>{{ row.kpId || "—" }} {{ row.kpName || "" }}</span>
+                <span><span class="meta-label">用时</span>{{ duration(row.costSeconds) }}</span>
+              </div>
+              <div class="practice-meta">
+                <span><span class="meta-label">学生答案</span>{{ answerText(row.myAnswer) }}</span>
+              </div>
+              <div class="practice-meta">
+                <span><span class="meta-label">参考答案</span>{{ answerText(row.correctAnswer) }}</span>
+              </div>
+              <div class="practice-meta">
+                <span><span class="meta-label">时间</span>{{ row.createdAt }}</span>
+              </div>
+            </div>
+          </div>
           <div class="pager">
             <el-pagination
               v-model:current-page="practicePage"
@@ -200,6 +248,10 @@ import {
   type TeacherStudentItem
 } from "../api/teacherStudent";
 import { ElMessage } from "element-plus";
+import { useIsMobile } from "../composables/useBreakpoint";
+
+/** 手机（<768）：详情抽屉改为底部 Sheet，桌面保持右侧抽屉 */
+const isMobile = useIsMobile();
 
 const records = ref<TeacherStudentItem[]>([]);
 const total = ref(0);
@@ -274,6 +326,9 @@ const duration = (seconds?: number | null) => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)} 分`;
   return `${Math.floor(seconds / 3600)} 小时`;
 };
+
+/** 作答字段可能为 null 或空白串，统一按“缺失”展示，避免出现空单元格 */
+const answerText = (value?: string | null) => (value ?? "").trim() || "—";
 
 let loadSeq = 0;
 const load = async () => {
@@ -356,9 +411,15 @@ onMounted(load);
 .sort-select {
   width: 128px;
 }
+/* B 层焦点卡：页级结论带 24px + 近实底 + 高一档阴影（父层已模糊，卡内不再叠 backdrop-filter） */
 .class-brief {
-  border-radius: var(--app-radius-lg);
   margin-bottom: 16px;
+}
+.page .class-brief {
+  border-radius: var(--app-radius-2xl);
+  border-color: var(--app-hairline);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
 }
 .class-brief :deep(.el-card__body) {
   padding: var(--app-space-6);
@@ -409,7 +470,7 @@ onMounted(load);
   gap: 8px;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-lg);
   background: var(--app-surface-muted);
 }
 .summary-name {
@@ -463,9 +524,17 @@ onMounted(load);
   gap: 8px;
 }
 .mobile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
   margin-top: 6px;
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
+}
+.meta-label {
+  margin-right: 4px;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
 }
 .mobile-foot {
   display: flex;
@@ -482,6 +551,55 @@ onMounted(load);
 .mobile-list {
   flex-direction: column;
   gap: 12px;
+}
+/* C 层数据卡：手机 16px 圆角 + 发丝边 + 轻阴影，标签与值同行 */
+.mobile-list .mobile-card {
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-hairline);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+/* 详情抽屉内：手机把作答明细表格换成卡片 */
+.practice-cards {
+  flex-direction: column;
+  gap: 10px;
+}
+.practice-card {
+  padding: 10px 12px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-lg);
+  background: var(--app-surface-muted);
+}
+.practice-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--app-text);
+  font-size: var(--app-fs-sm);
+  font-weight: 600;
+  line-height: 1.55;
+}
+.practice-q {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.practice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  overflow-wrap: anywhere;
+}
+/* 底部 Sheet 抓手：仅手机渲染，纯装饰 */
+.sheet-grabber {
+  width: 40px;
+  height: 4px;
+  margin: -4px auto 14px;
+  border-radius: var(--app-radius-full);
+  background: var(--app-border-strong);
 }
 @media (max-width: 1024px) {
   .desktop-only {
@@ -502,9 +620,6 @@ onMounted(load);
   .kp-row {
     grid-template-columns: 1fr;
     gap: 4px;
-  }
-  :deep(.el-drawer) {
-    width: 92vw !important;
   }
 }
 </style>

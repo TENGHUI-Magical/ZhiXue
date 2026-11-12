@@ -5,7 +5,7 @@
         <h2>今日工作台</h2>
         <p class="sub">{{ todayLabel }} · 先做最值得的一件事，其余按节奏来。</p>
       </div>
-      <el-button :loading="loading" @click="loadAll">刷新</el-button>
+      <el-button :loading="loading" @click="loadAll()">刷新</el-button>
     </div>
 
     <el-alert
@@ -27,7 +27,7 @@
           show-icon
           :title="`今日建议加载失败：${planError}；${portraitError}`"
         />
-        <el-button type="primary" @click="loadAll">重试</el-button>
+        <el-button type="primary" @click="loadAll()">重试</el-button>
       </div>
 
       <!-- 首次使用：三步启动 -->
@@ -82,7 +82,20 @@
               </div>
             </div>
             <div class="hero-focus">
+              <!-- 计划加载失败不能画成「暂无计划」：0 值与失败必须视觉可分 -->
               <div
+                v-if="planError"
+                class="progress-ring is-error"
+                role="status"
+                aria-label="本周计划加载失败"
+              >
+                <div class="progress-ring-inner">
+                  <strong>!</strong>
+                  <span>计划加载失败</span>
+                </div>
+              </div>
+              <div
+                v-else
                 class="progress-ring"
                 :style="{ '--pct': weekPct }"
                 role="img"
@@ -94,7 +107,8 @@
                 </div>
               </div>
               <p class="focus-caption">
-                {{ weekTotal ? `${weekDone} / ${weekTotal} 题` : "去计划页生成" }}
+                <el-button v-if="planError" link type="primary" @click="loadAll()">重试加载计划</el-button>
+                <template v-else>{{ weekTotal ? `${weekDone} / ${weekTotal} 题` : "去计划页生成" }}</template>
               </p>
             </div>
           </div>
@@ -104,11 +118,13 @@
           <div class="metric-grid">
             <div class="metric-card">
               <div class="metric-label">今日待完成</div>
-              <div class="metric-value">{{ todayRemaining }} <small>题</small></div>
+              <div class="metric-value">{{ planError ? "—" : todayRemaining }} <small v-if="!planError">题</small></div>
               <p class="metric-hint">
-                {{ todayPlan ? (todayRemaining > 0 ? "完成后可打卡" : "今天的题已完成") : "今天暂无计划" }}
+                <template v-if="planError">计划加载失败，点下方重试</template>
+                <template v-else>{{ todayPlan ? (todayRemaining > 0 ? "完成后可打卡" : "今天的题已完成") : "今天暂无计划" }}</template>
               </p>
-              <button type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
+              <button v-if="planError" type="button" class="metric-link" @click="loadAll()">重试加载</button>
+              <button v-else type="button" class="metric-link" @click="router.push('/plan')">去看计划</button>
             </div>
             <div class="metric-card">
               <div class="metric-label">训练样本</div>
@@ -207,6 +223,7 @@ import { DEFAULT_COURSE_ID, getRecommendations, type Recommendation } from "../a
 import { listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
 import { getPortrait, type Portrait } from "../api/portrait";
 import { getDueReviews, listPlans, type DueReviewItem, type StudyPlan } from "../api/plan";
+import { useStudyDataRefresh } from "../composables/useStudyData";
 
 const router = useRouter();
 
@@ -476,9 +493,13 @@ const loadDueReviews = async (seq: number) => {
   }
 };
 
-const loadAll = async () => {
+/**
+ * silent=true：练习/打卡后的后台刷新，不整页切骨架屏（用户刚看完结果，页面不应该“白一下”）。
+ * 首屏与手动刷新仍走骨架屏，保留明确的加载反馈。
+ */
+const loadAll = async (silent = false) => {
   const seq = ++loadSeq;
-  loading.value = true;
+  if (!silent) loading.value = true;
   await Promise.all([loadPlans(seq), loadPortrait(seq), loadLatestError(seq), loadDueReviews(seq)]);
   if (seq !== loadSeq) return;
   await loadRecommendations(seq);
@@ -515,12 +536,15 @@ const openDuePractice = (due: DueReviewItem) => {
   drawerVisible.value = true;
 };
 
-const onPracticeCompleted = async () => {
+/** 完成回调只负责关闭抽屉；刷新统一由 useStudyDataRefresh 触发，避免重复请求 */
+const onPracticeCompleted = () => {
   drawerVisible.value = false;
-  await loadAll();
 };
 
 onMounted(loadAll);
+
+/** 练习/打卡完成后今日建议要重算（待完成数、到期复习、推荐都会变） */
+useStudyDataRefresh(() => void loadAll(true));
 </script>
 
 <style scoped>
@@ -552,9 +576,23 @@ onMounted(loadAll);
   gap: 12px;
   margin-bottom: 16px;
 }
-.hero-card {
-  border-radius: var(--app-radius-lg);
-  margin-bottom: 16px;
+/* B 层焦点玻璃卡（本屏唯一）：今日结论 + 主行动。
+   半透明填充借用 .content 已有的模糊底，不在此处再写 backdrop-filter。 */
+.page .hero-card {
+  margin-bottom: var(--app-space-4);
+  border: 1px solid var(--app-glass-edge);
+  border-radius: var(--app-radius-2xl);
+  background:
+    linear-gradient(180deg, var(--app-glass-edge-hi), transparent 44%),
+    var(--app-glass-fill);
+  box-shadow:
+    inset 0 1px 0 var(--app-glass-hi),
+    var(--app-shadow-lg);
+  transition: box-shadow var(--app-dur-slow) var(--app-ease-spring),
+    border-color var(--app-dur-base) var(--app-ease-standard);
+}
+.page .hero-card :deep(.el-card__body) {
+  padding: var(--app-space-6);
 }
 .hero-main {
   display: grid;
@@ -640,6 +678,13 @@ onMounted(loadAll);
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
+.progress-ring.is-error {
+  background: var(--app-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--app-border);
+}
+.progress-ring.is-error strong {
+  color: var(--app-danger);
+}
 .focus-caption {
   margin: 0;
   color: var(--app-text-muted);
@@ -655,9 +700,9 @@ onMounted(loadAll);
   grid-template-columns: 32px 1fr auto;
   align-items: center;
   gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
+  padding: 14px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-inner);
   background: var(--app-surface-muted);
 }
 .start-step p {
@@ -677,8 +722,9 @@ onMounted(loadAll);
   color: #fff;
   font-weight: 600;
 }
-.metric-band {
-  border-radius: var(--app-radius-md);
+/* C 层阅读承载面：外层 24px 大容器，内层子卡 18px（同心关系） */
+.page .metric-band {
+  border-radius: var(--app-radius-2xl);
   margin-bottom: 16px;
 }
 .metric-band :deep(.el-card__body) {
@@ -709,9 +755,11 @@ onMounted(loadAll);
   font-size: var(--app-fs-xl);
   font-weight: 600;
   color: var(--app-text);
+  overflow-wrap: anywhere;
 }
 .metric-value.small {
   font-size: var(--app-fs-md);
+  overflow-wrap: anywhere;
 }
 .metric-value small {
   font-size: var(--app-fs-sm);
@@ -736,8 +784,8 @@ onMounted(loadAll);
 .metric-link:hover {
   text-decoration: underline;
 }
-.section-card {
-  border-radius: var(--app-radius-md);
+.page .section-card {
+  border-radius: var(--app-radius-2xl);
   margin-bottom: 16px;
 }
 .section-head {
@@ -754,10 +802,23 @@ onMounted(loadAll);
   gap: 12px;
 }
 .rec-card {
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
-  padding: 12px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-inner);
+  padding: 14px;
   background: var(--app-surface-muted);
+  box-shadow: var(--app-shadow-xs);
+  transition: background-color var(--app-dur-base) var(--app-ease-spring),
+    border-color var(--app-dur-base) var(--app-ease-spring),
+    box-shadow var(--app-dur-base) var(--app-ease-spring),
+    transform var(--app-dur-base) var(--app-ease-spring);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rec-card:hover {
+    border-color: var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+    transform: translateY(-2px);
+  }
 }
 .rec-head {
   display: flex;
@@ -827,10 +888,11 @@ onMounted(loadAll);
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
+  padding: 12px 14px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-inner);
   background: var(--app-surface-muted);
+  box-shadow: var(--app-shadow-xs);
 }
 .due-main {
   min-width: 0;
@@ -870,29 +932,42 @@ onMounted(loadAll);
   .start-step {
     grid-template-columns: 32px 1fr;
   }
+  /* 三步启动：按钮落到第二行文案列，避免挤进 32px 圆点列导致溢出 */
+  .start-step :deep(.el-button) {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 @media (max-width: 768px) {
   .page-head {
     flex-direction: column;
+    align-items: stretch;
+  }
+  /* 指标卡手机端 2×2：单套断点，避免与桌面三列规则互相覆盖 */
+  .page .hero-card :deep(.el-card__body) {
+    padding: 18px;
+  }
+  .metric-band :deep(.el-card__body) {
+    padding: 14px;
   }
   .metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .metric-card,
+  .metric-card:first-child,
+  .metric-card:last-child {
+    padding: 12px;
+    border: 1px solid var(--app-hairline);
+    border-radius: var(--app-radius-inner);
+    background: var(--app-surface-muted);
   }
   .due-row {
     flex-direction: column;
     align-items: flex-start;
   }
-  .metric-card {
-    padding: 12px 0;
-    border-left: none;
-    border-top: 1px solid var(--app-hairline);
-  }
-  .metric-card:first-child {
-    border-top: none;
-    padding-top: 2px;
-  }
-  .metric-card:last-child {
-    padding-bottom: 2px;
+  .rec-card :deep(.el-button) {
+    min-height: 44px;
   }
   .hero-main {
     grid-template-columns: 1fr;

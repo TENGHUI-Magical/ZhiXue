@@ -75,6 +75,7 @@ import { ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import BrandMark from "../components/BrandMark.vue";
 import { api } from "../api/request";
+import { saveSession, saveUser } from "../utils/authSession";
 
 /** openapi LoginResult：token + userId + username + role 平铺 */
 interface LoginResult {
@@ -119,26 +120,30 @@ const submit = async () => {
   }
   loading.value = true;
   try {
-    const data = await api.post<LoginResult>("/api/auth/login", {
-      username: account,
-      password: password.value
-    });
-    localStorage.setItem("satoken", data.token);
+    const data = await api.post<LoginResult>(
+      "/api/auth/login",
+      { username: account, password: password.value },
+      // 40100（账号或密码错误）由本页 catch 内联提示，请求层不再重复 toast
+      { silent: true }
+    );
+    saveSession(data.token, null);
     try {
       // 登录响应按 openapi 只含 userId/username/role；昵称从 me 补齐
-      const me = await api.get<MeUser>("/api/auth/me");
-      localStorage.setItem("zhixue_user", JSON.stringify(me));
+      const me = await api.get<MeUser>("/api/auth/me", undefined, { silent: true });
+      saveUser({
+        userId: me.userId ?? data.userId,
+        username: me.username ?? data.username ?? account,
+        realName: me.realName ?? data.username ?? account,
+        role: me.role ?? data.role ?? ""
+      });
     } catch {
       // /me 失败不阻断登录，用登录返回字段兜底
-      localStorage.setItem(
-        "zhixue_user",
-        JSON.stringify({
-          userId: data.userId,
-          username: data.username,
-          realName: data.username,
-          role: data.role
-        })
-      );
+      saveUser({
+        userId: data.userId,
+        username: data.username ?? account,
+        realName: data.username ?? account,
+        role: data.role ?? ""
+      });
     }
     await router.replace(resolveRedirect(data.role));
   } catch (e) {
@@ -153,6 +158,23 @@ const submit = async () => {
 /* 水印贴边但不产生横向滚动 */
 .login-page {
   overflow: hidden;
+}
+/* 环境光斑：只加一层低饱和主色气团，不压到登录卡文字与错误提示之上 */
+.login-page::after {
+  content: "";
+  position: absolute;
+  top: -14%;
+  right: -8%;
+  z-index: 0;
+  width: min(620px, 78vw);
+  height: min(620px, 78vw);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--app-primary) 16%, transparent),
+    transparent 64%
+  );
+  pointer-events: none;
 }
 .login-shell {
   position: relative;
@@ -244,11 +266,24 @@ const submit = async () => {
   font-size: var(--app-fs-xs);
   line-height: 1.65;
 }
-.login-card {
+/* B 层焦点玻璃卡：半透明磨砂 + 顶部高光 + inset 1px 高光边 + 24px 圆角。
+   模糊由 glass.css 全局 .login-card 提供，这里不再叠 backdrop-filter（禁止嵌套模糊）。 */
+.login-shell .login-card {
   width: 420px;
   max-width: 100%;
-  border-radius: var(--app-radius-lg);
-  box-shadow: var(--app-shadow-lg);
+  border: 1px solid var(--app-glass-edge);
+  border-radius: var(--app-radius-2xl);
+  background:
+    linear-gradient(180deg, var(--app-glass-edge-hi), transparent 46%),
+    var(--app-glass-fill);
+  box-shadow:
+    inset 0 1px 0 var(--app-glass-hi),
+    var(--app-shadow-lg);
+  transition: box-shadow var(--app-dur-slow) var(--app-ease-spring),
+    border-color var(--app-dur-base) var(--app-ease-standard);
+}
+.login-shell .login-card :deep(.el-card__body) {
+  padding: var(--app-space-6);
 }
 .login-head h2 {
   margin: 0;
@@ -261,7 +296,7 @@ const submit = async () => {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
-.login-btn {
+.login-shell .login-btn {
   width: 100%;
   height: 44px;
 }
@@ -296,7 +331,7 @@ const submit = async () => {
   .story-title {
     font-size: var(--app-fs-hero);
   }
-  .login-card {
+  .login-shell .login-card {
     width: 380px;
   }
 }
@@ -323,8 +358,18 @@ const submit = async () => {
   .story-points {
     display: none;
   }
-  .login-card {
+  .login-shell .login-card {
     width: 100%;
+  }
+  .login-shell .login-card :deep(.el-card__body) {
+    padding: 18px;
+  }
+  /* 手机输入字号 ≥16px：避免 iOS 聚焦自动放大 */
+  .login-shell :deep(.el-input__inner) {
+    font-size: 16px;
+  }
+  .login-shell :deep(.el-input__wrapper) {
+    min-height: 44px;
   }
   .login-foot {
     margin-top: 20px;

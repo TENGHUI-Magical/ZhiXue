@@ -217,7 +217,16 @@
       </el-card>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="知识点详情" size="480px" class="kp-drawer" append-to-body @closed="activeId = ''">
+    <el-drawer
+      v-model="drawerVisible"
+      title="知识点详情"
+      :size="isMobile ? '82%' : '480px'"
+      :direction="isMobile ? 'btt' : 'rtl'"
+      class="kp-drawer"
+      :class="{ 'glass-sheet': isMobile }"
+      append-to-body
+      @closed="activeId = ''"
+    >
       <el-skeleton v-if="detailLoading" :rows="5" animated />
       <el-alert v-else-if="detailError" :title="detailError" type="error" show-icon :closable="false" />
       <template v-else-if="detail">
@@ -266,9 +275,11 @@ import {
 } from "../api/course";
 import { getPortrait } from "../api/portrait";
 import { normalizeLineBreaks } from "../utils/text";
+import { useIsMobile } from "../composables/useBreakpoint";
 
 const router = useRouter();
 const route = useRoute();
+const isMobile = useIsMobile();
 const loading = ref(false);
 const error = ref("");
 const nodes = ref<GraphNode[]>([]);
@@ -701,6 +712,8 @@ onMounted(load);
 <style scoped>
 .page {
   max-width: var(--app-page-max);
+  /* 图谱卡下方保留一档留白：滚轮在缩放边界交还页面时，页面本身必须有可滚动余量 */
+  padding-bottom: var(--app-space-6);
 }
 .page-head {
   display: flex;
@@ -736,34 +749,63 @@ onMounted(load);
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
-.graph-card {
+.legend .dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+.legend .dot.weak {
+  background: var(--app-danger);
+}
+.legend .dot.normal {
+  background: var(--app-primary);
+}
+/* C 阅读承载面：近实底 + 发丝边 + 轻阴影，外层大容器 24px */
+.el-card.graph-card {
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-2xl);
+  background: color-mix(in srgb, var(--app-surface) 97%, transparent);
+  box-shadow: var(--app-shadow-sm);
 }
 .graph-controls {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: 14px;
+  right: 14px;
   z-index: 2;
   display: flex;
   gap: 6px;
 }
 .graph-controls button,
 .chapter-back {
-  min-width: 34px;
-  height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-sm);
-  background: var(--app-surface);
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-md);
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
+  transition: transform var(--app-dur-fast) var(--app-ease-spring),
+    background-color var(--app-dur-fast) var(--app-ease-standard),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    color var(--app-dur-fast) var(--app-ease-standard),
+    box-shadow var(--app-dur-fast) var(--app-ease-standard);
 }
 .graph-controls button:hover,
 .chapter-back:hover {
   color: var(--app-primary);
-  border-color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+.graph-controls button:active,
+.chapter-back:active {
+  transform: scale(0.97);
 }
 .graph-controls button:focus-visible,
 .chapter-back:focus-visible {
@@ -772,8 +814,8 @@ onMounted(load);
 }
 .chapter-back {
   position: absolute;
-  top: 12px;
-  left: 12px;
+  top: 14px;
+  left: 14px;
   z-index: 2;
 }
 .graph-svg {
@@ -781,8 +823,11 @@ onMounted(load);
   width: 100%;
   aspect-ratio: 1200 / 620;
   height: auto;
-  background: var(--app-surface-muted);
-  border-radius: var(--app-radius-sm);
+  background:
+    radial-gradient(120% 88% at 50% 0%, color-mix(in srgb, var(--app-surface) 62%, transparent), transparent 62%),
+    var(--app-surface-muted);
+  border-radius: var(--app-radius-inner);
+  box-shadow: inset 0 0 0 1px var(--app-hairline);
   /* 竖向手势留给页面滚动，横向拖拽用于平移图谱 */
   touch-action: pan-y;
   cursor: grab;
@@ -794,8 +839,8 @@ onMounted(load);
   transition: transform 0.15s var(--app-ease-standard);
 }
 .chapter-card {
-  fill: var(--app-surface);
-  stroke: var(--app-border);
+  fill: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  stroke: var(--app-hairline);
   stroke-width: 1;
   pointer-events: none;
 }
@@ -906,8 +951,12 @@ onMounted(load);
 .mobile-list-jump {
   display: none;
 }
-.list-card {
+.el-card.list-card {
   margin-top: 16px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-2xl);
+  background: color-mix(in srgb, var(--app-surface) 97%, transparent);
+  box-shadow: var(--app-shadow-sm);
 }
 .node-list {
   display: flex;
@@ -916,6 +965,13 @@ onMounted(load);
 }
 .node-tag {
   cursor: pointer;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    box-shadow var(--app-dur-fast) var(--app-ease-standard);
+}
+.node-tag:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
 }
 .kp-title {
   margin: 0 0 10px;
@@ -940,6 +996,23 @@ onMounted(load);
 :deep(.el-drawer) {
   max-width: 92vw;
 }
+/* 桌面：图例/工具条为 1 层 A 玻璃观感（高不透明实底 + 镜面边）；
+   父层 .content 已模糊，这里不再叠加 backdrop-filter */
+@media (min-width: 769px) {
+  .graph-tools {
+    padding: 6px 10px;
+    border: 1px solid var(--app-hairline);
+    border-radius: var(--app-radius-pill);
+    background: color-mix(in srgb, var(--app-surface) 86%, transparent);
+    box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-glass-edge-hi);
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .graph-controls button:hover,
+  .chapter-back:hover {
+    transform: translateY(-1px);
+  }
+}
 @media (max-width: 768px) {
   .page-head {
     flex-direction: column;
@@ -950,6 +1023,14 @@ onMounted(load);
   .chapter-select {
     width: 100%;
   }
+  /* iOS 聚焦自动放大：输入字号 ≥16px，筛选控件保持 44 高 */
+  .chapter-select :deep(.el-select__wrapper) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .chapter-select :deep(.el-select__input) {
+    font-size: 16px;
+  }
   .graph-svg {
     min-height: 0;
   }
@@ -957,6 +1038,14 @@ onMounted(load);
   .chapter-back {
     min-width: 44px;
     height: 44px;
+  }
+  .graph-controls {
+    top: 12px;
+    right: 12px;
+  }
+  .chapter-back {
+    top: 12px;
+    left: 12px;
   }
   .node-label {
     display: none;
@@ -978,8 +1067,8 @@ onMounted(load);
     padding: 0 12px;
     font-size: var(--app-fs-sm);
   }
-  :deep(.el-drawer) {
-    width: 92vw !important;
+  .kp-practice {
+    width: 100%;
   }
 }
 </style>

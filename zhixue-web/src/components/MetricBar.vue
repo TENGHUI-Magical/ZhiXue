@@ -115,8 +115,9 @@ const clampedTarget = computed(() =>
   height: 8px;
   border-radius: var(--app-radius-full);
   /* 轨道必须看得见，否则只剩一条填色，"60%" 的比例无从读起。
-     原 --app-surface-muted 在浅色卡上几乎与卡底同色（#eef2f7 on #fbfcff），比例信息丢失。 */
-  background: color-mix(in srgb, var(--app-text) 9%, var(--app-surface));
+     用 text 混 surface 保证浅/深两套主题都比卡底明显，再加发丝内环勾出边界。 */
+  background: color-mix(in srgb, var(--app-text) 12%, var(--app-surface));
+  box-shadow: inset 0 0 0 1px var(--app-hairline);
   overflow: visible;
 }
 .metric-bar.has-target .mb-track {
@@ -126,17 +127,30 @@ const clampedTarget = computed(() =>
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: var(--app-primary);
-  /* 顶边一道 0.25 白光泽：让填充条从"扁色块"变成有厚度的玻璃条，
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-primary) 82%, var(--app-accent-contrast)),
+    var(--app-primary)
+  );
+  /* 顶边一道光泽：让填充条从"扁色块"变成有厚度的玻璃条，
      与卡片顶光/底暗同一套光的语言（V4.0 视觉体系） */
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--app-accent-contrast) 26%, transparent);
   transition: width var(--app-dur-chart) var(--app-ease-emphasized);
 }
 .mb-fill.is-danger {
-  background: var(--app-danger);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-danger) 82%, var(--app-accent-contrast)),
+    var(--app-danger)
+  );
 }
+/* neutral 是“容量”而非分数：用更实的 info 色，避免与轨道亮度接近 */
 .mb-fill.is-neutral {
-  background: color-mix(in srgb, var(--app-info) 58%, var(--app-surface));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-info) 62%, var(--app-accent-contrast)),
+    color-mix(in srgb, var(--app-info) 84%, var(--app-surface))
+  );
 }
 .mb-target {
   position: absolute;

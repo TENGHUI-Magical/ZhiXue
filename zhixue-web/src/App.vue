@@ -5,12 +5,12 @@
     <el-container v-else class="layout">
       <a class="skip-link" href="#main-content">跳到主要内容</a>
       <div class="app-wall" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i>
       </div>
       <el-aside
         width="232px"
         class="aside"
-        :class="{ 'is-collapsed': navCollapsed }"
+        :class="{ 'is-collapsed': railCollapsed }"
         aria-label="主导航"
       >
         <div class="brand">
@@ -19,14 +19,15 @@
             <span class="brand-text">智学领航</span>
           </div>
           <button
+            v-if="!isTablet"
             type="button"
             class="side-toggle"
-            :aria-label="navCollapsed ? '展开侧栏' : '收起侧栏'"
-            :aria-expanded="!navCollapsed"
-            :title="navCollapsed ? '展开侧栏' : '收起侧栏'"
+            :aria-label="railCollapsed ? '展开侧栏' : '收起侧栏'"
+            :aria-expanded="!railCollapsed"
+            :title="railCollapsed ? '展开侧栏' : '收起侧栏'"
             @click="toggleNav"
           >
-            <PanelLeftOpen v-if="navCollapsed" :size="16" aria-hidden="true" />
+            <PanelLeftOpen v-if="railCollapsed" :size="16" aria-hidden="true" />
             <PanelLeftClose v-else :size="16" aria-hidden="true" />
           </button>
         </div>
@@ -36,8 +37,8 @@
             v-for="item in menus"
             :key="item.path"
             :index="item.path"
-            :title="navCollapsed ? item.label : undefined"
-            :aria-label="navCollapsed ? item.label : undefined"
+            :title="railCollapsed ? item.label : undefined"
+            :aria-label="railCollapsed ? item.label : undefined"
           >
             <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
             <span class="menu-label">{{ item.label }}</span>
@@ -46,19 +47,8 @@
       </el-aside>
 
       <el-container class="content" direction="vertical">
-        <el-header class="header">
+        <el-header class="header" :class="{ 'is-scrolled': headerCondensed }">
           <span class="header-title">
-            <el-button
-              class="nav-toggle"
-              text
-              circle
-              aria-label="打开导航菜单"
-              @click="navOpen = true"
-            >
-              <span class="nav-icon" aria-hidden="true">
-                <Menu :size="20" />
-              </span>
-            </el-button>
             <span v-if="crumbGroup" class="crumb-group">{{ crumbGroup }}</span>
             <ChevronRight v-if="crumbGroup" class="crumb-sep" :size="12" aria-hidden="true" />
             <span class="title">{{ $route.meta.title }}</span>
@@ -73,7 +63,9 @@
                 aria-label="打开用户菜单"
                 :aria-expanded="userMenuOpen"
                 aria-haspopup="menu"
-                @click="userMenuOpen = !userMenuOpen"
+                @click="toggleUserMenu"
+                @keydown.down.prevent="openUserMenu('first')"
+                @keydown.up.prevent="openUserMenu('last')"
               >
                 <span class="avatar" aria-hidden="true">{{ avatarText }}</span>
                 <span class="user-meta">
@@ -85,64 +77,98 @@
                         stroke-linecap="round" stroke-linejoin="round" />
                 </svg>
               </button>
-              <div v-if="userMenuOpen" class="user-menu" role="menu">
-                <div class="user-menu-head">
+              <div
+                v-if="userMenuOpen"
+                ref="userMenuEl"
+                class="user-menu"
+                role="menu"
+                aria-label="账号菜单"
+                @keydown="onUserMenuKeydown"
+              >
+                <div class="user-menu-head" role="presentation">
                   <strong>{{ userName }}</strong>
                   <span>{{ roleLabel }}<template v-if="userAccount"> · {{ userAccount }}</template></span>
                 </div>
-                <button type="button" role="menuitem" class="user-menu-item" @click="goProfile">
+                <button type="button" role="menuitem" tabindex="-1" class="user-menu-item" @click="goProfile">
                   个人中心
                 </button>
-                <button type="button" role="menuitem" class="user-menu-item danger" @click="logout">
+                <button type="button" role="menuitem" tabindex="-1" class="user-menu-item danger" @click="logout">
                   退出登录
                 </button>
               </div>
             </div>
           </span>
         </el-header>
-        <el-main class="main" id="main-content" tabindex="-1">
+        <el-main class="main" id="main-content" tabindex="-1" @scroll.passive="onMainScroll">
           <router-view />
         </el-main>
       </el-container>
 
+      <!-- 手机端：底部悬浮胶囊 TabBar（桌面/平板不渲染） -->
+      <nav v-if="isMobile" class="mobile-tabbar" aria-label="主导航">
+        <button
+          v-for="item in tabItems"
+          :key="item.key"
+          type="button"
+          class="tab-item"
+          :class="{ 'is-active': item.key === 'more' ? moreOpen : isTabActive(item.path) }"
+          :aria-current="item.key !== 'more' && isTabActive(item.path) ? 'page' : undefined"
+          @click="onTabClick(item)"
+        >
+          <component :is="item.icon" :size="22" aria-hidden="true" />
+          <span class="tab-label">{{ item.label }}</span>
+        </button>
+      </nav>
+
+      <!-- 更多：底部玻璃 Sheet（周计划 / 图谱 / 找题 / 个人中心 / 外观主题 / 退出） -->
       <el-drawer
-        v-model="navOpen"
-        title="导航菜单"
-        direction="ltr"
-        size="240px"
+        v-model="moreOpen"
+        direction="btt"
+        size="auto"
         :with-header="false"
-        class="nav-drawer"
+        class="glass-sheet more-sheet"
         append-to-body
       >
-        <div class="brand drawer-logo">
-          <BrandMark :size="34" />
-          <span class="brand-text">智学领航</span>
+        <div class="sheet-grabber" aria-hidden="true"></div>
+        <h3 class="sheet-title">更多</h3>
+        <div class="more-grid">
+          <button
+            v-for="item in moreItems"
+            :key="item.path"
+            type="button"
+            class="more-item"
+            @click="goPath(item.path)"
+          >
+            <component :is="item.icon" :size="20" aria-hidden="true" />
+            <span>{{ item.label }}</span>
+          </button>
         </div>
-        <div class="menu-caption">{{ userRole === "TEACHER" ? "教学" : "学习" }}</div>
-        <el-menu
-          :default-active="$route.path"
-          router
-          class="menu"
-          @select="navOpen = false"
-        >
-          <el-menu-item v-for="item in menus" :key="item.path" :index="item.path">
-            <component :is="item.icon" class="menu-icon" :size="18" aria-hidden="true" />
-            <span class="menu-label">{{ item.label }}</span>
-          </el-menu-item>
-        </el-menu>
+        <div class="more-theme">
+          <span class="more-theme-label">外观主题</span>
+          <ThemeSwitcher />
+        </div>
+        <button type="button" class="more-item more-logout" @click="logout">退出登录</button>
       </el-drawer>
     </el-container>
   </el-config-provider>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { BookOpen, CalendarCheck, ChevronRight, ClipboardCheck, LayoutDashboard, Menu, Network, PanelLeftClose, PanelLeftOpen, Radar, Search, Stethoscope, Users } from "@lucide/vue";
+import { BookOpen, CalendarCheck, ChevronRight, ClipboardCheck, Ellipsis, LayoutDashboard, Network, PanelLeftClose, PanelLeftOpen, Radar, Search, Stethoscope, User, Users } from "@lucide/vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api } from "./api/request";
 import ThemeSwitcher from "./components/ThemeSwitcher.vue";
 import BrandMark from "./components/BrandMark.vue";
+import { useIsMobile, useIsTablet } from "./composables/useBreakpoint";
+import {
+  clearSession,
+  getUser,
+  hasSession,
+  onSessionChange,
+  saveUser
+} from "./utils/authSession";
 
 const router = useRouter();
 const route = useRoute();
@@ -155,8 +181,12 @@ const crumbGroup = computed(() => {
 const userName = ref("未登录");
 const userAccount = ref("");
 const userRole = ref("");
-/** 移动端抽屉导航开关；桌面端由左侧栏常驻，不显示入口 */
-const navOpen = ref(false);
+/** 手机端“更多”底部 Sheet 开关；桌面/平板不渲染 TabBar */
+const moreOpen = ref(false);
+/** 顶栏随内容滚动后收缩标题字号（只改字号/透明度，不改高度） */
+const headerCondensed = ref(false);
+const isMobile = useIsMobile();
+const isTablet = useIsTablet();
 const userMenuOpen = ref(false);
 const userRoot = ref<HTMLElement | null>(null);
 const userTrigger = ref<HTMLButtonElement | null>(null);
@@ -169,6 +199,12 @@ const readNavCollapsed = () => {
   }
 };
 const navCollapsed = ref(readNavCollapsed());
+/** 平板（768–1023）强制 72px 图标侧栏；桌面尊重用户收起偏好 */
+const railCollapsed = computed(() => navCollapsed.value || isTablet.value);
+
+const onMainScroll = (event: Event) => {
+  headerCondensed.value = (event.target as HTMLElement).scrollTop > 8;
+};
 
 const toggleNav = () => {
   navCollapsed.value = !navCollapsed.value;
@@ -197,6 +233,47 @@ const teacherMenus = [
 ];
 
 const menus = computed(() => (userRole.value === "TEACHER" ? teacherMenus : baseMenus));
+
+/** 手机端底部 TabBar：学生 5 槽（更多打开 Sheet），教师 4 槽（不为凑数留空槽） */
+const tabItems = computed(() =>
+  userRole.value === "TEACHER"
+    ? [
+        { key: "teacher", path: "/teacher", label: "概览", icon: LayoutDashboard },
+        { key: "reviews", path: "/teacher/reviews", label: "评阅", icon: ClipboardCheck },
+        { key: "class", path: "/teacher/class", label: "班级", icon: Users },
+        { key: "profile", path: "/profile", label: "我的", icon: User }
+      ]
+    : [
+        { key: "today", path: "/today", label: "今日", icon: LayoutDashboard },
+        { key: "diagnosis", path: "/diagnosis", label: "诊断", icon: Stethoscope },
+        { key: "error-book", path: "/error-book", label: "错题本", icon: BookOpen },
+        { key: "portrait", path: "/portrait", label: "画像", icon: Radar },
+        { key: "more", path: "", label: "更多", icon: Ellipsis }
+      ]
+);
+
+/** “更多”Sheet：学生端其余四个入口 + 外观主题 + 退出登录 */
+const moreItems = [
+  { path: "/plan", label: "周计划", icon: CalendarCheck },
+  { path: "/knowledge-graph", label: "知识图谱", icon: Network },
+  { path: "/practice", label: "找题练习", icon: Search },
+  { path: "/profile", label: "个人中心", icon: User }
+];
+
+const isTabActive = (path: string) => Boolean(path) && route.path === path;
+
+const onTabClick = (item: { key: string; path: string }) => {
+  if (item.key === "more") {
+    moreOpen.value = true;
+    return;
+  }
+  void router.push(item.path);
+};
+
+const goPath = (path: string) => {
+  moreOpen.value = false;
+  void router.push(path);
+};
 
 const roleLabel = computed(() => {
   if (userRole.value === "TEACHER") return "教师";
@@ -229,30 +306,23 @@ const enforceRoleRoute = (role: string) => {
 
 /** 路由变化时刷新用户名；本地有 token 但缺 user 信息时回查 /api/auth/me */
 const refreshUser = async () => {
-  if (!localStorage.getItem("satoken")) {
+  if (!hasSession()) {
     userName.value = "未登录";
     userAccount.value = "";
     userRole.value = "";
     return;
   }
-  const raw = localStorage.getItem("zhixue_user");
-  if (raw) {
-    try {
-      const cached = JSON.parse(raw) as MeUser;
-      // 角色缺失时不能直接信缓存，否则守卫无法分流
-      if (cached.role) {
-        applyUser(cached);
-        // 路由解析完成后（App 首次挂载时 route 可能仍是 /）再校正角色落点
-        enforceRoleRoute(cached.role);
-        return;
-      }
-    } catch {
-      // 本地缓存坏了，走接口
-    }
+  const cached = getUser();
+  // 角色缺失时不能直接信缓存，否则守卫无法分流
+  if (cached?.role) {
+    applyUser(cached);
+    // 路由解析完成后（App 首次挂载时 route 可能仍是 /）再校正角色落点
+    enforceRoleRoute(cached.role);
+    return;
   }
   try {
     const me = await api.get<MeUser>("/api/auth/me");
-    localStorage.setItem("zhixue_user", JSON.stringify(me));
+    saveUser(me);
     applyUser(me);
     enforceRoleRoute(me.role);
   } catch {
@@ -264,6 +334,10 @@ const refreshUser = async () => {
 
 watch(() => route.path, refreshUser, { immediate: true });
 watch(() => route.path, () => (userMenuOpen.value = false));
+/** 路由切换回到页首：`.main` 是常驻滚动容器，不重置会带着上一页的滚动位置进新页 */
+watch(() => route.path, () => {
+  document.getElementById("main-content")?.scrollTo({ top: 0 });
+});
 
 const goProfile = () => {
   userMenuOpen.value = false;
@@ -272,17 +346,77 @@ const goProfile = () => {
 
 const logout = async () => {
   userMenuOpen.value = false;
+  moreOpen.value = false;
   try {
     await api.post("/api/auth/logout");
   } catch {
     // 登出失败也要清本地态
   } finally {
-    localStorage.removeItem("satoken");
-    localStorage.removeItem("zhixue_user");
+    clearSession();
     userName.value = "未登录";
     userAccount.value = "";
     userRole.value = "";
     await router.replace("/login");
+  }
+};
+
+// ---- 用户菜单：WAI-ARIA menu button 键盘范式（方向键 / Home / End / Esc + 焦点归还） ----
+const userMenuEl = ref<HTMLElement | null>(null);
+const menuItems = () =>
+  Array.from(userMenuEl.value?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+
+const focusMenuItem = (index: number) => {
+  const items = menuItems();
+  if (!items.length) return;
+  items[(index + items.length) % items.length].focus();
+};
+
+const openUserMenu = (position: "first" | "last" = "first") => {
+  userMenuOpen.value = true;
+  void nextTick(() => focusMenuItem(position === "last" ? menuItems().length - 1 : 0));
+};
+
+const closeUserMenu = (restoreFocus = true) => {
+  userMenuOpen.value = false;
+  // v-if 卸载后焦点会落到 body，关闭时把焦点还给触发按钮
+  if (restoreFocus) userTrigger.value?.focus();
+};
+
+const toggleUserMenu = () => {
+  if (userMenuOpen.value) closeUserMenu(false);
+  else openUserMenu("first");
+};
+
+const onUserMenuKeydown = (event: KeyboardEvent) => {
+  const items = menuItems();
+  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  switch (event.key) {
+    case "ArrowDown":
+      event.preventDefault();
+      focusMenuItem(index + 1);
+      break;
+    case "ArrowUp":
+      event.preventDefault();
+      focusMenuItem(index - 1);
+      break;
+    case "Home":
+      event.preventDefault();
+      focusMenuItem(0);
+      break;
+    case "End":
+      event.preventDefault();
+      focusMenuItem(items.length - 1);
+      break;
+    case "Escape":
+      event.preventDefault();
+      closeUserMenu();
+      break;
+    case "Tab":
+      // 菜单不是模态层：Tab 关闭并把焦点交还正常文档流
+      userMenuOpen.value = false;
+      break;
+    default:
+      break;
   }
 };
 
@@ -292,20 +426,33 @@ const onDocClick = (event: MouseEvent) => {
   }
 };
 const onKeydown = (event: KeyboardEvent) => {
-  if (event.key === "Escape" && userMenuOpen.value) {
-    userMenuOpen.value = false;
-    // 菜单项随 v-if 卸载后焦点会落到 body，Escape 关闭时把焦点还给触发按钮
-    userTrigger.value?.focus();
-  }
+  if (event.key === "Escape" && userMenuOpen.value) closeUserMenu();
 };
 
+let stopSessionWatch: (() => void) | null = null;
+
 onMounted(() => {
+  // 刷新/直达时浏览器可能恢复上次滚动位置，首屏统一回到页首
+  document.getElementById("main-content")?.scrollTo({ top: 0 });
   document.addEventListener("click", onDocClick);
   document.addEventListener("keydown", onKeydown);
+  // 跨标签页登出：另一个标签页清掉 token 后，这里立即回到未登录态，避免继续显示旧身份
+  stopSessionWatch = onSessionChange((loggedIn) => {
+    if (loggedIn) {
+      void refreshUser();
+      return;
+    }
+    clearSession();
+    userName.value = "未登录";
+    userAccount.value = "";
+    userRole.value = "";
+    void router.replace("/login");
+  });
 });
 onBeforeUnmount(() => {
   document.removeEventListener("click", onDocClick);
   document.removeEventListener("keydown", onKeydown);
+  stopSessionWatch?.();
 });
 </script>
 
@@ -459,21 +606,15 @@ onBeforeUnmount(() => {
   background: var(--app-surface-muted);
   color: var(--app-text);
 }
-:deep(.el-menu-item.is-active) {
-  background: var(--app-primary-soft);
-  color: var(--app-primary);
-  font-weight: 600;
-}
+/* 激活态（当前路由）只在 glass.css 声明一次：
+   同为 scoped 时 :deep 优先级低于 html[data-theme] 前缀规则，
+   在此重复声明会形成“看似生效、实际被覆盖”的第二来源。 */
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  /* 高度归 glass.css（52px）单一来源，避免此处静默失效 */
-  padding: 0 18px;
-  border-bottom: 1px solid var(--app-border);
-  background: var(--app-header);
-  backdrop-filter: blur(12px);
+  /* 高度/内边距/背景归 glass.css 单一来源；此处只保留吸顶与层级 */
   position: sticky;
   top: 0;
   z-index: 20;
@@ -488,10 +629,17 @@ html[data-theme] .title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--app-text-secondary);
-  font-size: var(--app-fs-sm);
-  font-weight: 500;
-  letter-spacing: 0.01em;
+  color: var(--app-text);
+  font-size: var(--app-fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: font-size var(--app-dur-base) var(--app-ease-spring),
+    opacity var(--app-dur-base) var(--app-ease-spring);
+}
+/* 滚动后只收缩字号，不改变 header 高度，避免内容跳动 */
+html[data-theme] .header.is-scrolled .title {
+  font-size: var(--app-fs-md);
+  opacity: 0.86;
 }
 .crumb-group {
   flex: none;
@@ -504,16 +652,6 @@ html[data-theme] .title {
   flex: none;
   color: var(--app-text-muted);
   opacity: 0.45;
-}
-.nav-toggle {
-  display: none;
-  flex-shrink: 0;
-}
-.nav-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
 }
 .user {
   flex-shrink: 0;
@@ -658,9 +796,139 @@ html[data-theme="glass-dark"] .avatar {
   background: var(--app-bg);
   padding: 20px;
   overflow-y: auto;
+  /* 数据刷新/图谱重绘时不让浏览器自动补偿滚动位置，避免页面被“锚”到底部 */
+  overflow-anchor: none;
 }
-.drawer-logo {
-  padding: 8px 10px 16px;
+
+/* ---------- 手机底部胶囊 TabBar（A 层；叠在已模糊的 .content 上，用高不透明实底 + 镜面边） ---------- */
+.mobile-tabbar {
+  display: none;
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  height: 56px;
+  padding: 4px;
+  border: 1px solid var(--app-glass-edge-hi);
+  border-radius: var(--app-radius-3xl);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent 46%),
+    color-mix(in srgb, var(--app-surface) 92%, transparent);
+  box-shadow: 0 12px 30px -12px rgba(16, 24, 40, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+html[data-theme="glass-dark"] .mobile-tabbar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 46%),
+    color-mix(in srgb, var(--app-surface) 92%, transparent);
+  box-shadow: 0 18px 44px -16px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.tab-item {
+  flex: 1 1 0;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--app-radius-pill);
+  background: transparent;
+  color: var(--app-text-muted);
+  font: inherit;
+  font-size: var(--app-fs-xs);
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
+    color var(--app-dur-fast) var(--app-ease-standard);
+}
+.tab-item.is-active {
+  background: var(--app-primary-soft);
+  color: var(--app-primary);
+  font-weight: 600;
+}
+.tab-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.tab-item:active {
+  transform: scale(0.97);
+}
+.tab-label {
+  line-height: 1.1;
+}
+
+/* ---------- “更多”底部 Sheet：Grabber + 双列入口 + 外观主题 ---------- */
+.more-sheet {
+  max-height: 92dvh;
+}
+.more-sheet :deep(.el-drawer__body) {
+  padding: 4px 16px 12px;
+  overflow-y: auto;
+}
+.sheet-grabber {
+  width: 36px;
+  height: 4px;
+  margin: 6px auto 10px;
+  border-radius: var(--app-radius-pill);
+  background: color-mix(in srgb, var(--app-text) 22%, transparent);
+}
+.sheet-title {
+  margin: 0 0 12px;
+  color: var(--app-text);
+  font-size: var(--app-fs-md);
+  font-weight: 600;
+}
+.more-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-inner);
+  background: var(--app-surface-muted);
+  color: var(--app-text);
+  font: inherit;
+  font-size: var(--app-fs-sm);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.more-item:active {
+  transform: scale(0.97);
+}
+.more-item:focus-visible {
+  outline: 2px solid var(--app-primary);
+  outline-offset: 2px;
+}
+.more-theme {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius-inner);
+  background: var(--app-surface-muted);
+}
+.more-theme-label {
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+}
+.more-logout {
+  width: 100%;
+  justify-content: center;
+  color: var(--app-danger);
 }
 
 /* 触控目标：粗指针设备（平板横屏、手机横屏）也要 ≥44px，不能只判宽度 */
@@ -671,15 +939,24 @@ html[data-theme="glass-dark"] .avatar {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .aside {
     display: none;
   }
-  .nav-toggle {
-    display: inline-flex;
+  .mobile-tabbar {
+    display: flex;
+    gap: 2px;
   }
   .header {
     padding: 0 12px;
+  }
+  .crumb-group,
+  .crumb-sep {
+    display: none;
+  }
+  /* 手机端外观主题收进“更多”Sheet，顶栏只保留标题与头像，避免 390px 挤压溢出 */
+  .header :deep(.theme-seg) {
+    display: none;
   }
   .user {
     gap: 6px;
@@ -692,7 +969,7 @@ html[data-theme="glass-dark"] .avatar {
     padding: 0 2px;
   }
   .main {
-    padding: 12px;
+    padding: 12px 12px calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

@@ -42,7 +42,19 @@
     >
 
       <el-card class="table-card desktop-only">
-        <el-table :data="records" row-key="logPk" stripe>
+        <div v-if="selectedRows.length" class="batch-bar">
+          <span class="batch-count">已选 {{ selectedRows.length }} 条</span>
+          <el-button size="small" type="primary" :disabled="batchRunning" @click="runBatch('PASS')">
+            批量通过
+          </el-button>
+          <el-button size="small" type="danger" plain :disabled="batchRunning" @click="runBatch('RETURN')">
+            批量退回
+          </el-button>
+          <el-button size="small" link :disabled="batchRunning" @click="clearSelection">取消选择</el-button>
+          <span v-if="batchProgress" class="batch-progress">{{ batchProgress }}</span>
+        </div>
+        <el-table ref="tableRef" :data="records" row-key="logPk" stripe @selection-change="onSelectionChange">
+          <el-table-column type="selection" width="44" :selectable="canSelectRow" />
           <el-table-column label="学生" width="100" show-overflow-tooltip>
             <template #default="{ row }">{{ row.userName || "—" }}</template>
           </el-table-column>
@@ -109,7 +121,16 @@
       </div>
     </PageState>
 
-    <el-drawer v-model="drawerVisible" title="讲解评阅" size="520px" class="review-drawer" append-to-body @closed="onReviewClosed">
+    <el-drawer
+      v-model="drawerVisible"
+      title="讲解评阅"
+      :direction="isMobile ? 'btt' : 'rtl'"
+      :size="isMobile ? '92%' : '520px'"
+      :class="['review-drawer', { 'glass-sheet': isMobile }]"
+      append-to-body
+      @closed="onReviewClosed"
+    >
+      <div v-if="isMobile" class="sheet-grabber" aria-hidden="true"></div>
       <template v-if="selected">
         <div class="review-meta">
           <el-tag size="small">{{ selected.userName || "学生" }}</el-tag>
@@ -195,8 +216,22 @@
         <p v-if="!hasEvidence && !isReviewed" class="result-hint">
           证据不完整时只能退回；请在评语里写清缺失项。
         </p>
+        <div class="tpl-row">
+          <span class="tpl-label">常用评语</span>
+          <button
+            v-for="tpl in COMMENT_TEMPLATES"
+            :key="tpl"
+            type="button"
+            class="tpl-btn"
+            :disabled="isReviewed"
+            @click="applyTemplate(tpl)"
+          >
+            {{ tpl }}
+          </button>
+        </div>
         <el-input
           v-model="comment"
+          class="comment-input"
           type="textarea"
           aria-label="评语"
           :rows="4"
@@ -207,8 +242,16 @@
         />
         <div class="drawer-actions">
           <el-button @click="drawerVisible = false">取消</el-button>
-          <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit">
+          <el-button type="primary" :loading="submitting" :disabled="!canSubmit" @click="submit(false)">
             提交评阅
+          </el-button>
+          <el-button
+            type="primary"
+            plain
+            :disabled="!canSubmit || submitting"
+            @click="submit(true)"
+          >
+            提交并评阅下一条
           </el-button>
         </div>
       </template>
@@ -218,11 +261,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox, type TableInstance } from "element-plus";
 import PageState from "../components/PageState.vue";
+import { ApiError } from "../api/request";
+import { describeError, isGloballyNotified } from "../api/errors";
 import { getExplain } from "../api/diagnosis";
 import { exportReviewLog, listReviews, submitReview, type ReviewItem } from "../api/review";
-import { ApiError } from "../api/request";
+import { useIsMobile } from "../composables/useBreakpoint";
+import { reportError } from "../utils/telemetry";
+
+/** 手机（<768）：评阅抽屉改为底部 Sheet，桌面保持右侧全高抽屉 */
+const isMobile = useIsMobile();
 
 const records = ref<ReviewItem[]>([]);
 const total = ref(0);
@@ -259,6 +308,12 @@ const comment = ref("");
 const result = ref<"PASS" | "RETURN">("PASS");
 const submitting = ref(false);
 
+/** 批量评阅：仅桌面表格可勾选，已评阅行由 selectable 排除 */
+const tableRef = ref<TableInstance>();
+const selectedRows = ref<ReviewItem[]>([]);
+const batchRunning = ref(false);
+const batchProgress = ref("");
+
 const ERROR_LABELS: Record<string, string> = {
   CONCEPT_CONFUSION: "概念混淆",
   METHOD_MISSING: "方法缺失",
@@ -268,6 +323,13 @@ const ERROR_LABELS: Record<string, string> = {
 };
 
 const errorTypeLabel = (value: string) => ERROR_LABELS[value] ?? (value || "—");
+
+/** 请求层已统一提示的码（40300/40900/42900/50000/网络）不再重复弹 toast */
+const notifyFailure = (error: unknown, fallback: string) => {
+  const code = (error as { code?: number } | null)?.code;
+  if (typeof code === "number" && isGloballyNotified(code)) return;
+  ElMessage.error(describeError(error, fallback));
+};
 const queueEyebrow = computed(() =>
   statusFilter.value === "ALL" ? "全部评阅" : statusFilter.value === "REVIEWED" ? "评阅记录" : "评阅队列"
 );
@@ -323,6 +385,19 @@ const canSubmit = computed(
 const sourceText = (row: ReviewItem) =>
   (row.sources ?? []).map((source) => source.kpId).filter(Boolean).join(" / ") || "无引用";
 
+/** 评语快捷短语：对应通过、退回、引用存疑三种常见场景 */
+const COMMENT_TEMPLATES = [
+  "讲解准确，证据充分。",
+  "错因判断偏离，请重新生成。",
+  "引用页码与教材不符，请核对。"
+];
+
+/** 已有评语时另起一行追加，避免覆盖老师已经写好的内容 */
+const applyTemplate = (text: string) => {
+  if (isReviewed.value) return;
+  comment.value = comment.value ? `${comment.value}\n${text}` : text;
+};
+
 let loadSeq = 0;
 
 /** 切换状态筛选必须回到第 1 页，否则会先请求空页再回退 */
@@ -376,9 +451,7 @@ const openReview = async (row: ReviewItem) => {
     comment.value = detail?.reviewComment ?? "";
     if (detail?.reviewResult) result.value = detail.reviewResult;
   } catch (e) {
-    if (seq === openReviewSeq) {
-      ElMessage.error((e as Error).message || "评阅详情加载失败，请重试");
-    }
+    if (seq === openReviewSeq) notifyFailure(e, "评阅详情加载失败，请重试");
   }
 };
 
@@ -395,29 +468,180 @@ const onReviewClosed = () => {
   if (!drawerVisible.value) resetForm();
 };
 
-const submit = async () => {
-  if (!selected.value?.logPk || !canSubmit.value) return;
+/** 提交流程共用：advance=true 时提交成功后不关抽屉，直接打开本页下一条待评阅 */
+const submit = async (advance: boolean) => {
+  const row = selected.value;
+  if (!row?.logPk || !canSubmit.value || submitting.value) return;
+  const logPk = row.logPk;
+  const scoreValue = score.value as number;
+  const resultValue = result.value;
+  const resultLabel = resultValue === "PASS" ? "通过" : "退回";
+  // 评阅不可逆：先把后果讲清楚，老师点“再检查一下”就停在原表单
+  try {
+    await ElMessageBox.confirm(
+      `评分 ${scoreValue} 分 · 结论「${resultLabel}」。通过后学生立即可见该讲解的评阅结果；退回后学生需重新生成讲解。提交后不能修改或撤销。`,
+      "确认提交评阅？",
+      { confirmButtonText: "确认提交", cancelButtonText: "再检查一下", type: "warning" }
+    );
+  } catch {
+    return;
+  }
   submitting.value = true;
   try {
-    await submitReview(selected.value.logPk, {
-      score: score.value as number,
+    await submitReview(logPk, {
+      score: scoreValue,
       comment: comment.value.trim(),
-      result: result.value
+      result: resultValue
     });
-    ElMessage.success("评阅已提交");
-    drawerVisible.value = false;
+    ElMessage.success(
+      resultValue === "PASS" ? "已通过，学生现在能看到评阅结果" : "已退回，学生需要重新生成讲解"
+    );
+    // 先刷新队列，再按刷新后的 records 定位下一条，避免拿到已过期的行
     await load();
+    if (!advance) {
+      drawerVisible.value = false;
+      return;
+    }
+    const next = records.value.find(
+      (item) => item.reviewStatus === "PENDING" && item.logPk !== logPk
+    );
+    if (next) {
+      void openReview(next);
+      return;
+    }
+    ElMessage.info("本页已无待评阅，正在刷新队列");
+    await load();
+    drawerVisible.value = false;
   } catch (e) {
     if (e instanceof ApiError && e.code === 40900) {
-      ElMessage.warning("这条讲解已经评阅过了");
+      // 40900 已由请求层统一提示，这里只刷新队列，不再重复弹一次
       drawerVisible.value = false;
       await load();
     } else {
-      ElMessage.error((e as Error).message || "提交失败");
+      notifyFailure(e, "提交失败");
     }
   } finally {
     submitting.value = false;
   }
+};
+
+const onSelectionChange = (rows: ReviewItem[]) => {
+  selectedRows.value = rows;
+};
+
+/** 已评阅的行不参与批量，也避免“重新提交”触发 40900 */
+const canSelectRow = (row: ReviewItem) =>
+  row.reviewStatus === "PENDING" && typeof row.logPk === "number";
+
+const clearSelection = () => {
+  tableRef.value?.clearSelection();
+  selectedRows.value = [];
+};
+
+type BatchAction = "PASS" | "RETURN";
+/** 批量通过没有逐条打分入口，统一记 5 分并在确认文案里说明 */
+const BATCH_SCORE = 5;
+const BATCH_COMMENT_MAX = 200;
+
+/** 收集共同评语；取消返回 null，方便和“提交失败”区分 */
+const askBatchComment = async (action: BatchAction): Promise<string | null> => {
+  const actionLabel = action === "PASS" ? "通过" : "退回";
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `这 ${selectedRows.value.length} 条讲解会共用一条评语，学生会在评阅结果里看到。`,
+      `批量${actionLabel} · 填写共同评语`,
+      {
+        confirmButtonText: "下一步",
+        cancelButtonText: "取消",
+        inputType: "textarea",
+        inputPlaceholder: "例如：讲解准确，证据充分。",
+        inputValidator: (val: string) => {
+          const text = (val ?? "").trim();
+          if (!text) return "请先填写共同评语";
+          if (text.length > BATCH_COMMENT_MAX) return `评语不能超过 ${BATCH_COMMENT_MAX} 字`;
+          return true;
+        }
+      }
+    );
+    return value.trim();
+  } catch {
+    return null;
+  }
+};
+
+/** 批量评阅：无批量端点，只能逐条串行提交 */
+const runBatch = async (action: BatchAction) => {
+  if (batchRunning.value) return;
+  const rows = selectedRows.value.filter(
+    (row): row is ReviewItem & { logPk: number } => typeof row.logPk === "number"
+  );
+  if (!rows.length) {
+    ElMessage.warning("请先勾选待评阅的讲解");
+    return;
+  }
+  const actionLabel = action === "PASS" ? "通过" : "退回";
+  // 逐条评阅里“证据不全不能通过”，批量同样不能绕过
+  if (action === "PASS") {
+    const incomplete = rows.filter(
+      (row) => !(row.questionText ?? "").trim() || !(row.correctAnswer ?? "").trim()
+    );
+    if (incomplete.length) {
+      ElMessage.warning(
+        `所选 ${rows.length} 条中有 ${incomplete.length} 条缺少题干或参考答案，不能批量通过；请改用「批量退回」，或单条打开评阅说明原因。`
+      );
+      return;
+    }
+  }
+  const sharedComment = await askBatchComment(action);
+  if (sharedComment == null) return;
+  try {
+    await ElMessageBox.confirm(
+      action === "PASS"
+        ? `将逐条提交 ${rows.length} 条「通过」。批量通过统一记 ${BATCH_SCORE} 分，可在单条评阅中调整；通过后学生立即可见结果，提交后不能修改或撤销。`
+        : `将逐条提交 ${rows.length} 条「退回」。退回后学生需重新生成讲解；提交后不能修改或撤销。`,
+      `确认批量${actionLabel}？`,
+      { confirmButtonText: "确认提交", cancelButtonText: "再检查一下", type: "warning" }
+    );
+  } catch {
+    return;
+  }
+
+  let ok = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failureSamples: string[] = [];
+  batchRunning.value = true;
+  try {
+    for (const [index, row] of rows.entries()) {
+      batchProgress.value = `正在提交 ${index + 1}/${rows.length}`;
+      try {
+        await submitReview(row.logPk, {
+          score: BATCH_SCORE,
+          comment: sharedComment,
+          result: action
+        });
+        ok += 1;
+      } catch (e) {
+        if (e instanceof ApiError && e.code === 40900) {
+          // 已被他人评阅：请求层已统一提示，这里只计数，不重复刷屏
+          skipped += 1;
+          continue;
+        }
+        failed += 1;
+        reportError(e, "teacher-reviews.batch");
+        if (failureSamples.length < 3) {
+          failureSamples.push(`${row.userName || "学生"}：${describeError(e, "提交失败")}`);
+        }
+      }
+    }
+  } finally {
+    batchRunning.value = false;
+    batchProgress.value = "";
+  }
+  const summary = `成功 ${ok} 条，跳过 ${skipped} 条，失败 ${failed} 条`;
+  ElMessage.success(failureSamples.length ? `${summary}；失败原因：${failureSamples.join("；")}` : summary);
+  await load();
+  clearSelection();
 };
 
 onMounted(load);
@@ -427,9 +651,15 @@ onMounted(load);
 .page {
   max-width: var(--app-page-max);
 }
+/* B 层焦点卡：队列结论带用外层 24px + 近实底 + 高一档阴影（父层已模糊，卡内不再叠 backdrop-filter） */
 .review-brief {
-  border-radius: var(--app-radius-lg);
   margin-bottom: 16px;
+}
+.page .review-brief {
+  border-radius: var(--app-radius-2xl);
+  border-color: var(--app-hairline);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
 }
 .review-brief :deep(.el-card__body) {
   padding: var(--app-space-6);
@@ -461,6 +691,52 @@ onMounted(load);
 .table-card {
   overflow: hidden;
 }
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border-radius: var(--app-radius-md);
+  background: var(--app-surface-muted);
+}
+.batch-count {
+  color: var(--app-text);
+  font-size: var(--app-fs-sm);
+  font-weight: 600;
+}
+.batch-progress {
+  margin-left: auto;
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.tpl-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.tpl-label {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+}
+.tpl-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--app-primary);
+  font-size: var(--app-fs-xs);
+  cursor: pointer;
+}
+.tpl-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.tpl-btn:disabled {
+  color: var(--app-text-muted);
+  cursor: not-allowed;
+}
 .model {
   margin-right: 6px;
   color: var(--app-text-secondary);
@@ -478,6 +754,13 @@ onMounted(load);
 }
 .mobile-card {
   width: 100%;
+}
+/* C 层数据卡：手机列表 16px 圆角 + 发丝边 + 轻阴影，不再叠模糊 */
+.mobile-list .mobile-card {
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-hairline);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
 }
 .mobile-head,
 .mobile-foot {
@@ -501,6 +784,7 @@ onMounted(load);
   overflow: hidden;
 }
 .sources {
+  min-width: 0;
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
   overflow: hidden;
@@ -524,7 +808,7 @@ onMounted(load);
   color: var(--app-text);
   white-space: pre-wrap;
   background: var(--app-surface-muted);
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-inner);
   padding: 14px;
 }
 .review-sources {
@@ -559,11 +843,14 @@ onMounted(load);
   cursor: pointer;
   transition: background-color var(--app-dur-fast) var(--app-ease-standard),
     border-color var(--app-dur-fast) var(--app-ease-standard),
-    color var(--app-dur-fast) var(--app-ease-standard);
+    color var(--app-dur-fast) var(--app-ease-standard),
+    transform var(--app-dur-fast) var(--app-ease-standard);
 }
-.score-pill:hover {
-  border-color: var(--app-primary);
-  color: var(--app-primary);
+@media (hover: hover) and (pointer: fine) {
+  .score-pill:hover {
+    border-color: var(--app-primary);
+    color: var(--app-primary);
+  }
 }
 .score-pill.active {
   background: var(--app-primary);
@@ -573,6 +860,9 @@ onMounted(load);
 .score-pill:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: 2px;
+}
+.score-pill:active {
+  transform: scale(0.97);
 }
 .drawer-actions {
   display: flex;
@@ -586,8 +876,13 @@ onMounted(load);
 .mobile-only {
   display: none;
 }
-:deep(.el-drawer) {
-  max-width: 92vw;
+/* 底部 Sheet 抓手：仅手机渲染，纯装饰 */
+.sheet-grabber {
+  width: 40px;
+  height: 4px;
+  margin: -4px auto 14px;
+  border-radius: var(--app-radius-full);
+  background: var(--app-border-strong);
 }
 @media (max-width: 1024px) {
   .brief-stats {
@@ -602,8 +897,22 @@ onMounted(load);
   }
 }
 @media (max-width: 768px) {
-  :deep(.el-drawer) {
-    width: 92vw !important;
+  /* 手机输入字号 ≥16px，避免 iOS 聚焦时自动放大页面 */
+  .comment-input :deep(.el-textarea__inner) {
+    font-size: 16px;
+  }
+  .score-pill {
+    height: 44px;
+  }
+  .tpl-btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .drawer-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
   }
 }
 .head-actions {
@@ -627,6 +936,7 @@ onMounted(load);
 @media (max-width: 768px) {
   .export-date {
     height: 44px;
+    font-size: 16px;
   }
 }
 .result-group {
@@ -641,8 +951,8 @@ onMounted(load);
   margin-bottom: 10px;
 }
 .evidence-block {
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-lg);
   padding: 10px 12px;
   background: var(--app-surface-muted);
   margin-bottom: 10px;

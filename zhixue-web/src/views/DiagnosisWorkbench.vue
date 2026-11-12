@@ -20,7 +20,7 @@
 
     <div class="workspace-row">
       <div class="workspace-col">
-        <el-card>
+        <el-card class="upload-card">
           <template #header>
             <div class="card-head"><span>01 · 题目录入</span><span class="card-sub">图片识别或手动输入</span></div>
           </template>
@@ -325,6 +325,9 @@ import {
   MAX_MAPPING_TEXT_CHARS,
   isAnswerKeyText
 } from "../utils/diagnosisText";
+import { useStudyDataRefresh } from "../composables/useStudyData";
+import { clearSession } from "../utils/authSession";
+import { reportError } from "../utils/telemetry";
 
 const ERROR_TYPES = [
   { value: "CONCEPT_CONFUSION", label: "概念混淆" },
@@ -739,7 +742,7 @@ const redirectIfUnauthorized = (raw: unknown) => {
   const body = raw as { code?: number } | null;
   if (body?.code === 40100) {
     authExpired = true;
-    localStorage.removeItem("satoken");
+    clearSession();
     void router.replace("/login");
     return true;
   }
@@ -874,7 +877,7 @@ const openPractice = (question: Recommendation) => {
 
 const onPracticeCompleted = async () => {
   practiceVisible.value = false;
-  await loadRecommend();
+  // 推荐列表由 useStudyDataRefresh 统一刷新（练习提交时已广播），此处只负责关闭抽屉
 };
 
 const loadRecommend = async () => {
@@ -887,8 +890,9 @@ const loadRecommend = async () => {
       : { kpId: selectedKpId.value };
     const data = await getRecommendations({ ...params, courseId: DEFAULT_COURSE_ID });
     if (seq === recSeq) questions.value = data;
-  } catch {
-    // request.ts 已统一提示；推荐失败不影响讲解展示
+  } catch (error) {
+    // 推荐失败不影响讲解展示，但静默会让人误以为“本题没有同类练习”
+    reportError(error, "diagnosis.recommend");
   } finally {
     if (seq === recSeq) recommendLoading.value = false;
   }
@@ -953,6 +957,11 @@ onBeforeUnmount(() => {
   controller?.abort();
   stopPolling();
 });
+
+/** 练习/打卡完成后推荐层应重排（服务端按采纳与掌握度重新生成） */
+useStudyDataRefresh(() => {
+  if (logId.value) void loadRecommend();
+});
 </script>
 
 <style scoped>
@@ -962,7 +971,22 @@ onBeforeUnmount(() => {
   margin: 0 auto;
 }
 .page :deep(.el-card) {
+  border-radius: var(--app-radius-2xl);
   transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+/* B 层焦点玻璃卡（本屏唯一）：结果区外层 24px。
+   半透明填充依赖 .content 已有的模糊底，页面内不再叠 backdrop-filter。 */
+.page :deep(.el-card.explain-detail) {
+  border: 1px solid var(--app-glass-edge);
+  background:
+    linear-gradient(180deg, var(--app-glass-edge-hi), transparent 42%),
+    var(--app-glass-fill);
+  box-shadow:
+    inset 0 1px 0 var(--app-glass-hi),
+    var(--app-shadow-lg);
+}
+.page :deep(.el-card.explain-detail .el-card__body) {
+  padding: 20px 22px 22px;
 }
 /* 两栏：等价原 el-row(gutter=16)/el-col(12/12) 布局，列宽与间距保持不变 */
 .workspace-row {
@@ -1041,11 +1065,23 @@ onBeforeUnmount(() => {
 .ocr-upload {
   margin-bottom: 12px;
 }
-.ocr-upload :deep(.el-upload-dragger) {
-  padding: 18px 12px;
-  border-radius: var(--app-radius-sm);
+/* C 层材质：近实底 + 发丝虚线边 + 轻阴影（拖拽区仍是可读承载面） */
+.page .ocr-upload :deep(.el-upload-dragger) {
+  padding: 20px 14px;
+  border: 1px dashed var(--app-border);
+  border-radius: var(--app-radius-inner);
   background: var(--app-surface-muted);
-  border-color: var(--app-border);
+  box-shadow: var(--app-shadow-xs);
+  transition: border-color var(--app-dur-base) var(--app-ease-standard),
+    background-color var(--app-dur-base) var(--app-ease-standard),
+    box-shadow var(--app-dur-base) var(--app-ease-standard);
+}
+@media (hover: hover) and (pointer: fine) {
+  .page .ocr-upload :deep(.el-upload-dragger:hover) {
+    border-color: var(--app-primary);
+    background: color-mix(in srgb, var(--app-primary) 4%, var(--app-surface));
+    box-shadow: var(--app-shadow-sm);
+  }
 }
 .upload-title {
   font-size: var(--app-fs-sm);
@@ -1074,16 +1110,6 @@ onBeforeUnmount(() => {
   height: 6px;
   border-radius: 50%;
   background: var(--app-primary);
-  animation: ocr-pulse 1.1s ease-in-out infinite;
-}
-@keyframes ocr-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
 }
 .ocr-alert {
   margin-bottom: 10px;
@@ -1154,7 +1180,7 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--app-success) 35%, var(--app-border));
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-inner);
   background: color-mix(in srgb, var(--app-success) 8%, var(--app-surface));
 }
 .done-copy {
@@ -1299,7 +1325,7 @@ onBeforeUnmount(() => {
 .layer-chip {
   padding: var(--app-space-3);
   border: 1px solid var(--app-hairline);
-  border-radius: var(--app-radius-md);
+  border-radius: var(--app-radius-inner);
   background: var(--app-surface-muted);
 }
 .layer-chip span {
@@ -1367,8 +1393,21 @@ onBeforeUnmount(() => {
   }
 }
 @media (max-width: 768px) {
+  .page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .workspace-row {
     row-gap: 12px;
+  }
+  .page :deep(.el-card.explain-detail .el-card__body) {
+    padding: 16px;
+  }
+  /* 手机输入字号 ≥16px：避免 iOS 聚焦自动放大 */
+  .page :deep(.el-input__inner),
+  .page :deep(.el-textarea__inner),
+  .page :deep(.el-select__wrapper) {
+    font-size: 16px;
   }
   .layer-preview {
     grid-template-columns: 1fr;

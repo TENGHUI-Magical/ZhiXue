@@ -125,8 +125,14 @@
               {{ statusLabel(row.status) }}
             </el-tag>
           </div>
-          <div class="mobile-kp">{{ row.kpId || "—" }} {{ row.kpName || "" }}</div>
-          <div class="mobile-text">{{ row.correctedText || row.ocrText || "（未校正）" }}</div>
+          <div class="mobile-kp">
+            <span class="mobile-label">知识点</span>
+            <span class="mobile-value">{{ row.kpId || "—" }} {{ row.kpName || "" }}</span>
+          </div>
+          <div class="mobile-text">
+            <span class="mobile-label">题干</span>
+            <span class="mobile-value">{{ row.correctedText || row.ocrText || "（未校正）" }}</span>
+          </div>
           <ReviewStatus :result="row.reviewResult" :comment="row.reviewComment" />
           <div class="mobile-foot">
             <el-tag v-if="row.errorType" size="small" type="warning">
@@ -166,7 +172,7 @@
       v-model="drawerVisible"
       :q-id="activeQId"
       :kp-id="activeKpId"
-      @completed="drawerVisible = false"
+      @completed="onPracticeCompleted"
     />
 
     <el-drawer
@@ -196,6 +202,8 @@ import PageState from "../components/PageState.vue";
 import QuestionPracticeDrawer from "../components/QuestionPracticeDrawer.vue";
 import ReviewStatus from "../components/ReviewStatus.vue";
 import { getErrorRecord, listErrorRecords, type ErrorRecordItem } from "../api/errorBook";
+import { useStudyDataRefresh } from "../composables/useStudyData";
+import { reportError } from "../utils/telemetry";
 import { getKnowledgeGraph } from "../api/course";
 import { DEFAULT_COURSE_ID } from "../api/diagnosis";
 import {
@@ -339,10 +347,22 @@ const loadKpOptions = async () => {
       kpId: node.id ?? "",
       name: node.name ?? ""
     }));
-  } catch {
-    // 知识点筛选是增强项，加载失败不阻断错题列表
+  } catch (error) {
+    // 知识点筛选是增强项，加载失败不阻断错题列表；但要留下可定位的痕迹
+    reportError(error, "error-book.loadKpOptions");
   }
 };
+
+/** 抽屉关闭后刷新：练习会写 practice 记录并可能更新错题状态，列表不能停留在旧值 */
+const onPracticeCompleted = () => {
+  drawerVisible.value = false;
+  void load();
+};
+
+/** 其它页面（诊断台/找题/计划）完成练习时同样回流，避免“练完回来还是旧列表” */
+useStudyDataRefresh(() => {
+  if (!drawerVisible.value) void load();
+});
 
 onMounted(() => {
   syncStatusFromQuery();
@@ -367,34 +387,61 @@ watch(
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: var(--app-space-5);
 }
 .page-head h2 {
   margin: 0;
+  letter-spacing: -0.02em;
 }
 .sub {
   margin: 6px 0 0;
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
 }
-.filter-card {
+/* C 层：筛选器是阅读承载面，近实底 + 发丝边 + 轻阴影 */
+.page .filter-card {
   margin-bottom: 16px;
+  border-radius: var(--app-radius-inner);
+  border-color: var(--app-hairline);
+  box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-card-hi);
+}
+.page .filter-card :deep(.el-card__body) {
+  padding: 12px;
 }
 .filters {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+.filters :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.page .filter-card :deep(.el-select__wrapper) {
+  border-radius: var(--app-radius-sm);
+  background: var(--app-surface-muted);
+  box-shadow: inset 0 0 0 1px var(--app-hairline);
 }
 .filter {
   width: 220px;
 }
-.table-card {
+.page .table-card {
+  border-radius: var(--app-radius-inner);
+  border-color: var(--app-hairline);
+  box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-card-hi);
   overflow: hidden;
+}
+.table-card :deep(.el-table th.el-table__cell) {
+  background: var(--app-surface-muted);
 }
 .pager {
   display: flex;
   justify-content: flex-end;
   padding-top: 14px;
+}
+.pager :deep(.el-pager li),
+.pager :deep(.btn-prev),
+.pager :deep(.btn-next) {
+  border-radius: var(--app-radius-sm);
 }
 .pending-link {
   color: var(--app-text-muted);
@@ -415,8 +462,18 @@ watch(
   flex-direction: column;
   gap: 12px;
 }
-.mobile-card {
+/* C 层子卡：18 外层里的 16 圆角，组内行距统一 12 */
+.page .mobile-card {
   width: 100%;
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-hairline);
+  box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-card-hi);
+}
+.page .mobile-card :deep(.el-card__body) {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
 }
 .mobile-head,
 .mobile-foot {
@@ -430,16 +487,36 @@ watch(
   color: var(--app-text);
   font-size: var(--app-fs-sm);
 }
-.mobile-kp {
-  margin-top: 8px;
+/* 每行“标签 + 值”：固定标签列，长题干在值列内部换行 */
+.mobile-kp,
+.mobile-text {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 0;
+}
+.mobile-label {
+  color: var(--app-text-muted);
+  font-size: var(--app-fs-xs);
+  line-height: 1.7;
+}
+.mobile-value {
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
 }
-.mobile-text {
-  margin: 8px 0 12px;
-  line-height: 1.6;
+.mobile-text .mobile-value {
   color: var(--app-text);
-  word-break: break-word;
+}
+.mobile-foot {
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-hairline);
+}
+.page .mobile-card :deep(.review-status) {
+  margin-top: 0;
 }
 .desktop-only {
   display: block;
@@ -462,6 +539,33 @@ watch(
   }
   .mobile-only {
     display: flex;
+  }
+}
+@media (max-width: 768px) {
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filters :deep(.el-button) {
+    width: 100%;
+  }
+  /* iOS 聚焦缩放：输入类字号不小于 16px；筛选控件保持 44 高 */
+  .page .filter-card :deep(.el-select__wrapper) {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .page .filter-card :deep(.el-select__input) {
+    font-size: 16px;
+  }
+  .pager {
+    justify-content: center;
+  }
+  /* 页数多时允许换行，避免 44px 分页按钮把页面撑出横向滚动 */
+  .pager :deep(.el-pagination) {
+    flex-wrap: wrap;
+    justify-content: center;
+    row-gap: 6px;
+    white-space: normal;
   }
 }
 </style>

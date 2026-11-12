@@ -2,9 +2,11 @@
   <el-drawer
     v-model="visible"
     title="题目练习"
-    size="560px"
+    :size="isMobile ? '92%' : '480px'"
+    :direction="isMobile ? 'btt' : 'rtl'"
     destroy-on-close
     class="practice-drawer"
+    :class="{ 'glass-sheet': isMobile }"
     append-to-body
     @closed="onClosed"
   >
@@ -26,6 +28,16 @@
         </div>
         <p class="result-reason">{{ reasonText }}</p>
         <p class="result-progress">{{ progressText }}</p>
+        <div class="result-mastery" role="status" aria-live="polite">
+          <template v-if="masteryLoading">正在同步掌握度…</template>
+          <template v-else-if="masteryValue != null">
+            该知识点当前掌握度 <strong>{{ pct(masteryValue) }}</strong>（服务端实时聚合）
+          </template>
+          <template v-else>本次作答已计入掌握度，可在学情画像查看最新统计</template>
+        </div>
+        <el-button class="result-link" link type="primary" @click="goPortrait">
+          查看学情画像
+        </el-button>
       </div>
       <template v-else-if="detail">
         <div class="meta">
@@ -195,6 +207,11 @@ import {
   submitPractice,
   type Recommendation
 } from "../api/diagnosis";
+import { getPortrait } from "../api/portrait";
+import { describeError, isGloballyNotified } from "../api/errors";
+import { notifyStudyDataChanged } from "../composables/useStudyData";
+import { useIsMobile } from "../composables/useBreakpoint";
+import { pct } from "../utils/format";
 import { checkinPlan } from "../api/plan";
 
 interface Props {
@@ -214,6 +231,8 @@ const props = withDefaults(defineProps<Props>(), {
 });
 
 const router = useRouter();
+/** 手机（<768）：抽屉改为底部上滑 Sheet，方向/尺寸随断点切换 */
+const isMobile = useIsMobile();
 
 const emit = defineEmits<{
   (e: "update:modelValue", value: boolean): void;
@@ -256,6 +275,9 @@ const submissionResult = ref<{
   errorType?: string | null;
   costSeconds: number | null;
 } | null>(null);
+/** 提交后回读的掌握度（契约 /api/practices 不回传 mastery，只能读实时聚合） */
+const masteryValue = ref<number | null>(null);
+const masteryLoading = ref(false);
 
 const ERROR_TYPE_OPTIONS = [
   { value: "CONCEPT_CONFUSION", label: "概念混淆" },
@@ -324,6 +346,8 @@ const clearFields = () => {
   selfErrorType.value = "";
   submissionResult.value = null;
   completedResult.value = null;
+  masteryValue.value = null;
+  masteryLoading.value = false;
   nextQuestion.value = null;
   nextLoading.value = false;
   timingUnavailable.value = false;
@@ -360,6 +384,37 @@ const goExplain = async () => {
     query: { qId: currentQId.value, kpId, autoExplain: "1" }
   });
   visible.value = false;
+};
+
+/**
+ * 提交后回读画像：契约 POST /api/practices 只回 practiceId/isCorrect/costSeconds，
+ * 没有 mastery 字段，前端不能自己算增量；这里读服务端实时聚合值，
+ * 读不到（知识点不在薄弱列表 / 画像为空）就只提示“已计入”，不编造数字。
+ */
+const loadMastery = async (kpId: string) => {
+  masteryLoading.value = true;
+  masteryValue.value = null;
+  try {
+    const portrait = await getPortrait({ silent: true });
+    const hit = portrait?.weakestKps?.find((item) => item.kpId === kpId);
+    masteryValue.value = typeof hit?.mastery === "number" ? hit.mastery : null;
+  } catch {
+    masteryValue.value = null;
+  } finally {
+    masteryLoading.value = false;
+  }
+};
+
+/** 请求层已统一提示的码（40300/40900/42900/50000/网络）不再重复弹 toast */
+const notifyFailure = (error: unknown, fallback: string) => {
+  const code = (error as { code?: number } | null)?.code;
+  if (typeof code === "number" && isGloballyNotified(code)) return;
+  ElMessage.error(describeError(error, fallback));
+};
+
+const goPortrait = () => {
+  visible.value = false;
+  void router.push("/portrait");
 };
 
 const prepareNext = async (kpId: string) => {
@@ -439,7 +494,7 @@ const reveal = async () => {
     revealed.value = true;
   } catch (e) {
     if (seq !== revealSeq) return;
-    ElMessage.error((e as Error).message || "参考答案加载失败");
+    notifyFailure(e, "参考答案加载失败");
   } finally {
     if (seq === revealSeq) answerLoading.value = false;
   }
@@ -491,6 +546,8 @@ const submit = async (isCorrect?: boolean) => {
         // 计划打卡契约暂未返回服务端耗时，结果态不展示前端自算值。
         costSeconds: null
       };
+      notifyStudyDataChanged({ type: "checkin", kpId, isCorrect: actual });
+      void loadMastery(kpId);
       return;
     }
     const result = await submitPractice({
@@ -522,9 +579,12 @@ const submit = async (isCorrect?: boolean) => {
       errorType,
       costSeconds: result.costSeconds ?? null
     };
+    // 掌握度 / 错题本 / 今日建议 / 周计划都由服务端聚合，写完广播一次让订阅页重拉
+    notifyStudyDataChanged({ type: "practice", kpId, isCorrect: actual });
+    void loadMastery(kpId);
     void prepareNext(kpId);
   } catch (e) {
-    ElMessage.error((e as Error).message || "提交失败");
+    notifyFailure(e, "提交失败");
   } finally {
     submitting.value = false;
   }
@@ -551,10 +611,11 @@ const recordOnly = async () => {
       answered: false
     });
     ElMessage.success("已记录进度（未验证）");
+    notifyStudyDataChanged({ type: "checkin", kpId: detail.value?.kpId || props.kpId });
     emit("completed", { isCorrect: false, verified: false });
     visible.value = false;
   } catch (e) {
-    ElMessage.error((e as Error).message || "记录失败");
+    notifyFailure(e, "记录失败");
   } finally {
     submitting.value = false;
   }
@@ -664,6 +725,19 @@ watch(
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
 }
+.result-mastery {
+  margin-top: 6px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-fs-sm);
+  text-align: center;
+}
+.result-mastery strong {
+  color: var(--app-text);
+  font-variant-numeric: tabular-nums;
+}
+.result-link {
+  margin-top: 2px;
+}
 .drawer-footer-actions {
   width: 100%;
   margin-top: 0;
@@ -694,9 +768,24 @@ watch(
 :deep(.el-drawer) {
   max-width: 92vw;
 }
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   :deep(.el-drawer) {
     width: 92vw !important;
+  }
+  /* 底部 Sheet 必须全宽，不受上面的 92vw 兜底限制 */
+  :deep(.el-drawer.glass-sheet) {
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+  .stem {
+    font-size: 16px;
+  }
+  /* 手机输入字号 ≥16px：避免 iOS 聚焦自动放大 */
+  :deep(.el-textarea__inner) {
+    font-size: 16px;
+  }
+  :deep(.el-drawer__footer) {
+    padding: 10px 16px 12px;
   }
 }
 </style>

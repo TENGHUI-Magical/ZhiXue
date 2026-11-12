@@ -241,9 +241,17 @@ onMounted(load);
   gap: 8px;
   flex-wrap: wrap;
 }
+/* B 层焦点卡（每屏 1 张）：外层 24px + 近实底 + 高一档阴影。
+   父层 .content 已有 backdrop-filter，卡内禁止再写模糊，避免嵌套模糊掉帧。
+   外边距留在低优先级规则里，矮视口的紧凑媒体查询仍可覆盖。 */
 .overview-brief {
-  border-radius: var(--app-radius-lg);
   margin-bottom: 16px;
+}
+.page .overview-brief {
+  border-radius: var(--app-radius-2xl);
+  border-color: var(--app-hairline);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-md);
 }
 .overview-brief :deep(.el-card__body) {
   padding: var(--app-space-6);
@@ -288,9 +296,12 @@ onMounted(load);
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
+/* C 层阅读承载面：近实底 + 发丝边 + 轻阴影，子卡 18px 与外层 24px 形成同心层级 */
 .section-card {
-  border-radius: var(--app-radius-md);
   margin-bottom: 12px;
+}
+.page .section-card {
+  border-radius: var(--app-radius-inner);
 }
 .section-head {
   display: flex;
@@ -304,11 +315,21 @@ onMounted(load);
 }
 .link-btn {
   border: none;
+  border-radius: var(--app-radius-sm);
   background: transparent;
   color: var(--app-primary);
   font: inherit;
   font-size: var(--app-fs-sm);
   cursor: pointer;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  transition: background-color var(--app-dur-fast) var(--app-ease-standard);
+}
+@media (hover: hover) and (pointer: fine) {
+  .link-btn:hover {
+    background: var(--app-surface-muted);
+    color: var(--app-primary-strong);
+  }
 }
 .link-btn:focus-visible {
   outline: 2px solid var(--app-primary);
@@ -487,6 +508,7 @@ onMounted(load);
     display: inline-flex;
     align-items: center;
     padding: 0 4px;
+    margin: 0;
   }
   .stat-row {
     grid-template-columns: 1fr;

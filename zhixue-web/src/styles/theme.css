@@ -59,6 +59,12 @@ html[data-theme="glass"] {
   --app-wall-2: #b9c9e3;
   --app-wall-3: #cfdae9;
   --app-wall-4: #a9c6dc;
+  /* 环境光斑新增两色（低饱和）：极光青 / 暖阳金，避免只有蓝灰一种气团 */
+  --app-wall-5: #8fd3d8;
+  --app-wall-6: #e8c48a;
+  /* A 层玻璃：填充 + 镜面边（浅色：白玻璃） */
+  --app-glass-fill: rgba(255, 255, 255, 0.72);
+  --app-glass-edge-hi: rgba(255, 255, 255, 0.45);
 }
 
 /* D · 液态玻璃（深色）：石墨蓝黑 + 低饱和壁纸 */
@@ -106,6 +112,11 @@ html[data-theme="glass-dark"] {
   --app-wall-2: #26365e;
   --app-wall-3: #1d2a44;
   --app-wall-4: #173246;
+  --app-wall-5: #14505c;
+  --app-wall-6: #6b4b1f;
+  /* A 层玻璃：深色更暗更厚，保持石墨蓝黑层次 */
+  --app-glass-fill: rgba(18, 26, 40, 0.72);
+  --app-glass-edge-hi: rgba(255, 255, 255, 0.12);
 }
 
 :root {
@@ -115,6 +126,10 @@ html[data-theme="glass-dark"] {
   --app-radius-md: 12px;
   --app-radius-lg: 16px;
   --app-radius-xl: 16px;
+  /* 沉浸光感：外层大容器 24/28，内层子卡 18（内 = 外 − padding 的同心关系） */
+  --app-radius-2xl: 24px;
+  --app-radius-3xl: 28px;
+  --app-radius-inner: 18px;
   --app-radius: 12px;
   --app-radius-pill: 999px;
   --app-radius-full: 999px;
@@ -135,13 +150,13 @@ html[data-theme="glass-dark"] {
   /* 三层高度（V1.1 §3.5）：卡片需真实浮起，否则整页"平铺"。
      旧值 alpha 仅 0.04–0.08，浅色底上几乎不可见，是页面发平的直接原因。 */
   --app-shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.04);
-  --app-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04), 0 5px 14px -8px rgba(16, 24, 40, 0.14);
-  --app-shadow-md: 0 1px 2px rgba(16, 24, 40, 0.05), 0 14px 32px -16px rgba(16, 24, 40, 0.22);
-  --app-shadow-lg: 0 2px 4px rgba(16, 24, 40, 0.05), 0 24px 56px -20px rgba(16, 24, 40, 0.26);
-  --app-shadow-hover: 0 1px 2px rgba(16, 24, 40, 0.05), 0 16px 36px -16px rgba(16, 24, 40, 0.24);
+  /* --app-shadow-sm/md/lg/hover 由上方各主题块提供（特异性更高），此处不再重复声明 */
   --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-primary) 22%, transparent);
   --app-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --app-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  /* 弹簧阻尼：卡片/按钮用 spring，弹层/抽屉用 drawer（无过冲回弹） */
+  --app-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --app-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --app-dur-fast: 120ms;
   --app-dur-base: 180ms;
   --app-dur-slow: 260ms;
@@ -329,38 +344,11 @@ a {
   }
 }
 
+/* 卡片/表格/按钮的外观归 glass.css（选择器带 html[data-theme]，特异性更高）；
+   这里只保留不依赖主题的过渡，避免重复规则白占体积。 */
 .el-card {
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-lg);
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-sm);
   transition: box-shadow var(--app-dur-base) var(--app-ease-standard),
     border-color var(--app-dur-base) var(--app-ease-standard);
-}
-
-/* 卡片层级（V1.1 §3.5）：同页只允许一张 is-raised，其余为默认档。
-   层级靠"高度 + 内距 + 标题字号"三件事共同表达，不靠颜色。 */
-.el-card.is-raised {
-  box-shadow: var(--app-shadow-md);
-}
-.el-card.is-raised .el-card__body {
-  padding: var(--app-space-6);
-}
-
-.el-card__header {
-  border-bottom: 1px solid var(--app-divider);
-  color: var(--app-text);
-  font-weight: 600;
-  /* 内边距归 glass.css 单一来源（14px/16px），此处不再声明，避免被高特异性规则静默覆盖 */
-}
-
-.el-button {
-  border-radius: var(--app-radius-sm);
-  font-weight: 500;
-  transition: background-color var(--app-dur-fast) var(--app-ease-standard),
-    border-color var(--app-dur-fast) var(--app-ease-standard),
-    color var(--app-dur-fast) var(--app-ease-standard),
-    box-shadow var(--app-dur-fast) var(--app-ease-standard);
 }
 
 .el-button:focus-visible,
@@ -369,40 +357,8 @@ a {
   box-shadow: var(--app-focus-ring);
 }
 
-.el-table {
-  --el-table-header-bg-color: var(--app-surface-muted);
-  --el-table-row-hover-bg-color: color-mix(in srgb, var(--app-primary) 4%, var(--app-surface));
-  --el-table-border-color: var(--app-border);
-  --el-table-text-color: var(--app-text);
-  --el-table-header-text-color: var(--app-text-secondary);
-  border-radius: var(--app-radius-md);
-}
-
-.el-table th.el-table__cell {
-  font-weight: 500;
-  font-size: var(--app-fs-xs);
-}
-
 .el-table td.el-table__cell {
   font-size: var(--app-fs-sm);
-}
-
-.el-tag {
-  border-radius: var(--app-radius-pill);
-}
-
-.el-drawer {
-  background: var(--app-surface);
-}
-
-.el-dialog {
-  border-radius: var(--app-radius-xl);
-  box-shadow: var(--app-shadow-lg);
-}
-
-.el-pagination {
-  --el-pagination-button-bg-color: transparent;
-  --el-pagination-hover-color: var(--app-primary);
 }
 
 .stat-card {

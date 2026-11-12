@@ -67,13 +67,28 @@ if (update) {
   process.exit(0)
 }
 
-let ceilings = {}
+let ceilings
 try {
   ceilings = JSON.parse(fs.readFileSync(ceilingsPath, 'utf8'))
-} catch {
-  fs.writeFileSync(ceilingsPath, JSON.stringify(metrics, null, 2) + '\n')
-  console.log(`首次运行，已记录上限：${ceilingsPath}`)
-  process.exit(0)
+} catch (error) {
+  // 棘轮上限是提交进仓库的“合同”，不能在读取失败时自动写回并 exit 0：
+  // 那会让配置损坏 / 文件缺失 / JSON 语法错误的构建全部变绿，等于门禁失效。
+  const reason = error instanceof Error ? error.message : String(error)
+  console.error('✗ 读取体积上限失败：' + ceilingsPath)
+  console.error('  ' + reason)
+  console.error('  若确属首次建立基线，请显式运行：node perf/bench/bundle-budget.mjs --update')
+  process.exit(1)
+}
+
+const REQUIRED_KEYS = ['totalJsGzip', 'totalCssGzip', 'largestJsGzip', 'largestCssGzip']
+const invalidKeys = REQUIRED_KEYS.filter((key) => {
+  const value = ceilings?.[key]
+  return typeof value !== 'number' || !Number.isFinite(value) || value <= 0
+})
+if (invalidKeys.length > 0) {
+  console.error('✗ 体积上限配置不完整或非法：' + invalidKeys.join(', '))
+  console.error('  修正 perf/bench/ceilings.json 后重试（不要留空值，否则该指标等于不设限）')
+  process.exit(1)
 }
 
 const failures = []

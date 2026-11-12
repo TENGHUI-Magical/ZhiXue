@@ -181,6 +181,7 @@ import PageState from "../components/PageState.vue";
 import ThemeIcon from "../components/ThemeIcon.vue";
 import { THEME_OPTIONS, useTheme } from "../composables/useTheme";
 import { api } from "../api/request";
+import { clearSession, getUser, saveUser } from "../utils/authSession";
 import { getPortrait, type Portrait } from "../api/portrait";
 import { reportError } from "../utils/telemetry";
 import { pct } from "../utils/format";
@@ -223,13 +224,9 @@ const roleLabel = computed(() => {
 });
 
 const cacheProfile = () => {
-  const raw = localStorage.getItem("zhixue_user");
-  if (!raw) return;
-  try {
-    profile.value = JSON.parse(raw) as MeUser;
-  } catch {
-    // 缓存损坏时等待接口返回
-  }
+  const cached = getUser();
+  // 缓存同时给 userId/username/realName/role，缺字段的旧缓存不直接渲染
+  if (cached && cached.role && cached.userId) profile.value = cached as MeUser;
 };
 
 let loadSeq = 0;
@@ -243,7 +240,7 @@ const load = async () => {
     const me = await api.get<MeUser>("/api/auth/me", undefined, { silent: true });
     if (seq !== loadSeq) return;
     profile.value = me;
-    localStorage.setItem("zhixue_user", JSON.stringify(me));
+    saveUser(me as MeUser);
     if (me.role === "STUDENT") {
       try {
         // 学习概览卡有独立 el-alert 内联位，首屏失败不再叠加全局 toast
@@ -277,8 +274,7 @@ const logout = async () => {
   } catch {
     // 登出失败也要清本地态
   } finally {
-    localStorage.removeItem("satoken");
-    localStorage.removeItem("zhixue_user");
+    clearSession();
     await router.replace("/login");
   }
 };
@@ -307,6 +303,16 @@ onMounted(() => {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   gap: 16px;
+}
+/* C 阅读承载面：账号 / 学习 / 安全 / 快捷入口为近实底 + 发丝边，外层大容器 24px */
+.el-card.identity,
+.el-card.learning-card,
+.el-card.security-card,
+.el-card.quick-card {
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-2xl);
+  background: color-mix(in srgb, var(--app-surface) 97%, transparent);
+  box-shadow: var(--app-shadow-sm);
 }
 .identity {
   display: flex;
@@ -418,7 +424,14 @@ onMounted(() => {
 }
 .learning-stats {
   display: flex;
-  gap: var(--app-space-8);
+  gap: var(--app-space-3);
+}
+/* 子卡 18px：学习概览的三块数字各自成面，避免在大卡里"飘" */
+.learning-stats > div {
+  padding: 8px 12px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-inner);
+  background: var(--app-surface-muted);
 }
 .learning-stats span {
   display: block;
@@ -449,8 +462,16 @@ onMounted(() => {
   font-size: var(--app-fs-xs);
 }
 /* 外观：三档卡片选择器（桌面三列 / 移动端单列），与顶部切换器共享同一份偏好状态 */
-.appearance-card {
+/* B 焦点玻璃卡（本屏仅此 1 张）：半透明磨砂观感 + 顶部高光边 + 同心圆角。
+   .content 已有一层 backdrop-filter，卡内不再叠加模糊，只靠半透明实底透出环境光。 */
+.el-card.appearance-card {
   grid-column: 1 / -1;
+  border: 1px solid color-mix(in srgb, var(--app-primary) 18%, var(--app-hairline));
+  border-radius: var(--app-radius-2xl);
+  background:
+    linear-gradient(180deg, var(--app-glass-edge-hi), transparent 46%),
+    color-mix(in srgb, var(--app-surface-raised) 84%, transparent);
+  box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-glass-edge-hi);
 }
 .appearance-list {
   display: grid;
@@ -461,31 +482,39 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 56px;
   padding: 12px 14px;
   border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
-  background: var(--app-surface);
+  border-radius: var(--app-radius-inner);
+  background: color-mix(in srgb, var(--app-surface) 82%, transparent);
   color: var(--app-text-secondary);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--app-dur-fast) var(--app-ease-standard),
-    background-color var(--app-dur-fast) var(--app-ease-standard);
+  transition: transform var(--app-dur-fast) var(--app-ease-spring),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    background-color var(--app-dur-fast) var(--app-ease-standard),
+    box-shadow var(--app-dur-fast) var(--app-ease-standard);
 }
 .appearance-item:hover {
-  border-color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
   color: var(--app-text);
+  box-shadow: var(--app-shadow-sm);
+}
+.appearance-item:active {
+  transform: scale(0.97);
 }
 .appearance-item:focus-visible {
   outline: 2px solid var(--app-primary);
   outline-offset: 2px;
 }
 .appearance-item.is-active {
-  border-color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 46%, var(--app-border));
   /* 用 primary-soft 而非 5% color-mix：深色下 5% 蓝叠 #121a28 几乎看不出选中底，
      而 primary-soft 已是双主题标定好的值（浅 10% / 深 16%） */
   background: var(--app-primary-soft);
   color: var(--app-primary);
+  box-shadow: inset 0 1px 0 var(--app-glass-edge-hi);
 }
 .ap-copy {
   display: flex;
@@ -533,14 +562,23 @@ html[data-theme] .quick-link {
   gap: var(--app-space-3);
   text-align: left;
   white-space: normal;
-  border: 1px solid var(--app-border);
-  border-radius: var(--app-radius-md);
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-inner);
   background: var(--app-surface-muted);
   color: var(--app-text);
+  transition: transform var(--app-dur-fast) var(--app-ease-spring),
+    background-color var(--app-dur-fast) var(--app-ease-standard),
+    border-color var(--app-dur-fast) var(--app-ease-standard),
+    box-shadow var(--app-dur-fast) var(--app-ease-standard);
 }
 html[data-theme] .quick-link:hover {
-  border-color: var(--app-primary);
+  border-color: color-mix(in srgb, var(--app-primary) 40%, var(--app-border));
   background: color-mix(in srgb, var(--app-primary) 5%, var(--app-surface));
+  box-shadow: var(--app-shadow-sm);
+}
+/* 提一级特异性，压过 glass.css 的 .el-button 按压 0.985，统一为 0.97 */
+html[data-theme] .quick-links .quick-link.el-button:active {
+  transform: scale(0.97);
 }
 .quick-link .ql-no {
   width: 26px;
@@ -575,9 +613,19 @@ html[data-theme] .quick-link:hover {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
 }
+@media (hover: hover) and (pointer: fine) {
+  .appearance-item:hover,
+  html[data-theme] .quick-link:hover {
+    transform: translateY(-1px);
+  }
+}
 @media (max-width: 768px) {
   .profile-grid {
     grid-template-columns: 1fr;
+  }
+  /* 手机：B 卡退化为半透明实底，文字对比度优先 */
+  .el-card.appearance-card {
+    background: color-mix(in srgb, var(--app-surface) 96%, transparent);
   }
   .appearance-list {
     grid-template-columns: 1fr;
@@ -587,8 +635,11 @@ html[data-theme] .quick-link:hover {
     gap: var(--app-space-4);
   }
   .learning-stats {
-    gap: var(--app-space-4);
+    gap: var(--app-space-2);
     justify-content: space-between;
+  }
+  .learning-stats > div {
+    padding: 8px 10px;
   }
   .quick-links {
     grid-template-columns: 1fr;

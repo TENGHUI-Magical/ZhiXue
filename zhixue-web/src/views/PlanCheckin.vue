@@ -170,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import PageState from "../components/PageState.vue";
@@ -183,6 +183,7 @@ import {
   type Recommendation
 } from "../api/diagnosis";
 import { generatePlans, listPlans, type PlanItem, type StudyPlan } from "../api/plan";
+import { useStudyDataRefresh } from "../composables/useStudyData";
 
 const router = useRouter();
 const weekStartDate = ref(mondayOf(new Date()));
@@ -288,21 +289,42 @@ const layerLabel = (layer?: string) => {
 };
 
 let planReqSeq = 0;
+/** 同周并发刷新合并成一次请求：提交广播与关抽屉回执在同一 tick 触发时只发一个 GET */
+let plansInFlight: Promise<void> | null = null;
+let plansInFlightKey = "";
 
-const loadPlans = async () => {
-  const seq = ++planReqSeq;
-  loading.value = true;
-  error.value = "";
-  try {
-    const data = await listPlans(weekStart.value, weekEnd.value);
-    if (seq !== planReqSeq) return; // 快速切周时丢弃旧响应
-    plans.value = data;
-  } catch (e) {
-    if (seq !== planReqSeq) return;
-    error.value = (e as Error).message || "计划加载失败";
-  } finally {
-    if (seq === planReqSeq) loading.value = false;
+const loadPlans = (): Promise<void> => {
+  // 直接重拉时取消已排队的尾沿刷新，避免同一次变更发两次 GET
+  if (plansRefreshTimer !== null) {
+    window.clearTimeout(plansRefreshTimer);
+    plansRefreshTimer = null;
   }
+  const key = `${weekStart.value}|${weekEnd.value}`;
+  if (plansInFlight && plansInFlightKey === key) return plansInFlight;
+  plansInFlightKey = key;
+  const run = (async () => {
+    const seq = ++planReqSeq;
+    loading.value = true;
+    error.value = "";
+    try {
+      const data = await listPlans(weekStart.value, weekEnd.value);
+      if (seq !== planReqSeq) return; // 快速切周时丢弃旧响应
+      plans.value = data;
+    } catch (e) {
+      if (seq !== planReqSeq) return;
+      error.value = (e as Error).message || "计划加载失败";
+    } finally {
+      if (seq === planReqSeq) loading.value = false;
+    }
+  })();
+  const settled = run.finally(() => {
+    if (plansInFlight === settled) {
+      plansInFlight = null;
+      plansInFlightKey = "";
+    }
+  });
+  plansInFlight = settled;
+  return settled;
 };
 
 const generate = async () => {
@@ -353,9 +375,23 @@ const onPlanNext = async () => {
   planKpId.value = next.kpId;
 };
 
-const onPlanCheckinCompleted = async () => {
+/**
+ * 关抽屉后延迟一次计划重拉：
+ * 1) 打卡/记录进度的写操作先广播，聚合结果落库有毫秒级延迟，立刻重拉可能读到旧周进度；
+ * 2) 提交广播与关抽屉回执可能同 tick 触发，用尾沿计时器合并成一次 GET。
+ */
+let plansRefreshTimer: number | null = null;
+const schedulePlansRefresh = () => {
+  if (plansRefreshTimer !== null) window.clearTimeout(plansRefreshTimer);
+  plansRefreshTimer = window.setTimeout(() => {
+    plansRefreshTimer = null;
+    void loadPlans();
+  }, 400);
+};
+
+const onPlanCheckinCompleted = () => {
   planDrawerVisible.value = false;
-  await loadPlans();
+  schedulePlansRefresh();
 };
 
 const loadRecommendations = async () => {
@@ -386,9 +422,8 @@ const openPractice = (rec: Recommendation) => {
   drawerVisible.value = true;
 };
 
-const onPracticeCompleted = async () => {
+const onPracticeCompleted = () => {
   drawerVisible.value = false;
-  await loadRecommendations();
 };
 
 const shiftWeek = (offset: number) => {
@@ -404,6 +439,16 @@ const goCurrentWeek = () => {
 onMounted(() => {
   loadPlans();
   loadRecommendations();
+});
+
+/** 计划内打卡会在抽屉里写 practice，周进度与推荐需要跟着变 */
+useStudyDataRefresh(() => {
+  schedulePlansRefresh();
+  loadRecommendations();
+});
+
+onBeforeUnmount(() => {
+  if (plansRefreshTimer !== null) window.clearTimeout(plansRefreshTimer);
 });
 </script>
 
@@ -441,12 +486,19 @@ onMounted(() => {
 }
 .action-alert {
   margin-bottom: 12px;
+  border-radius: var(--app-radius-md);
 }
-.week-brief {
-  border-radius: var(--app-radius-lg);
+/* B 层：本周主结论卡（唯一焦点；光感靠渐变与顶部高光，不叠 backdrop-filter） */
+.page .week-brief {
   margin-bottom: 16px;
+  border-radius: var(--app-radius-inner);
+  border-color: color-mix(in srgb, var(--app-primary) 18%, var(--app-hairline));
+  background:
+    radial-gradient(110% 130% at 100% 0%, color-mix(in srgb, var(--app-primary) 10%, transparent), transparent 58%),
+    linear-gradient(160deg, color-mix(in srgb, var(--app-primary) 5%, var(--app-surface)), var(--app-surface) 64%);
+  box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-card-hi);
 }
-.week-brief :deep(.el-card__body) {
+.page .week-brief :deep(.el-card__body) {
   padding: var(--app-space-5) var(--app-space-6);
 }
 .week-brief .brief-main {
@@ -463,8 +515,12 @@ onMounted(() => {
   color: var(--app-text);
   font-variant-numeric: tabular-nums;
 }
-.section-card {
+/* C 层：清单与推荐是阅读承载面，近实底 + 发丝边 + 轻阴影 */
+.page .section-card {
   margin-bottom: 16px;
+  border-radius: var(--app-radius-inner);
+  border-color: var(--app-hairline);
+  box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-card-hi);
 }
 .card-head {
   display: flex;
@@ -486,11 +542,16 @@ onMounted(() => {
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 12px;
 }
-.day-card {
+/* 子卡 16px：与 18px 区块卡同心；近实底避免“卡中卡”叠模糊 */
+.page .day-card {
   min-width: 0;
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-hairline);
+  background: color-mix(in srgb, var(--app-surface-muted) 38%, var(--app-surface));
+  box-shadow: var(--app-shadow-xs), inset 0 1px 0 var(--app-card-hi);
 }
-.day-card :deep(.el-card__body) {
-  padding: 10px;
+.page .day-card :deep(.el-card__body) {
+  padding: 12px;
 }
 .plan-item :deep(.el-button) {
   flex: none;
@@ -502,10 +563,15 @@ onMounted(() => {
   justify-content: space-between;
   gap: 8px;
 }
+.day-head strong {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
 .day-progress {
   color: var(--app-text-muted);
   font-size: var(--app-fs-xs);
   margin: 6px 0 10px;
+  font-variant-numeric: tabular-nums;
 }
 .plan-items {
   display: flex;
@@ -518,7 +584,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 8px;
   padding: 8px 0;
-  border-top: 1px solid var(--app-border);
+  border-top: 1px solid var(--app-hairline);
 }
 .item-main {
   min-width: 0;
@@ -542,8 +608,12 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
 }
-.rec-card {
+.page .rec-card {
   min-width: 0;
+  border-radius: var(--app-radius-lg);
+  border-color: var(--app-hairline);
+  background: color-mix(in srgb, var(--app-surface-muted) 30%, var(--app-surface));
+  box-shadow: var(--app-shadow-xs), inset 0 1px 0 var(--app-card-hi);
 }
 .rec-head {
   display: flex;
@@ -591,15 +661,41 @@ onMounted(() => {
   }
 }
 @media (max-width: 768px) {
+  /* 周条：横向滚动只发生在这个容器内，页面本身不产生横向溢出 */
   .week-actions {
     width: 100%;
-    justify-content: space-between;
+    max-width: 100%;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--app-radius-md);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .week-actions::-webkit-scrollbar {
+    display: none;
+  }
+  .week-actions :deep(.el-button) {
+    flex: none;
   }
   .week-title {
-    min-width: 0;
+    flex: 0 0 auto;
+    min-width: 156px;
+    padding: 0 4px;
+    font-size: var(--app-fs-xs);
   }
   .day-grid {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .page .day-card :deep(.el-card__body) {
+    padding: 14px;
+  }
+  .plan-item :deep(.el-button) {
+    min-height: 44px;
   }
 }
 </style>

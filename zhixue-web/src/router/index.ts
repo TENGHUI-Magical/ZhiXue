@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { api } from '../api/request'
+import { getUser, hasSession, saveUser } from '../utils/authSession'
 
 // 路由骨架（需求规格说明书第 3 章：学生端五项核心 P0 功能对应五个路由）
 const router = createRouter({
@@ -100,16 +101,12 @@ const router = createRouter({
   ]
 })
 
-const currentRole = () => {
-  try {
-    const raw = localStorage.getItem('zhixue_user')
-    return raw ? (JSON.parse(raw) as { role?: string }).role ?? '' : ''
-  } catch {
-    return ''
-  }
-}
+const currentRole = () => getUser()?.role ?? ''
 
 interface MeUser {
+  userId?: number
+  username?: string
+  realName?: string
   role?: string
 }
 
@@ -124,7 +121,13 @@ const resolveRole = async (): Promise<string> => {
     roleRequest = api
       .get<MeUser>('/api/auth/me')
       .then((me) => {
-        localStorage.setItem('zhixue_user', JSON.stringify(me))
+        const prev = getUser()
+        saveUser({
+          userId: me.userId ?? prev?.userId ?? 0,
+          username: me.username ?? prev?.username ?? '',
+          realName: me.realName ?? prev?.realName ?? '',
+          role: me.role ?? ''
+        })
         return me.role ?? ''
       })
       .finally(() => {
@@ -135,14 +138,15 @@ const resolveRole = async (): Promise<string> => {
 }
 
 router.beforeEach(async (to) => {
-  const token = localStorage.getItem('satoken')
-  if (to.path !== '/login' && !token) {
+  // hasSession 内含 7 天有效期判定：过期 token 视为未登录，避免守卫放行后每个请求都 401
+  const loggedIn = hasSession()
+  if (to.path !== '/login' && !loggedIn) {
     // 保留原始站内地址，登录后回跳（仅相对路径，防开放重定向）
     return to.fullPath && to.fullPath !== '/'
       ? { path: '/login', query: { redirect: to.fullPath } }
       : '/login'
   }
-  if (!token) return true
+  if (!loggedIn) return true
 
   // 不再“角色未知先放行”：有 token 但缓存缺角色时，先按 /auth/me 的真实角色再判路由
   let role = currentRole()

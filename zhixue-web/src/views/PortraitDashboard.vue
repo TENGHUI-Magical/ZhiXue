@@ -9,7 +9,7 @@
       </div>
       <div class="head-actions">
         <span class="sample-chip">样本量 {{ portrait?.totalPractice ?? 0 }}</span>
-        <el-button :loading="loading" @click="load">刷新</el-button>
+        <el-button :loading="loading" @click="load()">刷新</el-button>
         <el-button @click="router.push('/diagnosis')">进入诊断</el-button>
       </div>
     </div>
@@ -211,6 +211,7 @@ import BrandEmpty from "../components/BrandEmpty.vue";
 import MetricBar from "../components/MetricBar.vue";
 import { getPortrait, type Portrait } from "../api/portrait";
 import { listCourses, type DimensionDef } from "../api/course";
+import { useStudyDataRefresh } from "../composables/useStudyData";
 
 const router = useRouter();
 const loading = ref(false);
@@ -316,9 +317,10 @@ const openKp = (kpId?: string) => {
 
 let loadSeq = 0;
 
-const load = async () => {
+const load = async (silent = false) => {
   const seq = ++loadSeq;
-  loading.value = true;
+  // 练习后的后台刷新不闪骨架屏；首屏与手动刷新保留加载反馈
+  if (!silent) loading.value = true;
   error.value = "";
   try {
     const [data, courses] = await Promise.all([getPortrait(), listCourses().catch(() => [])]);
@@ -337,6 +339,9 @@ const load = async () => {
 };
 
 onMounted(load);
+
+/** 练习/打卡完成后画像由服务端实时聚合，页面必须重拉，否则掌握度停留在旧值 */
+useStudyDataRefresh(() => void load(true));
 </script>
 
 <style scoped>
@@ -388,6 +393,22 @@ onMounted(load);
 .c7 { grid-column: span 7; }
 .c8 { grid-column: span 8; }
 .c12 { grid-column: span 12; }
+/* C 层子卡：外层 .content 已 24px 且自带模糊，页面卡片只做近实底 + 发丝边，不再叠 backdrop-filter */
+.page .dash > .el-card {
+  min-width: 0;
+  border-radius: var(--app-radius-inner);
+  border-color: var(--app-hairline);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm), inset 0 1px 0 var(--app-card-hi);
+}
+/* B 层：全屏唯一主结论卡；光感由渐变与顶部高光表达，不使用嵌套模糊 */
+.page .dash > .hero-card {
+  border-color: color-mix(in srgb, var(--app-primary) 18%, var(--app-hairline));
+  background:
+    radial-gradient(120% 92% at 100% 0%, color-mix(in srgb, var(--app-primary) 12%, transparent), transparent 58%),
+    linear-gradient(160deg, color-mix(in srgb, var(--app-primary) 5%, var(--app-surface)), var(--app-surface) 62%);
+  box-shadow: var(--app-shadow-md), inset 0 1px 0 var(--app-card-hi);
+}
 .hero-card :deep(.el-card__body) {
   display: flex;
   flex-direction: column;
@@ -444,7 +465,10 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 2px 0 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--app-hairline);
+  border-radius: var(--app-radius-lg);
+  background: color-mix(in srgb, var(--app-primary) 5%, var(--app-surface));
 }
 .hero-mastery-head {
   display: flex;
@@ -529,16 +553,23 @@ onMounted(load);
   white-space: nowrap;
 }
 .cap-track {
-  height: 6px;
+  height: 8px;
   border-radius: var(--app-radius-full);
-  background: var(--app-surface-muted);
+  /* 轨道与填充拉出明确明度差，并加发丝内环，浅/深主题都能读比例 */
+  background: color-mix(in srgb, var(--app-text) 12%, var(--app-surface));
+  box-shadow: inset 0 0 0 1px var(--app-hairline);
   overflow: hidden;
 }
 .cap-track i {
   display: block;
   height: 100%;
   border-radius: var(--app-radius-full);
-  background: var(--app-primary);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-primary) 82%, var(--app-accent-contrast)),
+    var(--app-primary)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--app-accent-contrast) 26%, transparent);
   transition: width var(--app-dur-chart) var(--app-ease-emphasized);
 }
 .cap-value {
@@ -547,7 +578,13 @@ onMounted(load);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.cap-row.crit .cap-track i { background: var(--app-danger); }
+.cap-row.crit .cap-track i {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-danger) 82%, var(--app-accent-contrast)),
+    var(--app-danger)
+  );
+}
 .cap-row.empty .cap-track i { background: var(--app-border-strong); }
 .cap-row.empty .cap-value { color: var(--app-text-muted); }
 /* 规范 §3.4：同一系列同一颜色，长度已编码大小，删除按 DOM 顺序取色 */
@@ -574,9 +611,15 @@ onMounted(load);
   color: inherit;
   font: inherit;
   cursor: pointer;
+  transition: transform var(--app-dur-fast) var(--app-ease-spring);
 }
-.weak-item:hover .weak-name {
-  color: var(--app-primary);
+.weak-item:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .weak-item:hover .weak-name {
+    color: var(--app-primary);
+  }
 }
 .weak-item:focus-visible {
   outline: 2px solid var(--app-primary);
@@ -619,19 +662,26 @@ onMounted(load);
   position: relative;
   display: flex;
   align-items: center;
-  height: 6px;
+  height: 8px;
   border-radius: var(--app-radius-full);
-  background: var(--app-surface-muted);
+  background: color-mix(in srgb, var(--app-text) 12%, var(--app-surface));
+  box-shadow: inset 0 0 0 1px var(--app-hairline);
   overflow: hidden;
 }
 .weak-track i {
   display: block;
   height: 100%;
   border-radius: var(--app-radius-full);
-  background: var(--app-danger);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-danger) 82%, var(--app-accent-contrast)),
+    var(--app-danger)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--app-accent-contrast) 26%, transparent);
 }
-.insight {
-  background: linear-gradient(150deg, color-mix(in srgb, var(--app-primary) 9%, var(--app-surface)), var(--app-surface) 62%);
+/* 建议卡仍是 C 层：只留一层很淡的主色倾向，不与 hero 争焦点 */
+.page .dash > .insight {
+  background: linear-gradient(150deg, color-mix(in srgb, var(--app-primary) 6%, var(--app-surface)), var(--app-surface) 62%);
 }
 .advice {
   margin: 0 0 12px;
@@ -659,9 +709,15 @@ onMounted(load);
   font-size: var(--app-fs-xs);
   color: var(--app-text-secondary);
   cursor: pointer;
+  transition: transform var(--app-dur-fast) var(--app-ease-spring);
 }
-.step:hover {
-  color: var(--app-primary);
+.step:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .step:hover {
+    color: var(--app-primary);
+  }
 }
 .step:focus-visible {
   outline: 2px solid var(--app-primary);
@@ -729,11 +785,16 @@ onMounted(load);
 }
 @media (max-width: 768px) {
   .page-head { flex-direction: column; align-items: flex-start; }
-  .dash { grid-template-columns: minmax(0, 1fr) !important; }
+  .dash { grid-template-columns: minmax(0, 1fr) !important; gap: 16px; }
   .dash > .el-card { grid-column: 1 / -1 !important; }
   .c4, .c5, .c7, .c8, .c12 { grid-column: span 1; }
-  .weak-head { align-items: flex-start; }
+  .cap-row { grid-template-columns: 72px minmax(0, 1fr) 64px; gap: 8px; }
+  .weak-head { align-items: flex-start; flex-wrap: wrap; gap: 4px 10px; }
+  .weak-right { width: 100%; justify-content: space-between; }
+  /* e2e 断言：移动端 weak-name 必须可换行（white-space: normal） */
   .weak-name { white-space: normal; overflow-wrap: anywhere; }
+  .advice-foot { flex-wrap: wrap; }
+  .hero-mastery { padding: 10px 12px; }
   /* 移动端：结论行不再与 CTA 抢同一行，标题降一号，避免 3 行巨字 */
   .hero-top { flex-direction: column; align-items: stretch; gap: var(--app-space-3); }
   .hero-title { font-size: var(--app-fs-lg); line-height: 1.35; margin: var(--app-space-2) 0 0; }

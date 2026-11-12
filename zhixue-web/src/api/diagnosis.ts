@@ -1,5 +1,7 @@
 // 诊断域 API 层（契约 §6.3：页面禁止直写 URL，一律经本文件调用）。
-import { api } from "./request";
+import { api, ApiError } from "./request";
+import { ErrorCode } from "./errors";
+import { getToken } from "../utils/authSession";
 import { DEFAULT_COURSE_ID } from "../constants/course";
 
 /** 契约 §4：OCR 置信度低于该阈值必须人工核对，禁止直接确认 */
@@ -202,47 +204,139 @@ export const getExplain = (explainId: string) =>
 /**
  * 流式讲解（契约 §5：POST /api/diagnosis/explain，SSE）。
  * EventSource 不支持 POST + 自定义 header，必须用 fetch + ReadableStream（避坑 S1）。
+ *
+ * 裸 fetch 不走 axios 拦截器，所以超时、traceId、业务 code 必须在这里补齐：
+ * - 首字节 10s（与服务端 `explain.timeout-seconds` 同口径）→ 60001，可重试；
+ * - 流内 30s 无新帧视为断流，主动 cancel，避免界面永久“正在生成”；
+ * - 非 2xx / 非 event-stream 的 JSON 信封按 code 抛 ApiError，不再丢成普通 Error。
  */
+export const SSE_FIRST_BYTE_TIMEOUT_MS = 10_000;
+export const SSE_IDLE_TIMEOUT_MS = 30_000;
+
+interface ExplainErrorBody {
+  code?: number;
+  message?: string;
+}
+
 export const streamExplain = async (
   payload: ExplainPayload,
   onFrame: (event: string, data: Record<string, unknown>) => void,
   signal: AbortSignal,
   onUnauthorized: (body: unknown) => boolean
 ): Promise<void> => {
-  const token = localStorage.getItem("satoken");
-  const response = await fetch("/api/diagnosis/explain", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { satoken: token } : {})
-    },
-    body: JSON.stringify(payload),
-    signal
-  });
+  if (signal.aborted) throw new DOMException("Aborted", "AbortError");
 
-  if (!response.ok || !response.body) {
-    const body = await response.json().catch(() => null);
-    if (onUnauthorized(body)) return;
-    throw new Error((body as { message?: string } | null)?.message ?? `讲解请求失败（HTTP ${response.status}）`);
-  }
-  // 参数校验失败时后端返回 200 + application/json，不能按 SSE 流解析
-  if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
-    const body = await response.json().catch(() => null);
-    if (onUnauthorized(body)) return;
-    throw new Error((body as { message?: string } | null)?.message ?? "讲解服务返回了非流式响应");
-  }
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  signal.addEventListener("abort", abortFromCaller, { once: true });
 
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8");
-  let buffer = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    frames.forEach((frame) => parseSseFrame(frame, onFrame));
+  let timedOut = false;
+  let timer: number | undefined;
+  const arm = (ms: number, onTimeout: () => void) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(onTimeout, ms);
+  };
+  const disarm = () => window.clearTimeout(timer);
+
+  /** 判定一次 fetch/read 失败的原因：用户主动取消 > 超时 > 网络 */
+  const toApiError = (cause: unknown, timeoutMessage: string): unknown => {
+    if (signal.aborted) return cause;
+    if (timedOut) return new ApiError(ErrorCode.AI_TIMEOUT, timeoutMessage);
+    if (cause instanceof ApiError) return cause;
+    return new ApiError(
+      ErrorCode.NETWORK,
+      "网络异常，讲解服务不可达；请检查网络或确认服务已启动"
+    );
+  };
+
+  try {
+    arm(SSE_FIRST_BYTE_TIMEOUT_MS, () => {
+      timedOut = true;
+      controller.abort();
+    });
+
+    let response: Response;
+    try {
+      const token = getToken();
+      response = await fetch("/api/diagnosis/explain", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { satoken: token } : {})
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+    } catch (error) {
+      throw toApiError(error, "讲解生成超时（10 秒未收到响应），请重试");
+    } finally {
+      disarm();
+    }
+
+    const traceId = response.headers.get("x-trace-id") ?? undefined;
+    const jsonBody = async (): Promise<ExplainErrorBody | null> =>
+      (await response.json().catch(() => null)) as ExplainErrorBody | null;
+
+    if (!response.ok || !response.body) {
+      const body = await jsonBody();
+      if (onUnauthorized(body)) return;
+      throw new ApiError(
+        typeof body?.code === "number" ? body.code : ErrorCode.AI_FAILED,
+        body?.message ?? `讲解请求失败（HTTP ${response.status}）`,
+        traceId
+      );
+    }
+    // 参数校验失败时后端返回 200 + application/json，不能按 SSE 流解析
+    if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+      const body = await jsonBody();
+      if (onUnauthorized(body)) return;
+      throw new ApiError(
+        typeof body?.code === "number" ? body.code : ErrorCode.AI_FAILED,
+        body?.message ?? "讲解服务返回了非流式响应，请重试",
+        traceId
+      );
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await new Promise<ReadableStreamReadResult<Uint8Array>>(
+        (resolve, reject) => {
+          arm(SSE_IDLE_TIMEOUT_MS, () => {
+            timedOut = true;
+            // 超时后主动取消流，避免后台连接一直挂着
+            void reader.cancel().catch(() => undefined);
+            reject(new ApiError(ErrorCode.AI_TIMEOUT, "讲解生成中断（30 秒无新内容），请重试"));
+          });
+          reader.read().then(
+            (result) => {
+              disarm();
+              resolve(result);
+            },
+            (error: unknown) => {
+              disarm();
+              reject(error);
+            }
+          );
+        }
+      ).catch((error: unknown) => {
+        throw toApiError(error, "讲解生成中断（30 秒无新内容），请重试");
+      });
+      if (done) break;
+      // 修复：归一化 CRLF 帧界（代理/HTTP2 可能发出 \r\n\r\n），与 parseSseFrame 的容错口径一致
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      // 修复：onFrame 异常不中断整条流（坏回调只丢弃当前帧）
+      frames.forEach((frame) => {
+        try { parseSseFrame(frame, onFrame); } catch { /* 单帧异常不断流 */ }
+      });
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) parseSseFrame(buffer, onFrame);
+  } finally {
+    disarm();
+    signal.removeEventListener("abort", abortFromCaller);
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) parseSseFrame(buffer, onFrame);
 };

@@ -487,6 +487,16 @@ def evaluate(name: str, kps: list[Kp], questions: list[Question],
 
 # ---------- 门禁（docs/design/mapping-optimization-2026-11-03.md §8.5） ----------
 
+# 口径提示（2026-11-08，仅注释）：`label` 是历史遗留的按「语料知识点数」命名
+# （ch23 曾为 20 点 -> "U20"；all 曾为 60 点 -> "U60"）。当前 `--universe all`
+# 实为 81 点语料 / 66 题，故 label 既不等于点数 60，也不等于题数 60。
+# 该 label 会被打印进 CLI 表头并写进结果 JSON，复制输出当证据时会出现
+# 「U60 口径，N=81」式自相矛盾。登记映射数字一律用五列：
+#   语料点数(universe_size) / 验收集题数(n) / 口径名+gate_line /
+#   冻结日期+seed SHA / 可引用性（五类枚举）。
+# 详见 `spark-output/defense/证据链一致性口径卡_2026-11-06.md` §8。
+# 本注释不改动判定逻辑；label 与阈值的变更需 D1 签字后另行处置。
+
 GATES = {
     "ch23": {"top1": 0.733, "top3": 0.850, "autoPrecision": 0.900,
              "coverage": 0.867, "failed": 8, "label": "U20"},

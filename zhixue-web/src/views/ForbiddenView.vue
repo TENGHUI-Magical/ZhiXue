@@ -1,6 +1,7 @@
 <template>
   <div class="state-page">
     <el-card class="state-card" shadow="never">
+      <BrandMark :size="56" tone="outline" class="state-brand" aria-hidden="true" />
       <div class="state-code">403</div>
       <h2>你没有权限查看该内容</h2>
       <p class="state-desc">该页面仅对特定角色开放。可以返回上一页，或回到你的首页。</p>
@@ -14,18 +15,12 @@
 
 <script setup lang="ts">
 import { useRouter } from "vue-router";
+import { getUser } from "../utils/authSession";
+import BrandMark from "../components/BrandMark.vue";
 
 const router = useRouter();
 
-const homePath = () => {
-  try {
-    const raw = localStorage.getItem("zhixue_user");
-    const role = raw ? (JSON.parse(raw) as { role?: string }).role : "";
-    return role === "TEACHER" ? "/teacher" : "/today";
-  } catch {
-    return "/today";
-  }
-};
+const homePath = () => (getUser()?.role === "TEACHER" ? "/teacher" : "/today");
 
 const goHome = () => router.replace(homePath());
 const goBack = () => {
@@ -46,7 +41,12 @@ const goBack = () => {
   max-width: 520px;
   width: 100%;
   text-align: center;
-  border-radius: var(--app-radius-lg);
+  /* B 层焦点卡：品牌空态用 24px 外层圆角，子内容保持 8–12px */
+  border-radius: var(--app-radius-2xl);
+}
+.state-brand {
+  margin: 0 auto 10px;
+  opacity: 0.9;
 }
 .state-code {
   font-size: 56px;
@@ -54,6 +54,7 @@ const goBack = () => {
   letter-spacing: 0.04em;
   color: var(--app-text-muted);
   line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .state-card h2 {
   margin: 14px 0 8px;
@@ -70,5 +71,15 @@ const goBack = () => {
   gap: 8px;
   justify-content: center;
   flex-wrap: wrap;
+}
+@media (max-width: 767px) {
+  .state-page {
+    min-height: auto;
+    padding: 12px 0;
+  }
+  .state-actions :deep(.el-button) {
+    min-height: 44px;
+    min-width: 132px;
+  }
 }
 </style>

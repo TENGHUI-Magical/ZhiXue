@@ -1,0 +1,907 @@
+{
+  "params": {
+    "k": 60,
+    "w_lex": 0.4
+  },
+  "summary": {
+    "top1": 0.6515,
+    "top3": 0.803,
+    "auto": 26,
+    "auto_precision": 0.9231,
+    "coverage": 1.0,
+    "failed": 0
+  },
+  "ece": 0.1529,
+  "ece_detail": [
+    {
+      "n": 11,
+      "avg_conf": 0.532,
+      "acc": 0.273
+    },
+    {
+      "n": 11,
+      "avg_conf": 0.584,
+      "acc": 0.545
+    },
+    {
+      "n": 11,
+      "avg_conf": 0.651,
+      "acc": 0.364
+    },
+    {
+      "n": 11,
+      "avg_conf": 0.713,
+      "acc": 0.909
+    },
+    {
+      "n": 11,
+      "avg_conf": 0.787,
+      "acc": 0.818
+    },
+    {
+      "n": 11,
+      "avg_conf": 0.896,
+      "acc": 1.0
+    }
+  ],
+  "cases": [
+    {
+      "qId": "Q_0201",
+      "gold": "KP0201",
+      "top3": [
+        "KP0201",
+        "KP0205",
+        "KP0601"
+      ],
+      "top1_conf": 0.518,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0202",
+      "gold": "KP0202",
+      "top3": [
+        "KP0202",
+        "KP0209",
+        "KP0210"
+      ],
+      "top1_conf": 0.8614,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0203",
+      "gold": "KP0203",
+      "top3": [
+        "KP0203",
+        "KP0603",
+        "KP0606"
+      ],
+      "top1_conf": 0.583,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0204",
+      "gold": "KP0204",
+      "top3": [
+        "KP0204",
+        "KP0201",
+        "KP0205"
+      ],
+      "top1_conf": 0.6474,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0205",
+      "gold": "KP0205",
+      "top3": [
+        "KP0205",
+        "KP0201",
+        "KP0104"
+      ],
+      "top1_conf": 0.867,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0206",
+      "gold": "KP0206",
+      "top3": [
+        "KP0206",
+        "KP0207",
+        "KP0208"
+      ],
+      "top1_conf": 0.801,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0207",
+      "gold": "KP0207",
+      "top3": [
+        "KP0503",
+        "KP0207",
+        "KP0603"
+      ],
+      "top1_conf": 0.5028,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0208",
+      "gold": "KP0208",
+      "top3": [
+        "KP0505",
+        "KP0206",
+        "KP0203"
+      ],
+      "top1_conf": 0.5592,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0209",
+      "gold": "KP0209",
+      "top3": [
+        "KP0207",
+        "KP0210",
+        "KP0708"
+      ],
+      "top1_conf": 0.5057,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0210",
+      "gold": "KP0210",
+      "top3": [
+        "KP0210",
+        "KP0209",
+        "KP0304"
+      ],
+      "top1_conf": 0.5976,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0211",
+      "gold": "KP0210",
+      "top3": [
+        "KP0210",
+        "KP0204",
+        "KP0205"
+      ],
+      "top1_conf": 0.605,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0212",
+      "gold": "KP0207",
+      "top3": [
+        "KP0207",
+        "KP0206",
+        "KP0503"
+      ],
+      "top1_conf": 0.7639,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0213",
+      "gold": "KP0201",
+      "top3": [
+        "KP0201",
+        "KP0202",
+        "KP0205"
+      ],
+      "top1_conf": 0.8018,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0214",
+      "gold": "KP0205",
+      "top3": [
+        "KP0205",
+        "KP0201",
+        "KP0104"
+      ],
+      "top1_conf": 0.886,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0215",
+      "gold": "KP0206",
+      "top3": [
+        "KP0206",
+        "KP0502",
+        "KP0208"
+      ],
+      "top1_conf": 0.9298,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0216",
+      "gold": "KP0207",
+      "top3": [
+        "KP0207",
+        "KP0603",
+        "KP0606"
+      ],
+      "top1_conf": 0.9381,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0217",
+      "gold": "KP0208",
+      "top3": [
+        "KP0208",
+        "KP0206",
+        "KP0201"
+      ],
+      "top1_conf": 0.905,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0218",
+      "gold": "KP0202",
+      "top3": [
+        "KP0202",
+        "KP0209",
+        "KP0210"
+      ],
+      "top1_conf": 0.9443,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0219",
+      "gold": "KP0202",
+      "top3": [
+        "KP0202",
+        "KP0209",
+        "KP0210"
+      ],
+      "top1_conf": 0.8063,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0220",
+      "gold": "KP0203",
+      "top3": [
+        "KP0203",
+        "KP0603",
+        "KP0606"
+      ],
+      "top1_conf": 0.8252,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0221",
+      "gold": "KP0204",
+      "top3": [
+        "KP0201",
+        "KP0204",
+        "KP0708"
+      ],
+      "top1_conf": 0.563,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0222",
+      "gold": "KP0206",
+      "top3": [
+        "KP0206",
+        "KP0203",
+        "KP0308"
+      ],
+      "top1_conf": 0.771,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0223",
+      "gold": "KP0207",
+      "top3": [
+        "KP0207",
+        "KP0503",
+        "KP0206"
+      ],
+      "top1_conf": 0.6928,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0224",
+      "gold": "KP0206",
+      "top3": [
+        "KP0206",
+        "KP0207",
+        "KP0503"
+      ],
+      "top1_conf": 0.7249,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0225",
+      "gold": "KP0202",
+      "top3": [
+        "KP0202",
+        "KP0209",
+        "KP0210"
+      ],
+      "top1_conf": 0.8264,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0226",
+      "gold": "KP0209",
+      "top3": [
+        "KP0209",
+        "KP0210",
+        "KP0306"
+      ],
+      "top1_conf": 0.6974,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0227",
+      "gold": "KP0210",
+      "top3": [
+        "KP0305",
+        "KP0301",
+        "KP0810"
+      ],
+      "top1_conf": 0.5389,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0228",
+      "gold": "KP0210",
+      "top3": [
+        "KP0202",
+        "KP0307",
+        "KP0304"
+      ],
+      "top1_conf": 0.5765,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0229",
+      "gold": "KP0210",
+      "top3": [
+        "KP0810",
+        "KP0604",
+        "KP0606"
+      ],
+      "top1_conf": 0.6022,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0230",
+      "gold": "KP0210",
+      "top3": [
+        "KP0204",
+        "KP0606",
+        "KP0604"
+      ],
+      "top1_conf": 0.5558,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0301",
+      "gold": "KP0301",
+      "top3": [
+        "KP0805",
+        "KP0301",
+        "KP0802"
+      ],
+      "top1_conf": 0.5295,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0302",
+      "gold": "KP0302",
+      "top3": [
+        "KP0302",
+        "KP0506",
+        "KP0307"
+      ],
+      "top1_conf": 0.5782,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0303",
+      "gold": "KP0302",
+      "top3": [
+        "KP0302",
+        "KP0710",
+        "KP0403"
+      ],
+      "top1_conf": 0.5303,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0304",
+      "gold": "KP0301",
+      "top3": [
+        "KP0107",
+        "KP0702",
+        "KP0108"
+      ],
+      "top1_conf": 0.7104,
+      "decision": "AUTO",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0305",
+      "gold": "KP0309",
+      "top3": [
+        "KP0310",
+        "KP0309",
+        "KP0501"
+      ],
+      "top1_conf": 0.5466,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0306",
+      "gold": "KP0308",
+      "top3": [
+        "KP0308",
+        "KP0303",
+        "KP0604"
+      ],
+      "top1_conf": 0.8512,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0307",
+      "gold": "KP0305",
+      "top3": [
+        "KP0305",
+        "KP0303",
+        "KP0304"
+      ],
+      "top1_conf": 0.6551,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0308",
+      "gold": "KP0304",
+      "top3": [
+        "KP0210",
+        "KP0304",
+        "KP0308"
+      ],
+      "top1_conf": 0.66,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0309",
+      "gold": "KP0306",
+      "top3": [
+        "KP0306",
+        "KP0802",
+        "KP0210"
+      ],
+      "top1_conf": 0.6904,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0310",
+      "gold": "KP0307",
+      "top3": [
+        "KP0802",
+        "KP0808",
+        "KP0306"
+      ],
+      "top1_conf": 0.5631,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0311",
+      "gold": "KP0303",
+      "top3": [
+        "KP0306",
+        "KP0303",
+        "KP0307"
+      ],
+      "top1_conf": 0.6495,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0312",
+      "gold": "KP0306",
+      "top3": [
+        "KP0306",
+        "KP0305",
+        "KP0303"
+      ],
+      "top1_conf": 0.931,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0313",
+      "gold": "KP0308",
+      "top3": [
+        "KP0308",
+        "KP0206",
+        "KP0304"
+      ],
+      "top1_conf": 0.9151,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0314",
+      "gold": "KP0309",
+      "top3": [
+        "KP0309",
+        "KP0310",
+        "KP0408"
+      ],
+      "top1_conf": 0.7534,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0315",
+      "gold": "KP0310",
+      "top3": [
+        "KP0310",
+        "KP0309",
+        "KP0408"
+      ],
+      "top1_conf": 0.6147,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0316",
+      "gold": "KP0307",
+      "top3": [
+        "KP0307",
+        "KP0404",
+        "KP0303"
+      ],
+      "top1_conf": 0.6846,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0317",
+      "gold": "KP0304",
+      "top3": [
+        "KP0304",
+        "KP0210",
+        "KP0610"
+      ],
+      "top1_conf": 0.7875,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0318",
+      "gold": "KP0308",
+      "top3": [
+        "KP0308",
+        "KP0303",
+        "KP0306"
+      ],
+      "top1_conf": 0.7223,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0319",
+      "gold": "KP0305",
+      "top3": [
+        "KP0305",
+        "KP0306",
+        "KP0309"
+      ],
+      "top1_conf": 0.7371,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0320",
+      "gold": "KP0309",
+      "top3": [
+        "KP0309",
+        "KP0310",
+        "KP0408"
+      ],
+      "top1_conf": 0.7153,
+      "decision": "AUTO",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0321",
+      "gold": "KP0303",
+      "top3": [
+        "KP0303",
+        "KP0807",
+        "KP0810"
+      ],
+      "top1_conf": 0.5366,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0322",
+      "gold": "KP0303",
+      "top3": [
+        "KP0802",
+        "KP0304",
+        "KP0303"
+      ],
+      "top1_conf": 0.6436,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0323",
+      "gold": "KP0303",
+      "top3": [
+        "KP0802",
+        "KP0604",
+        "KP0305"
+      ],
+      "top1_conf": 0.6356,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0324",
+      "gold": "KP0303",
+      "top3": [
+        "KP0306",
+        "KP0802",
+        "KP0303"
+      ],
+      "top1_conf": 0.6423,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0325",
+      "gold": "KP0305",
+      "top3": [
+        "KP0305",
+        "KP0306",
+        "KP0604"
+      ],
+      "top1_conf": 0.7271,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0326",
+      "gold": "KP0305",
+      "top3": [
+        "KP0305",
+        "KP0802",
+        "KP0303"
+      ],
+      "top1_conf": 0.7617,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0327",
+      "gold": "KP0305",
+      "top3": [
+        "KP0605",
+        "KP0303",
+        "KP0807"
+      ],
+      "top1_conf": 0.5311,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0328",
+      "gold": "KP0308",
+      "top3": [
+        "KP0308",
+        "KP0303",
+        "KP0604"
+      ],
+      "top1_conf": 0.7403,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0329",
+      "gold": "KP0309",
+      "top3": [
+        "KP0306",
+        "KP0604",
+        "KP0305"
+      ],
+      "top1_conf": 0.6747,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0330",
+      "gold": "KP0310",
+      "top3": [
+        "KP0408",
+        "KP0310",
+        "KP0306"
+      ],
+      "top1_conf": 0.774,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0331",
+      "gold": "KP0302",
+      "top3": [
+        "KP0604",
+        "KP0503",
+        "KP0404"
+      ],
+      "top1_conf": 0.5714,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0332",
+      "gold": "KP0302",
+      "top3": [
+        "KP0503",
+        "KP0604",
+        "KP0504"
+      ],
+      "top1_conf": 0.8081,
+      "decision": "AUTO",
+      "hit": false,
+      "gold_in_top3": false
+    },
+    {
+      "qId": "Q_0333",
+      "gold": "KP0302",
+      "top3": [
+        "KP0302",
+        "KP0506",
+        "KP0508"
+      ],
+      "top1_conf": 0.6775,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0334",
+      "gold": "KP0307",
+      "top3": [
+        "KP0307",
+        "KP0802",
+        "KP0404"
+      ],
+      "top1_conf": 0.5857,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0335",
+      "gold": "KP0307",
+      "top3": [
+        "KP0306",
+        "KP0307",
+        "KP0305"
+      ],
+      "top1_conf": 0.6623,
+      "decision": "CONFIRM",
+      "hit": false,
+      "gold_in_top3": true
+    },
+    {
+      "qId": "Q_0336",
+      "gold": "KP0306",
+      "top3": [
+        "KP0306",
+        "KP0305",
+        "KP0803"
+      ],
+      "top1_conf": 0.599,
+      "decision": "CONFIRM",
+      "hit": true,
+      "gold_in_top3": true
+    }
+  ]
+}
