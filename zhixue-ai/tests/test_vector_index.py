@@ -210,6 +210,8 @@ def _build_equivalence_corpus():
 
 def test_fast_path_matches_fallback_ranking_and_scores(monkeypatch):
     """numpy GEMV+倒排快路径 与 逐文档循环回退路径：排序与分数一致（<1e-3）。"""
+    if vector_index._np is None:
+        pytest.skip("numpy 未安装（CI requirements-dev），无快路径可对照")
     chunks, vectors = _build_equivalence_corpus()
     original_np = vector_index._np
 
