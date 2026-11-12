@@ -11,10 +11,19 @@ import logging
 import time
 from typing import Any
 
-import numpy as np
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from PIL import Image, ImageOps
+
+# 推理期重依赖改为「可选导入」：CI 的 requirements-dev 故意不装 numpy/Pillow，
+# 若顶层强 import，连路由与 /health 都无法加载（收集期 ModuleNotFoundError）。
+# 与 vector_index.py:34 同一约定：缺依赖时纯函数/校验/探针仍可用，仅识别执行降级。
+try:  # pragma: no cover - 取决于部署环境
+    import numpy as _np
+    from PIL import Image as _Image, ImageOps as _ImageOps
+except ImportError:  # 纯 Python 环境（CI / 最小化部署）
+    _np = None
+    _Image = None
+    _ImageOps = None
 
 from app.config import settings
 from app.deps import require_internal
@@ -31,7 +40,8 @@ _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _MAGIC_JPEG = b"\xff\xd8\xff"
 _MAGIC_PNG = b"\x89PNG\r\n\x1a\n"
 # 防 decompression bomb：显式设比 PIL 默认更保守的上限（默认仅告警不拦截）
-Image.MAX_IMAGE_PIXELS = 20_000_000
+if _Image is not None:
+    _Image.MAX_IMAGE_PIXELS = 20_000_000
 # 泛化文案：底层库异常（路径/版本/栈片段）只写服务端日志，不回显给调用方
 _OCR_ERROR_DETAIL = "OCR 识别失败，请重试或更换图片"
 
@@ -69,12 +79,15 @@ def _get_engine() -> Any:
 
 
 def _recognize(data: bytes) -> OcrRecognizeOut:
+    # 推理期依赖缺失时显式报错，由路由层统一降级为 422 泛化文案（不回显内部信息）
+    if _np is None or _Image is None or _ImageOps is None:
+        raise RuntimeError("OCR 推理依赖未安装（numpy / Pillow / rapidocr_onnxruntime）")
     start = time.time()
     # 契约 V2 §4：先按 EXIF 旋转，再压到长边 ≤ 上限（配置化）后识别
-    image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+    image = _ImageOps.exif_transpose(_Image.open(io.BytesIO(data))).convert("RGB")
     side = settings.ocr_max_side
-    image.thumbnail((side, side), Image.LANCZOS)
-    result, _ = _get_engine()(np.array(image))
+    image.thumbnail((side, side), _Image.LANCZOS)
+    result, _ = _get_engine()(_np.array(image))
     lines: list[OcrLine] = []
     for item in result or []:
         # RapidOCR 返回 [box, text, score]
