@@ -1367,6 +1367,13 @@ try {
   await sleep(400)
   const minGraphBox = await page.locator('.graph-svg').boundingBox()
   if (!minGraphBox) throw new Error('图谱 SVG 未渲染')
+  // 前置归零：点击按钮会把 .main 滚到按钮可见处，若恰好停在最大滚动位置，
+  // 滚轮无法再滚动，断言会随进入状态偶发失败（实测 114->114）。
+  await page.evaluate(() => {
+    const main = document.querySelector('.main')
+    if (main) main.scrollTop = 0
+  })
+  await sleep(150)
   await page.mouse.move(minGraphBox.x + minGraphBox.width / 2, minGraphBox.y + minGraphBox.height / 2)
   const mainScrollBefore = await page.evaluate(() => document.querySelector('.main')?.scrollTop ?? 0)
   await page.mouse.wheel(0, 300)
