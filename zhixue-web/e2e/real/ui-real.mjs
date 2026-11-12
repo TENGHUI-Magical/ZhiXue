@@ -175,6 +175,11 @@ try {
       await tp.locator('.review-drawer textarea').fill('真实联调评阅：讲解与错因匹配，引用可核验。')
       if (passDisabled) await tp.locator('.el-radio-button').nth(1).click()
       await tp.getByRole('button', { name: '提交评阅' }).click()
+      // 评阅不可逆：提交前有二次确认，未点“确认提交”不会发请求
+      const confirmBox = tp.locator('.el-message-box')
+      if (await confirmBox.waitFor({ state: 'visible', timeout: 8000 }).then(() => true).catch(() => false)) {
+        await confirmBox.getByRole('button', { name: '确认提交' }).click()
+      }
       const submitted = await tp.getByText('评阅已提交').first().waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false)
       const drawerClosed = await tp.locator('.review-drawer').waitFor({ state: 'hidden', timeout: 10000 }).then(() => true).catch(() => false)
       if (submitted || drawerClosed) pass('评阅：真实提交成功', passDisabled ? '证据不完整→退回' : '证据完整→通过')

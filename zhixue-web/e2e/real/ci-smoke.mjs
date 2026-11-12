@@ -648,9 +648,13 @@ try {
   assert('3.6 证据完整允许 PASS', !passDisabled)
   await tp.locator('.review-drawer textarea').fill(COMMENT)
   await tp.getByRole('button', { name: '提交评阅' }).click()
+  // 评阅不可逆：提交前有二次确认（ElMessageBox），不点确认不会发请求
+  const confirmBox = tp.locator('.el-message-box')
+  const confirmShown = await confirmBox.waitFor({ state: 'visible', timeout: 10000 }).then(() => true).catch(() => false)
+  if (confirmShown) await confirmBox.getByRole('button', { name: '确认提交' }).click()
   const toast = await tp.getByText('评阅已提交').first().waitFor({ state: 'visible', timeout: 15000 }).then(() => true).catch(() => false)
   const drawerClosed = await tp.locator('.review-drawer').waitFor({ state: 'hidden', timeout: 15000 }).then(() => true).catch(() => false)
-  assert('3.7 评阅提交成功', toast || drawerClosed)
+  assert('3.7 评阅提交成功', toast || drawerClosed, `confirmShown=${confirmShown} toast=${toast} drawerClosed=${drawerClosed}`)
   await tp.screenshot({ path: path.join(OUT, '03-teacher-review.png') })
   await tpCtx.close()
 
