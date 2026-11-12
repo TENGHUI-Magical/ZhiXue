@@ -40,7 +40,7 @@ html[data-theme="glass-dark"] .app-wall {
 }
 .app-wall i:nth-child(3) {
   width: 64vw; height: 48vw; left: 12vw; bottom: -26vw;
-  background: radial-gradient(circle, var(--app-wall-4), transparent 66%);
+  background: radial-gradient(circle, var(--app-wall-7), transparent 66%);
   animation: app-aurora-a 92s ease-in-out infinite alternate-reverse;
 }
 .app-wall i:nth-child(4) {
@@ -715,6 +715,34 @@ html[data-theme="glass-dark"] .login-btn {
   height: 38px;
 }
 
+/* 手机端：A 层模糊收敛到 18–24px，B 层（登录卡）退化为半透明实底（提示词 §3.2/§3.5 手机参数） */
+@media (max-width: 767px) {
+  html[data-theme="glass"] .content,
+  html[data-theme="glass-dark"] .content {
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+    backdrop-filter: blur(22px) saturate(160%);
+  }
+  html[data-theme="glass"] .el-dialog,
+  html[data-theme="glass-dark"] .el-dialog,
+  html[data-theme="glass"] .el-drawer,
+  html[data-theme="glass-dark"] .el-drawer {
+    -webkit-backdrop-filter: blur(22px) saturate(165%);
+    backdrop-filter: blur(22px) saturate(165%);
+  }
+  html[data-theme="glass"] .el-message,
+  html[data-theme="glass-dark"] .el-message,
+  html[data-theme="glass"] .el-message-box,
+  html[data-theme="glass-dark"] .el-message-box {
+    -webkit-backdrop-filter: blur(20px) saturate(165%);
+    backdrop-filter: blur(20px) saturate(165%);
+  }
+  html[data-theme="glass"] .login-card,
+  html[data-theme="glass-dark"] .login-card {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* prefers-reduced-transparency：退化实底，保证可读 */
 @media (prefers-reduced-transparency: reduce) {
   html[data-theme="glass"] .aside,
@@ -726,9 +754,20 @@ html[data-theme="glass-dark"] .login-btn {
   html[data-theme="glass"] .el-dialog,
   html[data-theme="glass-dark"] .el-dialog,
   html[data-theme="glass"] .el-drawer,
-  html[data-theme="glass-dark"] .el-drawer {
+  html[data-theme="glass-dark"] .el-drawer,
+  html[data-theme="glass"] .el-message,
+  html[data-theme="glass-dark"] .el-message,
+  html[data-theme="glass"] .el-message-box,
+  html[data-theme="glass-dark"] .el-message-box,
+  html[data-theme="glass"] .login-card,
+  html[data-theme="glass-dark"] .login-card {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     background: var(--app-surface);
+  }
+  html[data-theme="glass"] .el-overlay,
+  html[data-theme="glass-dark"] .el-overlay {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

@@ -391,7 +391,7 @@ watch(
 }
 .page-head h2 {
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 .sub {
   margin: 6px 0 0;

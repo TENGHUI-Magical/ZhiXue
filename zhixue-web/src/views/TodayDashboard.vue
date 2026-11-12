@@ -613,7 +613,7 @@ useStudyDataRefresh(() => void loadAll(true));
   max-width: 760px;
   font-size: var(--app-fs-hero);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.2;
   color: var(--app-text);
 }

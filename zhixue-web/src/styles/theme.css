@@ -59,9 +59,10 @@ html[data-theme="glass"] {
   --app-wall-2: #b9c9e3;
   --app-wall-3: #cfdae9;
   --app-wall-4: #a9c6dc;
-  /* 环境光斑新增两色（低饱和）：极光青 / 暖阳金，避免只有蓝灰一种气团 */
+  /* 环境光斑新增三色（低饱和）：极光青 / 暖阳金 / 星河紫，避免只有蓝灰一种气团 */
   --app-wall-5: #8fd3d8;
   --app-wall-6: #e8c48a;
+  --app-wall-7: #aba7d4;
   /* A 层玻璃：填充 + 镜面边（浅色：白玻璃） */
   --app-glass-fill: rgba(255, 255, 255, 0.72);
   --app-glass-edge-hi: rgba(255, 255, 255, 0.45);
@@ -114,6 +115,7 @@ html[data-theme="glass-dark"] {
   --app-wall-4: #173246;
   --app-wall-5: #14505c;
   --app-wall-6: #6b4b1f;
+  --app-wall-7: #2e2b56;
   /* A 层玻璃：深色更暗更厚，保持石墨蓝黑层次 */
   --app-glass-fill: rgba(18, 26, 40, 0.72);
   --app-glass-edge-hi: rgba(255, 255, 255, 0.12);
@@ -300,7 +302,7 @@ a {
   color: var(--app-text);
   font-size: clamp(var(--app-fs-lg), 2.2vw, var(--app-fs-xl));
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   line-height: 1.2;
 }
 

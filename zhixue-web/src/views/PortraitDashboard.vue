@@ -358,7 +358,7 @@ useStudyDataRefresh(() => void load(true));
 .page-head h2 {
   margin: 6px 0 3px;
   font-size: var(--app-fs-xl);
-  letter-spacing: -0.012em;
+  letter-spacing: -0.01em;
 }
 .sub {
   margin: 0;

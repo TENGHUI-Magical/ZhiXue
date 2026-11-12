@@ -542,7 +542,7 @@ onBeforeUnmount(() => {
   color: var(--app-text);
   font-size: var(--app-fs-lg);
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   white-space: nowrap;
 }
 .aside.is-collapsed .brand {

@@ -207,7 +207,7 @@ const submit = async () => {
   display: block;
   color: var(--app-text);
   font-size: var(--app-fs-lg);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 .story-brand div span {
   display: block;
@@ -220,7 +220,7 @@ const submit = async () => {
   color: var(--app-text);
   font-size: clamp(30px, 3.4vw, 44px);
   font-weight: 600;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.01em;
   line-height: 1.16;
 }
 .story-sub {
