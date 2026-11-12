@@ -385,7 +385,7 @@ class StudentErrorRecordServiceTest {
         draft.setKpId("KP0202");
         draft.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
         when(mapper.selectCount(any())).thenReturn(2L);
-        when(mapper.selectPageByWrapper(any(), anyInt(), anyLong())).thenReturn(List.of(confirmed, draft));
+        when(mapper.selectPageByUser(anyLong(), any(), any(), anyInt(), anyLong())).thenReturn(List.of(confirmed, draft));
         when(knowledgePointService.findByIds(any())).thenReturn(
                 Map.of("KP0201", kp("KP0201", "关系模型"),
                         "KP0202", kp("KP0202", "事务")));
@@ -406,7 +406,7 @@ class StudentErrorRecordServiceTest {
         verify(knowledgePointService, times(1)).findByIds(any());
         verify(knowledgePointService, never()).findById(anyString());
         // 分页参数必须绑定到 Mapper 方法，而不是拼进 .last("LIMIT ...")
-        verify(mapper).selectPageByWrapper(any(), eq(10), eq(0L));
+        verify(mapper).selectPageByUser(eq(2L), isNull(), isNull(), eq(10), eq(0L));
     }
 
     @Test
@@ -435,7 +435,7 @@ class StudentErrorRecordServiceTest {
         unreviewed.setKpId("KP0202");
         unreviewed.setCreatedAt(LocalDateTime.of(2026, 10, 26, 11, 0));
         when(mapper.selectCount(any())).thenReturn(2L);
-        when(mapper.selectPageByWrapper(any(), anyInt(), anyLong()))
+        when(mapper.selectPageByUser(anyLong(), any(), any(), anyInt(), anyLong()))
                 .thenReturn(List.of(reviewed, unreviewed));
         when(knowledgePointService.findByIds(any())).thenReturn(
                 Map.of("KP0201", kp("KP0201", "关系模型"),
@@ -535,6 +535,8 @@ class StudentErrorRecordServiceTest {
         KnowledgePoint kp = new KnowledgePoint();
         kp.setKpId(kpId);
         kp.setName(name);
+        // A2：confirm 新增 is_active=1 显式校验，测试夹具需补启用标志
+        kp.setIsActive(1);
         return kp;
     }
 

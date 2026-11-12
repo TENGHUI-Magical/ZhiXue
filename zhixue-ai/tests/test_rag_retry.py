@@ -362,3 +362,29 @@ def test_stream_explain_falls_back_to_template_when_all_sentences_leak(
     assert levels == [rag_service.LEVEL_L3]
     assert done["modelUsed"] == rag_service.MODEL_LOCAL_TEMPLATE
     assert "答案是B" not in content
+
+
+@pytest.mark.parametrize("l2_raises", [False, True])
+def test_l2_zero_output_emits_only_one_l3_degraded(
+        monkeypatch: pytest.MonkeyPatch, l2_raises: bool) -> None:
+    """P1-5：L2 零产出（空流或抛异常但 delivered=False）时只应发 1 个 degraded L3，
+    不得再留下孤立的 degraded L2（旧实现会连发 L2 + L3 两个降级事件）。"""
+    monkeypatch.setattr(settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(settings, "glm_api_key", "test-glm-key")
+
+    async def fake_stream(url, key, model, messages, usage, include_usage=False):
+        if "deepseek" in url:
+            raise httpx.ConnectError("L1 持续失败")
+        if l2_raises:
+            raise httpx.ConnectError("L2 零产出且抛异常")
+        # 保持是 async generator 但零产出（不 yield 任何 chunk）
+        if False:  # pragma: no cover
+            yield ""
+
+    monkeypatch.setattr(rag_service, "_stream_openai", fake_stream)
+
+    events = _collect()
+    levels = [data.get("level") for name, data in events if name == "degraded"]
+    assert levels == [rag_service.LEVEL_L3], "L2 零产出只能发唯一的 degraded L3"
+    done = [data for name, data in events if name == "done"][-1]
+    assert done["modelUsed"] == rag_service.MODEL_LOCAL_TEMPLATE

@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -291,6 +292,79 @@ class PlanServiceTest {
             assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
         }
         org.mockito.Mockito.verifyNoInteractions(courseService);
+    }
+
+    /** P1-1：不能为未来日期的计划提前打卡（40000），且校验在查明细之前，不产生多余 DB 交互。 */
+    @Test
+    void futurePlanCheckinReturnsParamError() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanDate(LocalDate.now(ZoneId.of("Asia/Shanghai")).plusDays(1));
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-future",
+                            false, null, null, null, null, null)));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+        }
+        org.mockito.Mockito.verifyNoInteractions(itemMapper);
+    }
+
+    /** P1-1：超过 7 天补卡期限的过期计划不可打卡（40000）。 */
+    @Test
+    void planBeyondBackfillWindowReturnsParamError() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanDate(LocalDate.now(ZoneId.of("Asia/Shanghai")).minusDays(8));
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            BizException ex = org.junit.jupiter.api.Assertions.assertThrows(BizException.class,
+                    () -> service.checkin(1L, new CheckinRequest("Q_0201", "token-old",
+                            false, null, null, null, null, null)));
+            assertEquals(ErrorCode.PARAM_ERROR, ex.getErrorCode());
+        }
+        org.mockito.Mockito.verifyNoInteractions(itemMapper);
+    }
+
+    /**
+     * P1-1 正向：本周一（集成用例 generatePlan 所打的 days.get(0)，今天周四即 today-3）
+     * 落在 [today-7, today] 补卡窗口内，必须仍可打卡，防止窗口被改窄导致 3 个集成用例回归。
+     */
+    @Test
+    void currentWeekMondayCheckinIsAllowed() {
+        StudyPlan plan = new StudyPlan();
+        plan.setPlanId(1L);
+        plan.setUserId(2L);
+        plan.setPlanDate(LocalDate.now(ZoneId.of("Asia/Shanghai")).with(DayOfWeek.MONDAY));
+        plan.setPlanCount(3);
+        plan.setDoneCount(0);
+        plan.setStatus("PENDING");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        StudyPlanItem item = new StudyPlanItem();
+        item.setItemId(5L);
+        item.setPlanId(1L);
+        item.setQId("Q_0201");
+        item.setKpId("KP0201");
+        item.setIsDone(0);
+        when(itemMapper.selectOne(any())).thenReturn(item);
+        when(itemMapper.update(any(), any())).thenReturn(1);
+
+        try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
+            stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
+            com.zhixue.plan.dto.CheckinResult result = service.checkin(1L,
+                    new CheckinRequest("Q_0201", "token-current-week", false,
+                            null, null, null, null, null));
+            org.junit.jupiter.api.Assertions.assertFalse(result.verified());
+            org.junit.jupiter.api.Assertions.assertFalse(result.duplicate());
+            org.junit.jupiter.api.Assertions.assertEquals(1, result.doneCount());
+        }
     }
 
     @Test

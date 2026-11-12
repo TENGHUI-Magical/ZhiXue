@@ -22,6 +22,7 @@ import os
 import re
 import threading
 import unicodedata
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -63,10 +64,17 @@ _HASH_VECTOR_WEIGHT = 0.15
 _BM25_K1 = 1.2
 _BM25_B = 0.75
 
+# 索引切片条数上限（P1-4）：防止 /embed 反复灌入撑爆内存与磁盘
+MAX_INDEX_CHUNKS = 5000
+
 _MODEL = None
 _MODEL_LOCK = threading.Lock()
 _INDEX: "VectorIndex | None" = None
 _INDEX_LOCK = threading.Lock()
+_SAVE_LOCK = threading.Lock()       # 串行化进程内 save，配合唯一临时名杜绝并发踩踏
+# 最近一次 load() 的故障状态：None=健康（含全新空索引），非 None=加载失败。
+# 供 /health 的 get_index_status() 读取，把「静默按空索引启动」暴露为 DEGRADED。
+_INDEX_LOAD_ERROR: str | None = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +334,14 @@ class VectorIndex:
             for chunk, vector in zip(chunks, vectors):
                 self._chunks[chunk.chunk_id] = chunk
                 self._vectors[chunk.chunk_id] = vector
+            # P1-4：条数上限，防止 /embed 反复灌入撑爆内存与磁盘
+            if len(self._chunks) > MAX_INDEX_CHUNKS:
+                total = len(self._chunks)
+                keep = list(self._chunks)[:MAX_INDEX_CHUNKS]
+                self._chunks = {cid: self._chunks[cid] for cid in keep}
+                self._vectors = {cid: self._vectors[cid] for cid in keep}
+                logger.warning("索引切片数 %s 超过上限 %s，已截断为前 %s 条",
+                               total, MAX_INDEX_CHUNKS, MAX_INDEX_CHUNKS)
             self._dim = target_dim
             self.mode = mode
             self._rebuild_stats()
@@ -530,29 +546,40 @@ class VectorIndex:
     def save(self, directory: str | Path | None = None) -> Path:
         path = Path(directory or settings.vector_index_dir).resolve()
         path.mkdir(parents=True, exist_ok=True)
-        with self._lock:
-            chunks = list(self._chunks.values())
-            vectors = [self._vectors[chunk.chunk_id] for chunk in chunks]
-            mode = self.mode
-        # 三个文件写临时文件后原子替换，避免崩溃/并发时数量错位
-        _atomic_write_text(path / "chunks.json",
-                           json.dumps([chunk.__dict__ for chunk in chunks], ensure_ascii=False))
-        if _np is not None:
-            # numpy 会给非 .npy 后缀自动追加 .npy，临时文件名必须自带后缀
-            tmp = path / "vectors.tmp.npy"
-            _np.save(tmp, _np.asarray(vectors, dtype=_np.float32))
-            os.replace(tmp, path / "vectors.npy")
-        else:
-            _atomic_write_text(path / "vectors.json", json.dumps(vectors))
-        _atomic_write_text(path / "meta.json", json.dumps({"mode": mode}))
+        with _SAVE_LOCK:  # 串行化进程内 save，配合唯一临时名杜绝并发互相踩踏
+            with self._lock:
+                chunks = list(self._chunks.values())
+                vectors = [self._vectors[chunk.chunk_id] for chunk in chunks]
+                mode = self.mode
+            # P1-4：持久化条数上限，防止反复 /embed 灌入撑爆磁盘
+            if len(chunks) > MAX_INDEX_CHUNKS:
+                logger.warning("持久化索引切片数 %s 超过上限 %s，仅写入前 %s 条",
+                               len(chunks), MAX_INDEX_CHUNKS, MAX_INDEX_CHUNKS)
+                chunks = chunks[:MAX_INDEX_CHUNKS]
+                vectors = vectors[:MAX_INDEX_CHUNKS]
+            # 三个文件写唯一临时文件后原子替换，避免崩溃/并发时数量错位
+            _atomic_write_text(path / "chunks.json",
+                               json.dumps([chunk.__dict__ for chunk in chunks], ensure_ascii=False))
+            if _np is not None:
+                # numpy 会给非 .npy 后缀自动追加 .npy，临时文件名必须自带后缀；
+                # 加 uuid4 唯一后缀，并发/多进程写不再互相覆盖（os.replace 最后写入者胜）
+                tmp = path / f"vectors.{uuid.uuid4().hex}.tmp.npy"
+                _np.save(tmp, _np.asarray(vectors, dtype=_np.float32))
+                os.replace(tmp, path / "vectors.npy")
+            else:
+                _atomic_write_text(path / "vectors.json", json.dumps(vectors))
+            _atomic_write_text(path / "meta.json", json.dumps({"mode": mode}))
         return path
 
     @classmethod
     def load(cls, directory: str | Path | None = None) -> "VectorIndex":
+        global _INDEX_LOAD_ERROR
         path = Path(directory or settings.vector_index_dir).resolve()
         index = cls()
         chunks_file = path / "chunks.json"
         if not chunks_file.exists():
+            # 全新/空目录是合法状态，不算故障，/health 保持 UP
+            _INDEX_LOAD_ERROR = None
             return index
         try:
             raw_chunks = json.loads(chunks_file.read_text(encoding="utf-8"))
@@ -562,7 +589,7 @@ class VectorIndex:
             elif (path / "vectors.json").exists():
                 vectors = json.loads((path / "vectors.json").read_text(encoding="utf-8"))
             else:
-                return index
+                raise ValueError("索引文件不完整：缺少向量文件")
             if len(chunks) != len(vectors):
                 raise ValueError(f"切片数 {len(chunks)} 与向量数 {len(vectors)} 不一致")
             meta_file = path / "meta.json"
@@ -570,14 +597,18 @@ class VectorIndex:
             if meta_file.exists():
                 mode = json.loads(meta_file.read_text(encoding="utf-8")).get("mode", mode)
             index.add(chunks, vectors, mode)
+            _INDEX_LOAD_ERROR = None
         except Exception as exc:
-            # 不自动删用户数据；保留现场，让运维按日志重建索引
+            # 不自动删用户数据；保留现场，让运维按日志重建索引；
+            # 同时登记故障状态，供 /health 反映 DEGRADED（不再静默按空索引仍报 UP）
+            _INDEX_LOAD_ERROR = f"{type(exc).__name__}: 向量索引加载失败"
             logger.error("向量索引加载失败（%s），按空索引启动；请重新 embed 重建：%s", path, exc)
         return index
 
 
 def _atomic_write_text(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
+    # P1-2：临时文件名加 uuid4 唯一后缀，并发/多进程写不再互相踩踏固定 .tmp
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, path)
 
@@ -589,6 +620,16 @@ def get_index() -> VectorIndex:
             if _INDEX is None:
                 _INDEX = VectorIndex.load()
     return _INDEX
+
+
+def get_index_status() -> bool:
+    """供 /health 探测：索引加载是否健康（True=健康，False=DEGRADED）。
+
+    先确保懒加载已执行（首次心跳即尝试 load），这样损坏/不完整的索引能通过
+    DEGRADED 反映出来，而不是静默按空索引启动仍报 UP。全新空索引视为健康。
+    """
+    get_index()
+    return _INDEX_LOAD_ERROR is None
 
 
 def reset_index() -> None:

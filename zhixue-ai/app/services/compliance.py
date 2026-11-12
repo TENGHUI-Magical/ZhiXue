@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 
 # 原骨架版关键词（契约行为基线，任何情况下精确命中即拦截）
@@ -34,6 +35,45 @@ INTENT_PATTERNS = BLOCK_KEYWORDS + [
 
 BLOCK_TIP = "检测到代写请求倾向。本系统仅提供启发式讲解与思路引导，请独立完成作答。"
 
+# ---- P1-1 增量：Prompt 注入 / 越狱 / 英文代写特征（不改动上面的统计评分模型）----
+# 意图库 13 条全为中文统计短语，对英文、越狱、角色劫持类注入无覆盖面。
+# 规则型特征命中即拦截（与统计评分结果 OR），并登记规则 ID 供审计留痕。
+_INJECTION_PATTERNS: tuple[tuple[str, "re.Pattern[str]"], ...] = (
+    ("PROMPT_INJECTION_ZH", re.compile(
+        r"忽略\s*(?:以上|前面|之前|上述|所有)[^。；;]{0,16}(?:指令|提示|要求|规则|约束)"
+        r"|你现在(?:是|要|扮演)|请扮演|从现在起你(?:是|要)"
+        r"|输出\s*(?:完整|标准)?答案|不要(?:任何)?(?:过程|解释)", re.I)),
+    ("PROMPT_INJECTION_EN", re.compile(
+        r"ignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions"
+        r"|(?:^|[\s;])(?:system|assistant)\s*[:：]"
+        r"|\bDAN\b|jailbreak|do\s+anything\s+now"
+        r"|reveal\s+(?:the\s+)?(?:system\s+)?prompt", re.I)),
+    ("ANSWER_DIRECT_EN", re.compile(
+        r"give\s+me\s+the\s+answer|just\s+(?:tell|give)\s+me\s+the\s+answer"
+        r"|do\s+my\s+homework|write\s+(?:the\s+)?answer\s+for\s+me"
+        r"|solve\s+this\s+for\s+me|without\s+(?:any\s+)?(?:steps|explanation)", re.I)),
+    ("EXAM_CHEAT", re.compile(
+        r"考试\s*(?:作弊|答案)|(?:期末|期中|月考)\s*(?:试卷|考题|真题)\s*(?:的)?答案"
+        r"|泄露\s*(?:标准)?答案", re.I)),
+)
+
+
+def matched_rules(text: str) -> list[str]:
+    """返回命中的规则 ID（精确关键词 / 注入正则 / 模糊评分），供审计留痕。"""
+    rules: list[str] = []
+    normalized = _normalize(text)
+    for keyword in BLOCK_KEYWORDS:
+        if keyword in normalized:
+            rules.append("EXACT:" + keyword)
+    rule_text = _rule_text(text)
+    for rule_id, pattern in _INJECTION_PATTERNS:
+        if pattern.search(rule_text):
+            rules.append(rule_id)
+    if containment_score(text) >= _DECISION_TAU:
+        rules.append("FUZZY:containment>=tau")
+    return rules
+
+
 # 判决参数：τ=0.75（包含度阈值，60 组正负样本网格扫描选定），
 # T=0.05（温度，控制 sigmoid 陡峭度，仅影响概率输出的平滑性不影响判决）
 _DECISION_TAU = 0.75
@@ -41,9 +81,24 @@ _TEMPERATURE = 0.05
 
 
 def _normalize(text: str) -> str:
-    """小写 + 去标点/符号/空白：空格拆词与标点干扰全部消除。"""
-    return "".join(ch for ch in (text or "").lower()
+    """小写 + NFKC 全角/异体折叠 + 去标点/符号/空白（P1-1 增量加固）。
+
+    原实现仅 lower() + 去 P/Z/S 类字符；NFKC 补上全角英文/罗马字变体折叠，
+    压缩「Ｇｉｖｅ　ｍｅ　ｔｈｅ　ａｎｓｗｅｒ」一类绕过空间。中文样本结果不变，
+    统计评分模型（意图库 / idf / Sigmoid）及其既有单测全部保留、不受影响。
+    """
+    nfkc = unicodedata.normalize("NFKC", text or "")
+    return "".join(ch for ch in nfkc.lower()
                    if unicodedata.category(ch)[0] not in ("P", "Z", "S"))
+
+
+def _rule_text(text: str) -> str:
+    """NFKC 折叠 + 小写，但保留空白/词边界供英文注入正则使用。
+
+    `_normalize()` 会把空白全部去掉（用于统计评分），英文正则的 ``\\s+`` 无法匹配；
+    规则型特征单独用本形式，既能折叠全角英文，又保留词边界。
+    """
+    return unicodedata.normalize("NFKC", text or "").lower()
 
 
 def _grams(text: str) -> tuple[set[str], set[str]]:
@@ -109,9 +164,11 @@ def compliance_probability(text: str) -> float:
 
 
 def compliance_check(text: str) -> tuple[bool, str | None]:
-    """命中代写意图 → 返回学术诚信提示，讲解定位为「思路点拨」而非「答案交付」。
+    """命中代写 / 注入意图 → (True, 学术诚信提示)；否则 (False, None)。
 
-    判决顺序：精确子串（原骨架版行为，恒保留）→ 模糊包含度 ≥ τ。
+    判决顺序：精确子串（原行为）→ 注入/越狱/英文规则型特征 → 模糊包含度 ≥ τ。
+    签名与 tuple[bool, str | None] 保持不变；新增规则只增加拦截覆盖，不改既有
+    正负样本判定（负样本如「帮我讲解一下第三范式」不含任何注入特征）。
     """
     normalized = _normalize(text)
     if not normalized:
@@ -119,6 +176,23 @@ def compliance_check(text: str) -> tuple[bool, str | None]:
     for keyword in BLOCK_KEYWORDS:
         if keyword in normalized:
             return True, BLOCK_TIP
+    rule_text = _rule_text(text)
+    for _rule_id, pattern in _INJECTION_PATTERNS:
+        if pattern.search(rule_text):
+            return True, BLOCK_TIP
     if containment_score(text) >= _DECISION_TAU:
         return True, BLOCK_TIP
     return False, None
+
+
+def compliance_detail(text: str) -> dict:
+    """拦截决策明细（P1-1：置信度与命中规则不再死码），供 logger / 审计留痕。
+
+    返回 {blocked, probability, score, rules}；metadata-first，不打印原文。
+    """
+    return {
+        "blocked": compliance_check(text)[0],
+        "probability": round(compliance_probability(text), 4),
+        "score": round(containment_score(text), 4),
+        "rules": matched_rules(text),
+    }

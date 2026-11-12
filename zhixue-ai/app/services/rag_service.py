@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from typing import AsyncIterator
@@ -19,7 +20,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.schemas import RagExplainRequest
-from app.services.compliance import compliance_check
+from app.services.compliance import compliance_check, compliance_detail
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,53 @@ def _model_hint() -> str:
 
 # SSE 响应头：禁用代理缓冲，保持逐帧下发
 SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"}
+
+# ---- P1-2：连接池单例 / 并发背压 / 整体超时兜底 ----
+# 所有 L1/L2/重试复用同一 AsyncClient（keep-alive），不再每次 new 触发 TLS 握手；
+# httpx 分项超时（connect/read/write/pool）保留，另加 Python 侧整体超时兜底，
+# 配合 Java 侧 SSE 60s 收口（config.py:29-31 的既定取舍仍尊重）。
+_HTTP_CLIENT: httpx.AsyncClient | None = None
+_HTTP_CLIENT_LOCK = threading.Lock()
+_GENERATION_TIMEOUT_SECONDS = 60.0
+_MAX_CONCURRENT_GENERATIONS = 20
+_MAX_MALFORMED_FRAMES = 5
+
+# asyncio.Semaphore 绑定事件循环；按 loop 惰性重建，兼容生产单 loop 与
+# 多次 asyncio.run() 的测试/多 loop 场景，避免跨 loop 复用报错。
+_LLM_SEMAPHORE: asyncio.Semaphore | None = None
+_LLM_SEMAPHORE_LOOP = None
+
+
+def _generation_semaphore() -> asyncio.Semaphore:
+    global _LLM_SEMAPHORE, _LLM_SEMAPHORE_LOOP
+    loop = asyncio.get_running_loop()
+    if _LLM_SEMAPHORE is None or _LLM_SEMAPHORE_LOOP is not loop:
+        _LLM_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_GENERATIONS)
+        _LLM_SEMAPHORE_LOOP = loop
+    return _LLM_SEMAPHORE
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    """模块级单例 AsyncClient：懒加载 + 锁 + 双重检查，进程内全局复用连接池。"""
+    global _HTTP_CLIENT
+    if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+        with _HTTP_CLIENT_LOCK:
+            if _HTTP_CLIENT is None or _HTTP_CLIENT.is_closed:
+                timeout = httpx.Timeout(
+                    connect=3.0, read=float(settings.llm_timeout_seconds),
+                    write=10.0, pool=3.0)
+                _HTTP_CLIENT = httpx.AsyncClient(timeout=timeout)
+    return _HTTP_CLIENT
+
+
+async def aclose_http_client() -> None:
+    """由 app/main.py 的 lifespan/shutdown 调用：释放连接池，避免退出后残留连接。"""
+    global _HTTP_CLIENT
+    with _HTTP_CLIENT_LOCK:
+        client = _HTTP_CLIENT
+        _HTTP_CLIENT = None
+    if client is not None and not client.is_closed:
+        await client.aclose()
 
 
 def _sse(event: str, payload: dict) -> str:
@@ -195,28 +243,66 @@ def _request_payload(model: str, messages: list[dict], include_usage: bool) -> d
 
 async def _stream_openai(url: str, key: str, model: str, messages: list[dict],
                          usage: dict, include_usage: bool = False) -> AsyncIterator[str]:
-    """OpenAI 兼容流式调用（DeepSeek / GLM 共用）。异常由调用方降级。"""
+    """OpenAI 兼容流式调用（DeepSeek / GLM 共用）。异常由调用方降级。
+
+    P1-2：复用模块级单例 AsyncClient（keep-alive）+ 信号量背压 + 整体超时兜底；
+    P1-3：畸形帧计数告警 / 超阈值主动中止，choices/delta/content 安全逐层取值，
+          不再静默吞帧、不再因 null 结构抛 TypeError 被误判为「调用失败」。
+    """
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     payload = _request_payload(model, messages, include_usage)
-    timeout = httpx.Timeout(connect=3.0, read=float(settings.llm_timeout_seconds), write=10.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                data = line[6:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    obj = json.loads(data)
-                except json.JSONDecodeError:
-                    continue
-                if obj.get("usage"):
-                    usage.update(obj["usage"])
-                delta = obj.get("choices", [{}])[0].get("delta", {}).get("content")
-                if delta:
-                    yield delta
+    client = await _get_http_client()
+    # asyncio.timeout 覆盖「等待信号量 + 建连 + 整条流」：上游每 9s 吐 1 字也
+    # 会在 60s 被收口（httpx 的 read=10s 只看帧间空闲，看不住慢速累计）。
+    # 超时抛 TimeoutError（Exception 子类），由调用方 L1/L2 的 except 走既有降级链。
+    async with asyncio.timeout(_GENERATION_TIMEOUT_SECONDS):
+        async with _generation_semaphore():
+            async with client.stream("POST", url, headers=headers, json=payload) as resp:
+                resp.raise_for_status()
+                malformed = 0
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj = json.loads(data)
+                    except json.JSONDecodeError:
+                        malformed += 1
+                        logger.warning("上游畸形 SSE 帧 model=%s 累计=%s/%s",
+                                       model, malformed, _MAX_MALFORMED_FRAMES)
+                        if malformed >= _MAX_MALFORMED_FRAMES:
+                            raise RuntimeError(
+                                f"上游连续 {malformed} 个畸形 SSE 帧，中止该流以触发降级")
+                        continue
+                    if not isinstance(obj, dict):
+                        logger.warning("上游 SSE 帧非 JSON 对象，跳过 model=%s", model)
+                        continue
+                    if isinstance(obj.get("usage"), dict):
+                        usage.update(obj["usage"])
+                    choices = obj.get("choices")
+                    if not isinstance(choices, list):
+                        logger.warning("上游 SSE choices 结构异常（非 list），跳过 model=%s", model)
+                        continue
+                    if not choices:  # usage-only 帧的合法空 choices，静默跳过
+                        continue
+                    first = choices[0]
+                    if not isinstance(first, dict):
+                        logger.warning("上游 SSE choices[0] 结构异常，跳过 model=%s", model)
+                        continue
+                    delta = first.get("delta")
+                    if not isinstance(delta, dict):
+                        logger.warning("上游 SSE delta 结构异常（非 dict/null），跳过 model=%s", model)
+                        continue
+                    content = delta.get("content")
+                    if content is None:
+                        continue
+                    if not isinstance(content, str):
+                        logger.warning("上游 SSE content 非字符串，跳过 model=%s", model)
+                        continue
+                    if content:
+                        yield content
 
 
 async def _buffered(stream: AsyncIterator[str], size: int = 12) -> AsyncIterator[str]:
@@ -309,10 +395,15 @@ def is_answer_leak(sentence: str, answer_text: str | None) -> bool:
     return bool(short_leak.search(sentence))
 
 
+# P1-4：_guard_pages 只在句末标点切句，无标点长流会让 buf 无界增长；
+# 超此上限时强制 flush 当前 buf（内容不丢，只是提前切块），把内存钉在上界内。
+MAX_GUARD_BUFFER = 4096
+
+
 async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
                        answer_text: str | None = None, trace_id: str | None = None
                        ) -> AsyncIterator[str]:
-    """逐句校验页码并删除答案泄露句；不缓冲整篇讲解。"""
+    """逐句校验页码并删除答案泄露句；不缓冲整篇讲解（P1-4：缓冲区有硬上界）。"""
     buf = ""
     async for delta in stream:
         buf += delta
@@ -327,6 +418,15 @@ async def _guard_pages(stream: AsyncIterator[str], textbook_page: str | None,
                 logger.warning("检测到答案泄露句 traceId=%s，已删除该句", trace_id or "-")
             else:
                 yield clean
+        # 上游持续输出无句末标点时按硬上限强制切，绝不让 buf 无界增长
+        if len(buf) > MAX_GUARD_BUFFER:
+            clean = sanitize_page_citations(buf, textbook_page)
+            if is_answer_leak(clean, answer_text):
+                logger.warning("检测到答案泄露句(缓冲超限强制切) traceId=%s，已删除该块",
+                               trace_id or "-")
+            else:
+                yield clean
+            buf = ""
     if buf:
         clean = sanitize_page_citations(buf, textbook_page)
         if not is_answer_leak(clean, answer_text):
@@ -387,12 +487,21 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
                 })
     except Exception as exc:  # 检索是增强项，不允许中断讲解
         logger.warning("RAG 检索增强失败 traceId=%s，保持单来源：%s", trace_id, exc)
-    blocked, block_tip = compliance_check(req.questionText or "")
+    # P1-5：合规覆盖面从「只查 questionText」扩到学生可控文本。
+    # 取舍：只拼接 questionText + myAnswer，刻意不纳入 kpName/conceptText——
+    # conceptText 是教材原文、kpName 是知识点标签，纳入会把教材里的「答案」等字样
+    # 误判为作弊；拼接（而非分别判定）还能抓住跨字段拆分的作弊请求。
+    compliance_text = "\n".join(t for t in (req.questionText, req.myAnswer) if t)
+    blocked, block_tip = compliance_check(compliance_text)
 
     yield _sse("meta", {"traceId": trace_id, "sources": sources, "model": _model_hint()})
     if blocked:
         # 契约 §2 60004：展示学术诚信提示，不展示讲解正文——不发 chunk/done，
         # 由 Java 转发 error 事件并落库 is_blocked=1
+        # 命中规则 ID 与概率写日志供审计（error 事件契约字段保持不变）
+        detail = compliance_detail(compliance_text)
+        logger.info("合规拦截 traceId=%s rules=%s probability=%s",
+                    trace_id, detail["rules"], detail["probability"])
         yield _sse("error", {"code": 60004, "message": block_tip, "retryable": False})
         return
 
@@ -437,12 +546,15 @@ async def stream_explain(req: RagExplainRequest) -> AsyncIterator[str]:
     if settings.glm_api_key:
         delivered = False
         try:
-            yield _sse("degraded", {"level": LEVEL_L2, "reason": "L1 调用失败",
-                                    "modelUsed": settings.llm_model_fallback})
             async for delta in _guard_pages(_buffered(_stream_openai(
                     f"{settings.glm_base_url.rstrip('/')}/chat/completions",
                     settings.glm_api_key, settings.llm_model_fallback, messages, usage)),
                     req.textbookPage, req.answerText, trace_id):
+                if not delivered:
+                    # P1-5：确认 L2 至少产出一个 chunk 之后才宣告降级；
+                    # L2 零产出失败时不再留下孤立 degraded L2，杜绝 L2+L3 双降级事件
+                    yield _sse("degraded", {"level": LEVEL_L2, "reason": "L1 调用失败",
+                                            "modelUsed": settings.llm_model_fallback})
                 delivered = True
                 yield _sse("chunk", {"content": delta})
             if delivered:

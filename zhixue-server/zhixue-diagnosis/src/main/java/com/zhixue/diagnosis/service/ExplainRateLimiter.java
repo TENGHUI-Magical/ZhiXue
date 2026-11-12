@@ -61,6 +61,42 @@ public class ExplainRateLimiter {
     }
 
     /**
+     * 按端点可配的通用限流（P1-3）：画像 / 推荐等原本零配额的读端点复用同一套
+     * Redis 固定窗口实现，endpoint 用于隔离不同端点的计数键，maxPerMinute 由调用方
+     * 按端点代价配置。与 {@link #acquire(long)} 同构（INCR + EXPIRE + 故障降级放行），
+     * 返回同一个 {@link Decision}；explain 端点仍走 {@code acquire(long)}（10/min，契约不变）。
+     *
+     * @param endpoint     端点标识（调用方传入代码内常量，如 portrait-me / recommendations）
+     * @param userId       当前登录用户
+     * @param maxPerMinute 每分钟允许次数；非正数时回退到讲解默认 10/min
+     * @return allowed=false 时 retryAfterSeconds 为建议等待秒数
+     */
+    public Decision check(String endpoint, long userId, int maxPerMinute) {
+        long now = System.currentTimeMillis() / 1000;
+        long windowStart = now - (now % WINDOW_SECONDS);
+        int limit = maxPerMinute > 0 ? maxPerMinute : LIMIT_PER_MINUTE;
+        String key = "zhixue:rate:" + endpoint + ":" + userId + ":" + windowStart;
+        try {
+            Long count = redisTemplate.opsForValue().increment(key);
+            if (count == null) {
+                return Decision.allow();
+            }
+            if (count == 1L) {
+                redisTemplate.expire(key, Duration.ofSeconds(WINDOW_SECONDS * 2));
+            }
+            if (count > limit) {
+                long retryAfter = Math.max(1L, WINDOW_SECONDS - (now % WINDOW_SECONDS));
+                return new Decision(false, retryAfter);
+            }
+            return Decision.allow();
+        } catch (Exception e) {
+            log.warn("端点限流 Redis 不可用，降级放行 endpoint={} userId={} reason={}",
+                    endpoint, userId, e.toString());
+            return Decision.allow();
+        }
+    }
+
+    /**
      * 限流判定结果。
      *
      * @param allowed           是否放行

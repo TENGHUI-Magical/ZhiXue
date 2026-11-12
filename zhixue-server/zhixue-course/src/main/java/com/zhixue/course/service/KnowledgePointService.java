@@ -96,9 +96,19 @@ public class KnowledgePointService {
     /**
      * 契约视图查询：返回 openapi KnowledgePoint 字段，补齐 chapterName，
      * 不暴露 createdBy/isActive/时间戳等内部列。
+     * <p>
+     * 契约 course 组要求"只返回 is_active=1"：停用知识点属下架内容，不得经主键直读；
+     * 查不到一律抛 40400，与 getById/findById 的"内部历史降级"语义分离。
      */
     public KnowledgePointView getViewById(String kpId) {
-        KnowledgePoint kp = getById(kpId);
+        KnowledgePoint kp = (kpId == null || kpId.isBlank()) ? null
+                : knowledgePointMapper.selectOne(new LambdaQueryWrapper<KnowledgePoint>()
+                        .eq(KnowledgePoint::getKpId, kpId)
+                        .eq(KnowledgePoint::getIsActive, 1)
+                        .last("LIMIT 1"));
+        if (kp == null) {
+            throw new BizException(ErrorCode.NOT_FOUND, "知识点不存在或已停用: " + kpId);
+        }
         return toView(kp,
                 kp.getChapterId() == null ? null : knowledgePointMapper.selectChapterTitle(kp.getChapterId()));
     }

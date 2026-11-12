@@ -50,6 +50,10 @@ public class PracticeService {
     /** begin 打点 Redis 前缀（对齐 zhixue: 命名空间，IT cleanData 可统一清理）；TTL 24h 兜底防泄漏，提交成功后主动删除 */
     private static final String START_KEY_PREFIX = "zhixue:practice:start:";
     private static final Duration START_TTL = Duration.ofHours(24);
+    /** A4：单用户打点计数键，与打点键共用 24h TTL；配合 begin 限流防 abandoned 键无界增长 */
+    private static final String START_COUNT_PREFIX = "zhixue:practice:start:count:";
+    /** A4：单用户最多同时持有 200 个未提交的打点，超过按 RATE_LIMITED 拒绝 */
+    private static final int MAX_OPEN_STARTS_PER_USER = 200;
     private static final DateTimeFormatter DATE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -80,6 +84,10 @@ public class PracticeService {
      * 伪造令牌无记录（计 null）、重放打点不重置（setIfAbsent 首次为准）、
      * 拖后提交只会让时长变大（无收益）。剩余信任假设：Redis 与应用同机同时钟（单机部署成立）。
      * 幂等：同 clientToken 重复打点返回首次开始时刻。
+     * <p>
+     * A4：写入前用同一 Redis 连接做单用户当日打点计数限流（INCR + EXPIRE 24h），
+     * 防 abandoned 打点键无界增长；超过 200 抛 42900，成功提交时 decrement 释放计数。
+     * 正常路径的返回契约与降级行为保持原样。
      */
     public PracticeStartView begin(PracticeStartRequest request) {
         // 题目必须存在且启用：不存在就地 40400，避免发一个提交时必然失败的打点令牌（探针 H03）
@@ -87,9 +95,19 @@ public class PracticeService {
         questionBankService.getById(request.qId());
         long userId = StpUtil.getLoginIdAsLong();
         String key = START_KEY_PREFIX + userId + ":" + request.clientToken();
+        String countKey = START_COUNT_PREFIX + userId;
         String now = String.valueOf(System.currentTimeMillis());
         String startedAt = now;
         try {
+            // A4：同一 Redis 连接先做单用户打点计数限流，再写入打点键
+            Long opens = redisTemplate.opsForValue().increment(countKey);
+            if (opens != null && opens == 1L) {
+                redisTemplate.expire(countKey, START_TTL);
+            }
+            if (opens != null && opens > MAX_OPEN_STARTS_PER_USER) {
+                redisTemplate.opsForValue().decrement(countKey);
+                throw new BizException(ErrorCode.RATE_LIMITED, "待提交的作答打点过多，请先完成已有练习");
+            }
             Boolean first = redisTemplate.opsForValue()
                     .setIfAbsent(key, now, START_TTL);
             String stored = Boolean.TRUE.equals(first) ? now : redisTemplate.opsForValue().get(key);
@@ -97,6 +115,9 @@ public class PracticeService {
                 Long.parseLong(stored); // 损坏值按本次 now，避免下面格式化时抛 NumberFormatException
                 startedAt = stored;
             }
+        } catch (BizException e) {
+            // 限流属业务拒绝，不能被下方 Redis 故障降级吞掉
+            throw e;
         } catch (Exception e) {
             // 与提交侧计时读取同口径：Redis 故障不阻断“开始作答”，降级为服务端当前时刻
             log.warn("作答打点 Redis 不可用，本次降级为服务端当前时刻 userId={} token={} reason={}",
@@ -246,6 +267,13 @@ public class PracticeService {
         if (request.startToken() != null && !request.startToken().isBlank()) {
             try {
                 redisTemplate.delete(START_KEY_PREFIX + userId + ":" + request.startToken());
+                // A4：打点已消费，用 decrement 释放计数（不能 delete 整键：并发中的其它
+                // 未完成打点会被一并清零，导致限流窗口被绕过）；下限保护防止减成负数
+                String countKey = START_COUNT_PREFIX + userId;
+                Long left = redisTemplate.opsForValue().decrement(countKey);
+                if (left != null && left < 0) {
+                    redisTemplate.opsForValue().set(countKey, "0");
+                }
             } catch (Exception e) {
                 log.warn("作答打点清理失败（TTL 兜底）: {}", e.getMessage());
             }
@@ -334,6 +362,11 @@ public class PracticeService {
                                                String clientToken, String myAnswer,
                                                boolean isCorrect, Integer costSeconds,
                                                String errorType) {
+        // A5：uk_user_client 的 client_token 列可空，MySQL 允许多个 NULL → 唯一键失效；
+        // 本方法是 public 且无 @Valid 兜底，入口强制非空（不改 DDL，schema 变更需人确认）
+        if (clientToken == null || clientToken.isBlank()) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "clientToken 不能为空");
+        }
         if (myAnswer != null && myAnswer.length() > 20000) {
             throw new BizException(ErrorCode.PARAM_ERROR, "myAnswer 最长 20000 字");
         }

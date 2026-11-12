@@ -956,9 +956,9 @@ components:
       properties:
         courseId: { type: integer, format: int64 }
         clientToken: { type: string, maxLength: 64 }
-        qId: { type: string, nullable: true, maxLength: 64 }
-        kpId: { type: string, nullable: true, maxLength: 32 }
-        imageUrl: { type: string, nullable: true, maxLength: 500 }
+        qId: { type: string, nullable: true, maxLength: 20 }
+        kpId: { type: string, nullable: true, maxLength: 20 }
+        imageUrl: { type: string, nullable: true, maxLength: 300 }
         ocrText: { type: string, nullable: true, maxLength: 8000 }
         correctedText: { type: string, nullable: true, maxLength: 3000 }
         ocrConfidence: { type: number, nullable: true, minimum: 0, maximum: 1 }

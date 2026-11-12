@@ -38,6 +38,8 @@ public class MasteryAggregationService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final String STATUS_CONFIRMED = "CONFIRMED";
+    /** P1-2：单条 IN 的元素上限，避免无界 IN / max_allowed_packet / 优化器退化。 */
+    private static final int IN_CHUNK = 500;
 
     private final PracticeRecordMapper practiceRecordMapper;
     private final StudentErrorRecordMapper errorRecordMapper;
@@ -107,6 +109,8 @@ public class MasteryAggregationService {
     /**
      * 课程 × 学生 × 知识点掌握度（班级画像 / 教师端列表）。
      * qIds 为课程题目，kpIds 为课程知识点（上传错题按知识点归属课程），userIds 为课程学生集合。
+     * <p>P1-2：qIds / userIds 分块下推（≤500/块），IN 元素数有上界；累加器对同一 (user,kp)
+     * 求和/取 max，与单条大 IN 结果等价。其余口径（同日同题去重、CONFIRMED 合并）不变。</p>
      */
     public CourseMastery courseMastery(List<String> qIds, Collection<String> kpIds,
                                        Collection<Long> userIds, LocalDateTime now,
@@ -115,12 +119,21 @@ public class MasteryAggregationService {
         if (userIds == null || userIds.isEmpty()) {
             return new CourseMastery(Map.of(), Map.of());
         }
-        for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(
-                qIds, userIds, halfLifeDays, now, since)) {
-            if (agg.getUserId() == null) {
-                continue;
+        // 同一 q_id 恒定落在同一 qBatch、同一 user_id 恒定落在同一 uBatch（partition 内去重），
+        // 故 ROW_NUMBER() PARTITION BY user_id, q_id, DATE(created_at) 的分区不会被拆到两块。
+        List<List<String>> qBatches = qChunks(qIds);
+        List<List<Long>> uBatches = partition(userIds, IN_CHUNK);
+        for (List<String> qBatch : qBatches) {
+            for (List<Long> uBatch : uBatches) {
+                for (UserKpAgg agg : practiceRecordMapper.aggregateByUserKp(
+                        qBatch, uBatch, halfLifeDays, now, since)) {
+                    if (agg.getUserId() == null) {
+                        continue;
+                    }
+                    addPractice(byUser.computeIfAbsent(agg.getUserId(),
+                            key -> new HashMap<>()), agg);
+                }
             }
-            addPractice(byUser.computeIfAbsent(agg.getUserId(), key -> new HashMap<>()), agg);
         }
 
         Set<Long> allowedUsers = new HashSet<>(userIds);
@@ -134,15 +147,19 @@ public class MasteryAggregationService {
             return new CourseMastery(onlyPractice, uploadedDist);
         }
         Map<Long, Set<String>> practicedByUser = practicedQidsByUser(userIds);
-        List<StudentErrorRecord> uploads = errorRecordMapper.selectList(
-                new LambdaQueryWrapper<StudentErrorRecord>()
-                        .in(StudentErrorRecord::getUserId, userIds)
-                        .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
-                        .ge(StudentErrorRecord::getCreatedAt, since)
-                        .select(StudentErrorRecord::getLogId, StudentErrorRecord::getUserId,
-                                StudentErrorRecord::getQId, StudentErrorRecord::getKpId,
-                                StudentErrorRecord::getErrorType,
-                                StudentErrorRecord::getConfirmedAt, StudentErrorRecord::getCreatedAt));
+        // P1-2：CONFIRMED 上传错题同样按 userIds 分块，避免无界 IN
+        List<StudentErrorRecord> uploads = new ArrayList<>();
+        for (List<Long> uBatch : uBatches) {
+            uploads.addAll(errorRecordMapper.selectList(
+                    new LambdaQueryWrapper<StudentErrorRecord>()
+                            .in(StudentErrorRecord::getUserId, uBatch)
+                            .eq(StudentErrorRecord::getStatus, STATUS_CONFIRMED)
+                            .ge(StudentErrorRecord::getCreatedAt, since)
+                            .select(StudentErrorRecord::getLogId, StudentErrorRecord::getUserId,
+                                    StudentErrorRecord::getQId, StudentErrorRecord::getKpId,
+                                    StudentErrorRecord::getErrorType,
+                                    StudentErrorRecord::getConfirmedAt, StudentErrorRecord::getCreatedAt)));
+        }
         Map<Long, List<StudentErrorRecord>> uploadsByUser = new HashMap<>();
         for (StudentErrorRecord record : uploads) {
             Long userId = record.getUserId();
@@ -177,14 +194,58 @@ public class MasteryAggregationService {
         return new StudentMastery(kps, 0, 0, course.uploadedErrorDist());
     }
 
-    /** 每个学生已练题目集合（批量，一次 SQL）。 */
-    private Map<Long, Set<String>> practicedQidsByUser(Collection<Long> userIds) {
-        Map<Long, Set<String>> result = new HashMap<>();
-        for (UserQid row : practiceRecordMapper.selectDistinctQidsByUsers(userIds)) {
-            if (row.getUserId() == null || row.getQId() == null) {
+    /**
+     * P1-2：把任意 Collection 切成固定大小的有序块；先按迭代顺序去重，
+     * 保证同一 q_id / user_id 恒定落在同一块（ROW_NUMBER 窗口分区不被拆开，
+     * 与单条大 IN 结果等价）。空集合返回空列表。
+     */
+    private static <T> List<List<T>> partition(Collection<T> source, int size) {
+        List<List<T>> result = new ArrayList<>();
+        if (source == null || source.isEmpty()) {
+            return result;
+        }
+        List<T> current = new ArrayList<>(size);
+        Set<T> seen = new HashSet<>();
+        for (T item : source) {
+            if (!seen.add(item)) {
                 continue;
             }
-            result.computeIfAbsent(row.getUserId(), key -> new HashSet<>()).add(row.getQId());
+            current.add(item);
+            if (current.size() >= size) {
+                result.add(current);
+                current = new ArrayList<>(size);
+            }
+        }
+        if (!current.isEmpty()) {
+            result.add(current);
+        }
+        return result;
+    }
+
+    /**
+     * P1-2：qIds 为空/为 null 时返回单个空块——mapper 的
+     * {@code <if test="qIds != null and qIds.size() > 0">} 会跳过 IN，语义等价于原 null。
+     */
+    private static List<List<String>> qChunks(List<String> qIds) {
+        if (qIds == null || qIds.isEmpty()) {
+            List<List<String>> single = new ArrayList<>();
+            single.add(List.of());
+            return single;
+        }
+        return partition(qIds, IN_CHUNK);
+    }
+
+    /** 每个学生已练题目集合（批量、分块，一次有界 SQL/块，避免逐学生 N+1 与无界 IN）。 */
+    private Map<Long, Set<String>> practicedQidsByUser(Collection<Long> userIds) {
+        Map<Long, Set<String>> result = new HashMap<>();
+        for (List<Long> uBatch : partition(userIds, IN_CHUNK)) {
+            for (UserQid row : practiceRecordMapper.selectDistinctQidsByUsers(uBatch)) {
+                if (row.getUserId() == null || row.getQId() == null) {
+                    continue;
+                }
+                result.computeIfAbsent(row.getUserId(), key -> new HashSet<>())
+                        .add(row.getQId());
+            }
         }
         return result;
     }
@@ -261,7 +322,8 @@ public class MasteryAggregationService {
     private List<KpMastery> toList(Map<String, Acc> accs, LocalDateTime now) {
         List<KpMastery> result = new ArrayList<>(accs.size());
         for (Acc acc : accs.values()) {
-            double mastery = masteryCalculator.mastery(acc.successWeight, acc.severitySum);
+            // P1-4：热路径只需均值，改调轻量 masteryMean（省去两条 Beta 分位数计算）
+            double mastery = masteryCalculator.masteryMean(acc.successWeight, acc.severitySum);
             double retention = acc.lastCorrectAt == null ? 0.0
                     : masteryCalculator.decay(acc.lastCorrectAt, now);
             result.add(new KpMastery(acc.kpId, acc.events, acc.errors, acc.successWeight,

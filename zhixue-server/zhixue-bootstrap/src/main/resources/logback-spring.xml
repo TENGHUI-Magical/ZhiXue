@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志持久化（P1 修复 · Java_10）：
+  此前日志只到 stdout，关掉终端即丢，审计证据链不成立（runbook:144 自认待补）。
+  本配置提供：
+  1) CONSOLE 保留原有 stdout 输出（行为不变）；
+  2) FILE 全量滚动日志，格式带 %X{traceId}，与 TraceIdFilter 全链路对齐；
+  3) AUDIT 教师端读操作独立审计文件，只接 TeacherReviewService 的 INFO 日志
+     （该类审计日志按设计只记 teacherId/count/traceId，不记正文与答案，符合 B8）。
+  logs/ 已在 .gitignore 忽略；滚动保留 30 天，单文件 20MB，总上限 1GB。
+-->
+<configuration>
+    <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="zhixue-server"/>
+
+    <property name="LOG_DIR" value="${LOG_DIR:-./logs}"/>
+    <property name="PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %X{traceId:--} %logger{40} - %msg%n"/>
+    <property name="AUDIT_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %X{traceId:--} %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${APP_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 教师端读操作审计：只记 ID/数量/traceId，不记学生正文与标准答案 -->
+    <appender name="AUDIT" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/review-access-audit.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/review-access-audit.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+            <maxHistory>90</maxHistory>
+            <totalSizeCap>512MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${AUDIT_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!--
+      教师端读操作审计：TeacherReviewService.page() 用类 logger 打
+      `evt=REVIEW_QUEUE_READ ...`，这里把该类的 INFO 同时接到 AUDIT（additivity=true 保留 FILE）。
+      该类日志按设计只记 teacherId/count/traceId，不记正文与答案，符合 B8。
+    -->
+    <logger name="com.zhixue.diagnosis.service.TeacherReviewService" level="INFO" additivity="true">
+        <appender-ref ref="AUDIT"/>
+    </logger>
+
+    <!-- 生产降噪：SQL 与框架内部日志维持 WARN -->
+    <logger name="com.zhixue" level="INFO"/>
+    <logger name="org.springframework" level="WARN"/>
+    <logger name="org.mybatis" level="WARN"/>
+    <logger name="com.baomidou.mybatisplus" level="WARN"/>
+    <logger name="io.netty" level="WARN"/>
+    <logger name="reactor.netty" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

@@ -84,6 +84,22 @@ public final class MasteryCalculator {
         return estimate(successWeight, failureWeight).mean();
     }
 
+    /**
+     * 仅后验均值的轻量方法（P1-4）：直接算 alpha/(alpha+beta)，alpha=2+S、beta=2+F，
+     * 与 {@link #estimate(double, double)} 的 mean、及 {@link #mastery(double, double)}
+     * 数值逐位等价（同一 clamp 规则、同一运算顺序），但省去 0.05/0.95 两条 Beta 分位数
+     * （各 80 次二分、每次最多 200 次连分式迭代）的开销。
+     * 供聚合热路径（MasteryAggregationService.toList，每学生×每知识点各调一次）使用；
+     * 原 {@link #mastery(double, double)} 保留不动，其它调用方与需要可信区间的场景不受影响。
+     */
+    public double masteryMean(double successWeight, double failureWeight) {
+        double s = Math.max(0.0, successWeight);
+        double f = Math.max(0.0, failureWeight);
+        double alpha = PRIOR_SUCCESS + s;
+        double beta = PRIOR_FAILURE + f;
+        return alpha / (alpha + beta);
+    }
+
     /** 单条正确事件的时间权重，调用方按事件各自时间累加即可。 */
     public double correctWeight(LocalDateTime eventAt, LocalDateTime now) {
         return decay(eventAt, now);

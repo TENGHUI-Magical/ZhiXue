@@ -138,6 +138,13 @@ public class DiagnosisController {
             @RequestParam(required = false) String logId,
             @RequestParam(required = false) String kpId,
             @RequestParam(required = false) Long courseId) {
+        // P1-3：推荐端点接入按用户配额（30/min）；超限仍走 HTTP 200 + code=42900
+        ExplainRateLimiter.Decision decision = explainRateLimiter.check(
+                "recommendations", StpUtil.getLoginIdAsLong(), 30);
+        if (!decision.allowed()) {
+            return ApiResponse.fail(ErrorCode.RATE_LIMITED,
+                    "推荐查询过于频繁，请 " + decision.retryAfterSeconds() + " 秒后重试");
+        }
         return ApiResponse.ok(recommendationService.recommend(logId, kpId, courseId));
     }
 }

@@ -55,6 +55,8 @@ public class StudentErrorRecordService {
     private static final Set<String> ERROR_TYPES = Set.of(
             "CONCEPT_CONFUSION", "METHOD_MISSING", "STEP_OMISSION",
             "CALCULATION_ERROR", "BOUNDARY_ERROR");
+    /** A3：深分页上限，避免 OFFSET 无界放大（size≤50，1000 页覆盖 5 万条，足够单用户错题本） */
+    private static final int MAX_PAGE = 1000;
 
     private final StudentErrorRecordMapper mapper;
     private final AiGenerationLogMapper aiLogMapper;
@@ -147,6 +149,9 @@ public class StudentErrorRecordService {
      * DRAFT → CONFIRMED；重复确认返回 40900。
      * <p>
      * 用 status=DRAFT 条件更新做 CAS：两个并发确认只有一个能更新成功，另一个回查后返回 40900。
+     * <p>
+     * A2：确认的知识点必须启用且与错题题目同课程——getById 不过滤 is_active，
+     * 显式判 kp.getIsActive()，避免停用/跨课程知识点被写成掌握度证据。
      *
      * @param logId   错题记录编号
      * @param request 确认内容
@@ -161,7 +166,19 @@ public class StudentErrorRecordService {
         if (!ERROR_TYPES.contains(request.getErrorType())) {
             throw new BizException(ErrorCode.PARAM_ERROR, "errorType 必须为契约五类错因之一");
         }
-        knowledgePointService.getById(request.getKpId());
+        KnowledgePoint kp = knowledgePointService.getById(request.getKpId());
+        // A2：getById 不过滤 is_active，停用知识点会漏过；显式拒绝（fail-closed）
+        if (kp.getIsActive() == null || kp.getIsActive() != 1) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "知识点已停用: " + request.getKpId());
+        }
+        // A2：知识点必须与错题题目同课程，复用 PracticeService.submit():163-165 的 Objects.equals 口径
+        if (record.getQId() != null && !record.getQId().isBlank()) {
+            QuestionBank question = questionBankService.getById(record.getQId());
+            if (question != null && question.getCourseId() != null
+                    && !Objects.equals(question.getCourseId(), kp.getCourseId())) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "知识点与错题题目不属于同一课程");
+            }
+        }
 
         LambdaUpdateWrapper<StudentErrorRecord> update = new LambdaUpdateWrapper<StudentErrorRecord>()
                 .eq(StudentErrorRecord::getLogId, logId)
@@ -204,16 +221,17 @@ public class StudentErrorRecordService {
      * <p>
      * 分页用 count + LIMIT/OFFSET 两查实现，不引 PaginationInnerInterceptor：
      * 单用户错题量为百级，两查成本可忽略，避免为单一端点引入分页插件依赖。
+     * A3：page 上限 1000 防深分页；列表改走全参数化显式 SQL，不再拼接 wrapper 片段。
      *
-     * @param page   页码，从 1 起；越界返回 40000（契约 minimum: 1）
+     * @param page   页码，从 1 起；越界返回 40000（契约 minimum: 1，上限 1000）
      * @param size   每页条数；越界返回 40000（契约 minimum: 1 / maximum: 50）
      * @param kpId   可选过滤：知识点编号
      * @param status 可选过滤：DRAFT / CONFIRMED；其他值返回 40000
      * @return 分页视图，创建时间倒序
      */
     public ErrorRecordPageView page(int page, int size, String kpId, String status) {
-        if (page < 1) {
-            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须从 1 起");
+        if (page < 1 || page > MAX_PAGE) {
+            throw new BizException(ErrorCode.PARAM_ERROR, "page 必须在 1—" + MAX_PAGE + " 之间");
         }
         if (size < 1 || size > 50) {
             throw new BizException(ErrorCode.PARAM_ERROR, "size 必须在 1—50 之间");
@@ -222,15 +240,18 @@ public class StudentErrorRecordService {
             throw new BizException(ErrorCode.PARAM_ERROR, "status 只能为 DRAFT 或 CONFIRMED");
         }
         long userId = StpUtil.getLoginIdAsLong();
+        // count 只保留过滤条件（ORDER BY 对 count 无意义）
         LambdaQueryWrapper<StudentErrorRecord> query = new LambdaQueryWrapper<StudentErrorRecord>()
                 .eq(StudentErrorRecord::getUserId, userId)
                 .eq(kpId != null && !kpId.isBlank(), StudentErrorRecord::getKpId, kpId)
-                .eq(status != null && !status.isBlank(), StudentErrorRecord::getStatus, status)
-                .orderByDesc(StudentErrorRecord::getCreatedAt)
-                .orderByDesc(StudentErrorRecord::getLogId);
+                .eq(status != null && !status.isBlank(), StudentErrorRecord::getStatus, status);
         long total = mapper.selectCount(query);
-        // count 与 list 共用 wrapper；列表走参数绑定 LIMIT/OFFSET，不再使用 .last() 拼接
-        List<StudentErrorRecord> rows = mapper.selectPageByWrapper(query, size, (long) (page - 1) * size);
+        // A3：列表走显式全参数绑定 SQL，过滤/排序在 SQL 内固定，值全部由 #{} 绑定
+        long offset = (long) (page - 1) * size;
+        List<StudentErrorRecord> rows = mapper.selectPageByUser(userId,
+                (kpId == null || kpId.isBlank()) ? null : kpId,
+                (status == null || status.isBlank()) ? null : status,
+                size, offset);
         Map<String, KnowledgePoint> kpById = knowledgePointService.findByIds(
                 rows.stream().map(StudentErrorRecord::getKpId).toList());
         // 评阅回流（05 §4.6）：一次批量取本页错题的最新已评阅讲解，避免逐条 N+1

@@ -131,7 +131,8 @@ class TeacherReviewServiceTest {
 
         assertEquals(1, view.total());
         assertEquals(1, view.records().size());
-        assertEquals("学生A", view.records().get(0).userName());
+        // P1-1：队列姓名与导出/班级管理统一走 NameMasker 脱敏（"学生A"→"学*A"）
+        assertEquals("学*A", view.records().get(0).userName());
         assertEquals("KP0201", view.records().get(0).kpId());
         assertEquals("CONCEPT_CONFUSION", view.records().get(0).errorType());
         assertEquals(1, view.records().get(0).sources().size());

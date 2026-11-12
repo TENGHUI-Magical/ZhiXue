@@ -21,6 +21,7 @@ import com.zhixue.diagnosis.mapper.StudentErrorRecordMapper;
 import com.zhixue.user.service.UserQueryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -124,6 +125,11 @@ public class TeacherReviewService {
                 ? List.of()
                 : logMapper.selectForReview(reviewed, kp, fromTime, toTime, courseIds,
                 size, (int) offset);
+        // P1-1（Java_07）：教师端批量读操作访问审计，只记 teacherId / 条数 / traceId，
+        // 不记姓名、讲解正文、参考答案、学生笔记（B8 元数据优先日志）。
+        String traceId = MDC.get("traceId");
+        log.info("evt=REVIEW_QUEUE_READ teacherId={} count={} traceId={}",
+                StpUtil.getLoginIdAsLong(), rows.size(), traceId == null ? "-" : traceId);
         return new ReviewPageView(page, size, total, toViews(rows));
     }
 
@@ -386,7 +392,9 @@ public class TeacherReviewService {
             List<ReviewItemView.SourceRef> sources = buildSources(row, kpById, error);
             String kpId = error != null && error.getKpId() != null ? error.getKpId()
                     : sources.isEmpty() ? null : sources.get(0).kpId();
-            String userName = userNameById.getOrDefault(row.getUserId(), "用户" + row.getUserId());
+            // P1-1（Java_07）：与 exportLine / TeacherStudentService 统一 NameMasker 脱敏口径
+            String userName = NameMasker.mask(
+                    userNameById.getOrDefault(row.getUserId(), "用户" + row.getUserId()));
             String content = row.getContentText() == null ? "" : row.getContentText();
             long waitingSeconds = row.getCreatedAt() == null ? 0
                     : Math.max(0, Duration.between(row.getCreatedAt(), now).getSeconds());

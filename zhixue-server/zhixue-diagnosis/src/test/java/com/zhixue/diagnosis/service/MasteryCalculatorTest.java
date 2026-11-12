@@ -100,4 +100,20 @@ class MasteryCalculatorTest {
         assertEquals(0.8, MasteryCalculator.severity(null), 1e-9);
         assertEquals(1.0, MasteryCalculator.severity("CONCEPT_CONFUSION"), 1e-9);
     }
+
+    /**
+     * P1-4：轻量 masteryMean 只算均值，必须与 estimate().mean() / mastery() 逐位相等
+     * （同一 alpha/beta、同一 Math.max(0.0, ...) clamp、同一除法顺序），含负权重脏数据分支。
+     */
+    @Test
+    void masteryMeanIsBitwiseEqualToEstimateMeanAndMastery() {
+        double[][] cases = {
+                {0.0, 0.0}, {9.0, 1.0}, {0.9921256575, 1.0},
+                {2.0, 0.125}, {-1.0, -2.0}, {6.0, 0.0}, {0.0, 3.0}};
+        for (double[] c : cases) {
+            double mean = calculator.masteryMean(c[0], c[1]);
+            assertEquals(calculator.estimate(c[0], c[1]).mean(), mean, 0.0);
+            assertEquals(calculator.mastery(c[0], c[1]), mean, 0.0);
+        }
+    }
 }

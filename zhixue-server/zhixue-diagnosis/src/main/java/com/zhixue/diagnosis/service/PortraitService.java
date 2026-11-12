@@ -119,7 +119,13 @@ public class PortraitService {
         StpUtil.checkRole("TEACHER");
         Course course = courseService.getActiveById(courseId);
         long teacherId = StpUtil.getLoginIdAsLong();
-        if (course.getTeacherId() != null && !Objects.equals(course.getTeacherId(), teacherId)) {
+        // P1-1 fail-closed：teacherId 为空一律拒绝，消除「无归属教师即放行」的危险写法。
+        // 残余风险：班级维度仍不是安全边界（无 course_student/teacher_class 绑定表），
+        // 本次只收紧课程归属校验，不引入 schema 变更（按 AGENTS.md 需人确认）。
+        if (course.getTeacherId() == null) {
+            throw new BizException(ErrorCode.FORBIDDEN, "课程无归属教师，禁止访问");
+        }
+        if (!Objects.equals(course.getTeacherId(), teacherId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "无权查看其他教师的课程");
         }
         List<String> qIds = questionBankService.listQidsByCourse(courseId);

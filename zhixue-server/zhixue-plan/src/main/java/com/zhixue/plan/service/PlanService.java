@@ -38,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 学习计划服务：周计划生成、列表、打卡。
@@ -50,6 +52,17 @@ import java.util.Set;
 public class PlanService {
 
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
+
+    /**
+     * P1-2：answered=false 不写 practice_record（契约 docs/01:208），没有 (user_id, client_token)
+     * 唯一键可作幂等凭据，故用进程内短窗口缓存识别「同用户同 token 重放」，命中返回首次结果。
+     * 非持久化：多实例/进程重启后缓存丢失，重放会退回 40900（残余风险，见交付摘要）。
+     */
+    private static final long RECORD_ONLY_IDEMPOTENCY_TTL_MS = TimeUnit.MINUTES.toMillis(10);
+    private static final int RECORD_ONLY_IDEMPOTENCY_MAX_SIZE = 4096;
+
+    /** key = userId:clientToken；value = 首次 recordOnly 回执 + 登记时间。有界容量 + 过期淘汰，防泄漏。 */
+    private final ConcurrentHashMap<String, IdempotencyEntry> recordOnlyIdempotency = new ConcurrentHashMap<>();
 
     private final StudyPlanMapper planMapper;
     private final StudyPlanItemMapper itemMapper;
@@ -209,6 +222,15 @@ public class PlanService {
      * 打卡：answered=true 写 practice_record(source=PLAN) 并按真实作答记 is_correct；
      * answered=false 仅推进度、不写 practice_record（不计正确率/不入可信闭环）。
      * 同一 clientToken 重放返回成功（duplicate=true）；不同 token 打同一已完成题返回 40900。
+     *
+     * <p>B3（残余 P1，本轮保留方法级 {@code @Transactional}）：事务在入口即建立 REPEATABLE READ
+     * 快照，覆盖到 {@code practiceService.recordPlanCompletion()} 内部的
+     * {@code DuplicateKeyException} 幂等回查；并发同 token 双击时，回查在本事务快照内
+     * 看不到并发方已提交的首条 practice_record，会误判 40900/50000 并整单回滚。
+     * 推荐后续按 audit_reports/Java_05_练习错题与复习.md §5.4 收口：去掉本方法
+     * {@code @Transactional}、注入 {@code TransactionTemplate} 只包住写操作，把幂等回查
+     * 移到事务结束之后用新快照执行（跨模块需同步改 PracticeService.recordPlanCompletion
+     * 与 PlanServiceTest 构造器，超出本轮授权范围）。
      */
     @Transactional(rollbackFor = Exception.class)
     public CheckinResult checkin(Long planId, CheckinRequest request) {
@@ -219,6 +241,19 @@ public class PlanService {
         }
         if (!Objects.equals(plan.getUserId(), userId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "无权操作该计划");
+        }
+        // P1-1：服务端日期校验，拒绝提前打卡未来计划 / 超过补卡期限的过期计划刷完成率。
+        // planDate 取自库里的 StudyPlan，绝不接受客户端日期参数；时区统一用类内 ZONE。
+        // planDate 为 null 视为历史数据（旧计划未落日期），放行以兼容存量。
+        LocalDate planDate = plan.getPlanDate();
+        if (planDate != null) {
+            LocalDate today = LocalDate.now(ZONE);
+            if (planDate.isAfter(today)) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "不能为未来的计划打卡");
+            }
+            if (planDate.isBefore(today.minusDays(7))) {
+                throw new BizException(ErrorCode.PARAM_ERROR, "超过补打卡期限（7 天）");
+            }
         }
         StudyPlanItem item = itemMapper.selectOne(new LambdaQueryWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getPlanId, planId)
@@ -231,7 +266,7 @@ public class PlanService {
         validateCheckin(answered, request);
         return answered
                 ? answeredCheckin(plan, item, request, userId)
-                : recordOnlyCheckin(plan, item, request);
+                : recordOnlyCheckin(plan, item, request, userId);
     }
 
     private void validateCheckin(boolean answered, CheckinRequest request) {
@@ -247,16 +282,94 @@ public class PlanService {
     }
 
     /** 仅记录进度：不写 practice_record，只把明细置完成（不计正确率/样本）。 */
-    private CheckinResult recordOnlyCheckin(StudyPlan plan, StudyPlanItem item, CheckinRequest request) {
+    private CheckinResult recordOnlyCheckin(StudyPlan plan, StudyPlanItem item,
+                                            CheckinRequest request, long userId) {
+        long now = System.currentTimeMillis();
+        // P1-2：key = userId:clientToken；clientToken 由 @NotBlank 保证非空，null 仅可能来自绕过 @Valid 的内部调用
+        String cacheKey = request.clientToken() == null ? null
+                : userId + ":" + request.clientToken();
         int rows = itemMapper.update(null, new LambdaUpdateWrapper<StudyPlanItem>()
                 .eq(StudyPlanItem::getItemId, item.getItemId())
                 .eq(StudyPlanItem::getIsDone, 0)
                 .set(StudyPlanItem::getIsDone, 1));
         if (rows == 0) {
+            // 同 clientToken 重放：返回首次结果（duplicate=true），不重复写（对齐契约 docs/01:34）。
+            // 不同 token / 无 token 打同一已完成题仍是重复提交，按契约 40900。
+            CheckinResult replay = lookupRecordOnlyIdempotent(cacheKey, request.qId(), now);
+            if (replay != null) {
+                return replay;
+            }
             throw new BizException(ErrorCode.DUPLICATE_SUBMIT, "该题已打卡");
         }
         planMapper.refreshProgress(plan.getPlanId());
-        return buildResult(plan, request.qId(), false, null, null, false, true, null);
+        CheckinResult result = buildResult(plan, request.qId(), false, null, null, false, true, null);
+        storeRecordOnlyIdempotent(cacheKey, result, now);
+        return result;
+    }
+
+    /** 查同 token 重放：命中未过期且 qId 一致则返回「首次结果 + duplicate=true」，否则返回 null。 */
+    private CheckinResult lookupRecordOnlyIdempotent(String key, String qId, long now) {
+        if (key == null) {
+            return null;
+        }
+        IdempotencyEntry entry = recordOnlyIdempotency.get(key);
+        if (entry == null) {
+            return null;
+        }
+        if (now - entry.createdAtMillis > RECORD_ONLY_IDEMPOTENCY_TTL_MS) {
+            recordOnlyIdempotency.remove(key, entry);
+            return null;
+        }
+        // 同一 clientToken 被用于其它题目时不按幂等处理，避免跨题吞掉重复提交
+        if (!Objects.equals(entry.result.qId(), qId)) {
+            return null;
+        }
+        CheckinResult first = entry.result;
+        return new CheckinResult(first.planId(), first.qId(), first.doneCount(),
+                first.planCount(), first.verified(), first.isCorrect(),
+                first.gradingMode(), first.practiceId(), true);
+    }
+
+    /** 登记首次结果：computeIfAbsent 保证并发下只保留首次；写入前按容量做过期/最老淘汰。 */
+    private void storeRecordOnlyIdempotent(String key, CheckinResult result, long now) {
+        if (key == null) {
+            return;
+        }
+        if (recordOnlyIdempotency.size() >= RECORD_ONLY_IDEMPOTENCY_MAX_SIZE) {
+            evictRecordOnlyIdempotent(now);
+        }
+        recordOnlyIdempotency.computeIfAbsent(key, k -> new IdempotencyEntry(result, now));
+    }
+
+    /** 有界淘汰：先清过期项；仍超上限则按登记时间删最老的一批，保证缓存不无限增长。 */
+    private void evictRecordOnlyIdempotent(long now) {
+        recordOnlyIdempotency.forEach((key, entry) -> {
+            if (now - entry.createdAtMillis > RECORD_ONLY_IDEMPOTENCY_TTL_MS) {
+                recordOnlyIdempotency.remove(key, entry);
+            }
+        });
+        int over = recordOnlyIdempotency.size() - RECORD_ONLY_IDEMPOTENCY_MAX_SIZE;
+        if (over <= 0) {
+            return;
+        }
+        recordOnlyIdempotency.entrySet().stream()
+                .sorted(Comparator.comparingLong(
+                        (Map.Entry<String, IdempotencyEntry> e) -> e.getValue().createdAtMillis))
+                .limit((long) over + 1)
+                .map(Map.Entry::getKey)
+                .toList()
+                .forEach(recordOnlyIdempotency::remove);
+    }
+
+    /** 幂等缓存条目：首次回执 + 登记时间（毫秒，仅用于进程内相对过期判断）。 */
+    private static final class IdempotencyEntry {
+        private final CheckinResult result;
+        private final long createdAtMillis;
+
+        private IdempotencyEntry(CheckinResult result, long createdAtMillis) {
+            this.result = result;
+            this.createdAtMillis = createdAtMillis;
+        }
     }
 
     /** 已作答打卡：客观题服务端判分、主观题自评；幂等命中返回首次结果。 */

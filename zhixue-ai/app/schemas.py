@@ -97,7 +97,8 @@ class RagRetrieveResponse(BaseModel):
 class RagEmbedRequest(BaseModel):
     """切片入索引：教师/脚本显式传入文本，不在此做 PDF/PPT 解析。"""
     kpId: str = Field(description="知识点编号，如 KP0201")
-    text: str = Field(description="要切片入库的原始文本（concept_text 或教师资料）")
+    # P1-3：入库文本长度上限，防止超长 body 把切片数/内存/磁盘撑爆
+    text: str = Field(max_length=20000, description="要切片入库的原始文本（concept_text 或教师资料）")
     kpName: str = ""
     courseId: Optional[int] = None
     chapterId: Optional[int] = None

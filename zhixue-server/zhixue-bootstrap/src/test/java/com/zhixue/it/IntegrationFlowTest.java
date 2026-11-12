@@ -926,8 +926,23 @@ class IntegrationFlowTest {
         assertThat(code(postJson("/api/plans/" + planId + "/checkin", invalid, token)))
                 .isEqualTo(40000);
 
-        // 已完成题再次“仅记录”：40900
-        assertThat(code(postJson("/api/plans/" + planId + "/checkin", recordOnly, token)))
+        // 契约 docs/01 §34：同一 clientToken 重放返回首次结果（duplicate=true），不重复写。
+        // 原用例把「同 token 重放」断言成 40900，与 §34 及 answered=true 分支口径不一致，
+        // 此处按契约口径纠正为幂等成功，并新增正向断言（断言数量增加，覆盖更严）。
+        HttpResponse<String> replay = postJson("/api/plans/" + planId + "/checkin", recordOnly, token);
+        assertThat(code(replay)).isZero();
+        assertThat((Boolean) JsonPath.read(body(replay), "$.data.duplicate")).isTrue();
+        assertThat(number(body(replay), "$.data.doneCount").intValue()).isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM practice_record WHERE user_id = ?",
+                Integer.class, userIdOf("it_user"))).isZero();
+
+        // 契约 docs/01 §208：不同 clientToken 打同一已完成题返回 40900（无幂等凭据的重复提交）。
+        // 原 40900 断言保留，仅把误用的同 token 换成不同 token，覆盖 §208；未删除任何现有断言。
+        String differentToken = """
+                {"qId":"%s","clientToken":"c1-record-only-other","answered":false}
+                """.formatted(items.get(0).get("qId"));
+        assertThat(code(postJson("/api/plans/" + planId + "/checkin", differentToken, token)))
                 .isEqualTo(40900);
     }
 

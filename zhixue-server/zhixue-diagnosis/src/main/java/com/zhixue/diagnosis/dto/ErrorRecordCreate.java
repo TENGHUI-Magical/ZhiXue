@@ -28,9 +28,12 @@ public record ErrorRecordCreate(
         @NotBlank(message = "clientToken 不能为空")
         @Size(max = 64, message = "clientToken 最长 64 字") String clientToken,
 
-        @Size(max = 64) String qId,
-        @Size(max = 32) String kpId,
-        @Size(max = 500) String imageUrl,
+        /** P1-6：与 student_error_record.q_id VARCHAR(20) 对齐 */
+        @Size(max = 20, message = "qId 最长 20 字") String qId,
+        /** P1-6：与 student_error_record.kp_id VARCHAR(20) 对齐 */
+        @Size(max = 20, message = "kpId 最长 20 字") String kpId,
+        /** P1-6：与 student_error_record.image_url VARCHAR(300) 对齐 */
+        @Size(max = 300, message = "imageUrl 最长 300 字") String imageUrl,
         @Size(max = 8000) String ocrText,
         @Size(max = 3000) String correctedText,
 

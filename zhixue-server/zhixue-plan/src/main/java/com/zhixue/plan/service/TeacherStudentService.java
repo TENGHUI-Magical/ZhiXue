@@ -272,7 +272,11 @@ public class TeacherStudentService {
         }
         Course course = courseService.getActiveById(courseId);
         long teacherId = StpUtil.getLoginIdAsLong();
-        if (course.getTeacherId() != null && !Objects.equals(course.getTeacherId(), teacherId)) {
+        // P1-1 fail-closed：teacherId 为空一律拒绝，消除「无归属教师即放行」的危险写法。
+        if (course.getTeacherId() == null) {
+            throw new BizException(ErrorCode.FORBIDDEN, "课程无归属教师，禁止访问");
+        }
+        if (!Objects.equals(course.getTeacherId(), teacherId)) {
             throw new BizException(ErrorCode.FORBIDDEN, "无权查看其他教师的课程");
         }
         return course;

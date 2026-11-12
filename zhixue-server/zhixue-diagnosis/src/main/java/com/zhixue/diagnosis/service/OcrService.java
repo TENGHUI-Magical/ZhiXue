@@ -180,8 +180,10 @@ public class OcrService {
         }
 
         String filename = target.getFileName().toString();
+        // P1 修复：在请求线程捕获 traceId，显式传给异步 worker（MDC 不跨线程池传递）
+        String traceId = org.slf4j.MDC.get("traceId");
         try {
-            executor.execute(() -> recognize(taskId, target, filename));
+            executor.execute(() -> recognize(taskId, target, filename, traceId));
         } catch (RejectedExecutionException e) {
             log.warn("OCR 队列已满，任务直接标记失败 taskId={}", taskId);
             transition(taskId, PENDING, FAILED, null, null, "OCR 队列已满，请稍后重试");
@@ -303,7 +305,7 @@ public class OcrService {
                 fields, errorCode, task.getErrorMsg());
     }
 
-    private void recognize(String taskId, Path file, String filename) {
+    private void recognize(String taskId, Path file, String filename, String traceId) {
         // 任务可能已被回收器标 FAILED 或已完成，CAS 失败即不再执行，避免终态回跳
         if (!transition(taskId, PENDING, RUNNING, null, null, null)) {
             try {
@@ -320,6 +322,8 @@ public class OcrService {
             OcrRecognizeResponse response = webClient.post()
                     .uri("/api/ocr/recognize")
                     .contentType(MediaType.MULTIPART_FORM_DATA)
+                    // P1 修复：traceId 透传到 FastAPI（契约 §1.2「每次请求透传」）
+                    .header("X-Trace-Id", traceId == null ? "" : traceId)
                     .body(BodyInserters.fromMultipartData(builder.build()))
                     .retrieve()
                     .bodyToMono(OcrRecognizeResponse.class)
