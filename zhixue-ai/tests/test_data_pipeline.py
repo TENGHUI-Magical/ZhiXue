@@ -5,8 +5,11 @@ import asyncio
 import json
 import random
 
-import numpy as np
 import pytest
+
+# data_pipeline 依赖 numpy（requirements.txt 已声明）；CI 的 requirements-dev 故意不装 numpy
+# 以覆盖 vector_index 的纯 Python 回退，因此这里缺依赖时整模块跳过，而不是收集期报错。
+np = pytest.importorskip("numpy")
 
 from app.services.ocr_quality import aggregate_confidence, wilson_lower_bound
 from data_pipeline import calibration as cal
