@@ -290,19 +290,56 @@ async function waitFor(name, url, timeoutMs, check) {
 }
 
 async function waitBackendHealthy() {
+  // Health 端点已收紧为需登录（SaTokenConfigure 不再匿名放行），
+  // 先用公开的登录接口换 token，再带 satoken 轮询；等待窗口与断言（db/redis=UP）不变。
+  const deadline = Date.now() + 180000
   let health = null
-  await waitFor('后端健康检查', `${BACKEND}/api/system/health`, 180000, (res, body) => {
-    if (res.status !== 200) return false
+  let token = null
+  let last = ''
+  while (Date.now() < deadline) {
     try {
-      const json = JSON.parse(body)
-      if (json.code !== 0 || !json.data) return false
-      health = json.data
-      // db/redis 必须 UP；AI 未启动时整体 DEGRADED 属预期（本门禁不覆盖 AI 模型服务）
-      return json.data.db === 'UP' && json.data.redis === 'UP'
-    } catch {
-      return false
+      if (!token) {
+        const lr = await fetch(`${BACKEND}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: STUDENT, password: DEMO_PASSWORD }),
+          signal: AbortSignal.timeout(5000)
+        })
+        const lj = await lr.json().catch(() => null)
+        if (lj?.code === 0 && lj?.data?.token) {
+          token = lj.data.token
+        } else {
+          last = `login HTTP ${lr.status}: ${JSON.stringify(lj)?.slice(0, 160)}`
+          await sleep(500)
+          continue
+        }
+      }
+      const res = await fetch(`${BACKEND}/api/system/health`, {
+        headers: { satoken: token },
+        signal: AbortSignal.timeout(5000)
+      })
+      const body = await res.text()
+      try {
+        const json = JSON.parse(body)
+        if (json.code === 40100) {
+          // token 被轮换/失效：下次循环重新登录
+          token = null
+          last = `HTTP ${res.status}: ${body.slice(0, 200)}`
+        } else if (json.code === 0 && json.data?.db === 'UP' && json.data?.redis === 'UP') {
+          health = json.data
+          break
+        } else {
+          last = `HTTP ${res.status}: ${body.slice(0, 200)}`
+        }
+      } catch {
+        last = `HTTP ${res.status}: ${body.slice(0, 200)}`
+      }
+    } catch (e) {
+      last = e.message
     }
-  })
+    await sleep(500)
+  }
+  if (!health) throw new Error(`后端健康检查 等待超时（180s），最后状态：${last}`)
   log(`  健康检查通过：status=${health.status} db=${health.db} redis=${health.redis} ai=${health.ai}`)
   return health
 }
