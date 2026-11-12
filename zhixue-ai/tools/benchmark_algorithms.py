@@ -158,20 +158,73 @@ def compare(before_path: Path, after_path: Path) -> int:
     return 0 if ok else 1
 
 
+def run_dedup_benchmark(n_records: int, out_dir: Path) -> dict:
+    """去重候选枚举的内存/耗时：旧全量 n×n 距离矩阵 vs 新分块上三角枚举。"""
+    import numpy as np
+    from data_pipeline import dataset_builder as ds
+
+    rng = np.random.default_rng(20261112)
+    signatures = rng.integers(0, 2 ** 63, size=n_records, dtype=np.uint64)
+
+    def old_full_matrix() -> None:
+        table = ds._POPCOUNT_TABLE
+        block = 1024
+        distances = np.zeros((n_records, n_records), dtype=np.uint8)
+        for start in range(0, n_records, block):
+            chunk = signatures[start:start + block]
+            xor = chunk[:, None] ^ signatures[None, :]
+            distances[start:start + block] = table[
+                xor.view(np.uint8).reshape(chunk.shape[0], n_records, 8)].sum(axis=2)
+        np.argwhere(np.triu(distances <= 6, k=1))
+
+    def timed(func):
+        tracemalloc.start()
+        start = time.perf_counter()
+        func()
+        elapsed = (time.perf_counter() - start) * 1000
+        peak = tracemalloc.get_traced_memory()[1] / 1024 / 1024
+        tracemalloc.stop()
+        return round(elapsed, 2), round(peak, 2)
+
+    old_ms, old_peak = timed(old_full_matrix)
+    new_ms, new_peak = timed(
+        lambda: ds._near_duplicate_pairs(signatures, max_hamming=6, block=256))
+    result = {
+        "label": "dedup",
+        "n_records": n_records,
+        "old_matrix_ms": old_ms,
+        "old_peak_mb": old_peak,
+        "new_blockwise_ms": new_ms,
+        "new_peak_mb": new_peak,
+        "peak_reduction_mb": round(old_peak - new_peak, 2),
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "benchmark_dedup.json"
+    out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print(f"已写入: {out_path}")
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="向量检索基准（重构前后对比）")
     parser.add_argument("--label", default=None, help="before / after")
     parser.add_argument("--chunks", type=int, default=200)
     parser.add_argument("--queries", type=int, default=50)
     parser.add_argument("--compare", nargs=2, metavar=("BEFORE", "AFTER"))
+    parser.add_argument("--dedup", type=int, default=0,
+                        help="额外跑去重候选枚举基准（参数为记录数）")
     parser.add_argument("--out-dir", default=str(
         AI_ROOT.parent.parent / "algorithm_and_data_opt" / "benchmarks"))
     args = parser.parse_args()
 
     if args.compare:
         return compare(Path(args.compare[0]), Path(args.compare[1]))
+    if args.dedup:
+        run_dedup_benchmark(args.dedup, Path(args.out_dir))
+        return 0
     if not args.label:
-        parser.error("需要 --label 或 --compare")
+        parser.error("需要 --label 或 --compare 或 --dedup")
     run_benchmark(args.label, args.chunks, args.queries, Path(args.out_dir))
     return 0
 

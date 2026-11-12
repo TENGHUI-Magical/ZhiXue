@@ -8,8 +8,9 @@
   取 0.15、以 BM25 为主。60 题检索评测（tools/eval_retrieval.py，真实种子数据）：
   recall@5 70.0%→88.3%，top-5 含 gold 58.3%→78.3%，过阈但 gold 不在 32.7%→11.3%；
 - topK 默认 5，阈值 0.35；hash 模式按比例换算，下限 0.10（评测扫描的最优点）；
-- 不引入 Chroma/Milvus；200 条量级直接矩阵点积（numpy 可用时单次 GEMV +
-  BM25 倒排索引快路径，无 numpy 环境自动回退逐文档循环，两路径数学等价）。
+- 不引入 Chroma/Milvus；200 条量级直接矩阵点积。numpy 可用时单次 GEMV 算余弦；
+  BM25 优先走预计算的 CSR 稀疏矩阵（scipy 可选），无 scipy 回退倒排候选 + Python
+  打分，无 numpy 回退逐文档循环——三条路径数学等价（排序/分数一致）。
 """
 from __future__ import annotations
 
@@ -33,6 +34,24 @@ try:  # CI 的 requirements-dev 不装 numpy，必须允许无 numpy 运行
     import numpy as _np
 except Exception:  # pragma: no cover - 环境分支
     _np = None
+
+_SPARSE_MODULE = None  # 惰性探测 scipy.sparse：None=未探测，False=不可用
+
+
+def _sparse_module():
+    """懒加载 scipy.sparse（缺失时返回 None，BM25 回退逐候选 Python 打分）。
+
+    不在模块顶层 import：scipy 首次导入约数百毫秒，只有建索引时才需要。
+    """
+    global _SPARSE_MODULE
+    if _SPARSE_MODULE is None:
+        try:
+            from scipy import sparse as module
+        except Exception:  # pragma: no cover - 环境分支
+            _SPARSE_MODULE = False
+        else:
+            _SPARSE_MODULE = module
+    return _SPARSE_MODULE or None
 
 # 无 bge 时关键词通道分数量纲与余弦不同；用比例+下限换算，而不是把调用方阈值直接压成 0.05。
 # 下限 0.10 来自 60 题阈值扫描：该点 gold 命中 85.0%，过阈但 gold 不在仅 3.8%。
@@ -270,9 +289,14 @@ class VectorIndex:
         self._stats: dict | None = None
         # numpy 快路径缓存（add() 时与 _stats 一起重建）：
         # _matrix: (N, d) float32 堆叠矩阵，查询时一次 GEMV 替代逐文档 np.asarray+_dot；
-        # _ids: 与矩阵行对齐的 chunk_id 列表
+        # _ids: 与矩阵行对齐的 chunk_id 列表；
+        # _positions: chunk_id → 行号（查询侧倒排回填用，避免每次重建 O(N) 字典）；
+        # _kp_array/_course_array: 过滤条件的对齐数组，布尔掩码一次向量化完成
         self._matrix = None
         self._ids: list[str] = []
+        self._positions: dict[str, int] = {}
+        self._kp_array = None
+        self._course_array = None
 
     @property
     def size(self) -> int:
@@ -321,21 +345,71 @@ class VectorIndex:
                 df[gram] = df.get(gram, 0) + 1
                 gram_docs.setdefault(gram, set()).add(chunk_id)
         total = sum(lengths.values())
+        avgdl = total / len(lengths) if lengths else 0.0
         self._stats = {
             "counts": counts,
             "lengths": lengths,
             "df": df,
-            "avgdl": total / len(lengths) if lengths else 0.0,
+            "avgdl": avgdl,
             "n": len(lengths),
             "gram_docs": gram_docs,
+            "sparse": None,
+            "vocab": None,
+            "idf": None,
         }
         self._ids = list(self._chunks.keys())
+        self._positions = {cid: i for i, cid in enumerate(self._ids)}
         if _np is not None and self._ids:
             # 堆叠矩阵：连续 float32 内存，查询侧一次 GEMV 算全部余弦点积
             self._matrix = _np.asarray(
                 [self._vectors[cid] for cid in self._ids], dtype=_np.float32)
+            # 过滤字段对齐数组：kp 用 object 数组存字符串，course 用 int64（None→-1）
+            self._kp_array = _np.asarray(
+                [self._chunks[cid].kp_id for cid in self._ids], dtype=object)
+            self._course_array = _np.asarray(
+                [-1 if self._chunks[cid].course_id is None else self._chunks[cid].course_id
+                 for cid in self._ids], dtype=_np.int64)
         else:
             self._matrix = None
+            self._kp_array = None
+            self._course_array = None
+        self._build_sparse_bm25(counts, lengths, df, avgdl)
+
+    def _build_sparse_bm25(self, counts: dict[str, dict[str, int]],
+                           lengths: dict[str, int], df: dict[str, int],
+                           avgdl: float) -> None:
+        """把 BM25 预计算成稀疏矩阵：score = A·u，u_g = idf_g·(1+log qf_g)。
+
+        A[d,g] = tf_dg(k1+1) / (tf_dg + k1(1-b+b·dl_d/avgdl))，
+        文档长度归一在矩阵元素里一次算完；查询侧只做一次 CSR·向量乘法。
+        数学上与 `_bm25` 逐项求和等价（仅浮点累加顺序不同）。
+        """
+        if _np is None or not counts or avgdl <= 0:
+            return
+        sparse = _sparse_module()
+        if sparse is None:
+            return
+        vocab = sorted(df)
+        vocab_index = {gram: i for i, gram in enumerate(vocab)}
+        rows: list[int] = []
+        cols: list[int] = []
+        values: list[float] = []
+        doc_ids = self._ids
+        for row, chunk_id in enumerate(doc_ids):
+            doc = counts.get(chunk_id) or {}
+            dl = lengths.get(chunk_id, 0)
+            norm = _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl)
+            for gram, tf in doc.items():
+                rows.append(row)
+                cols.append(vocab_index[gram])
+                values.append(tf * (_BM25_K1 + 1) / (tf + norm))
+        matrix = sparse.csr_matrix(
+            (values, (rows, cols)), shape=(len(doc_ids), len(vocab)), dtype=_np.float64)
+        n = len(doc_ids)
+        idf = _np.asarray(
+            [math.log(1 + (n - df[gram] + 0.5) / (df[gram] + 0.5)) for gram in vocab],
+            dtype=_np.float64)
+        self._stats.update({"sparse": matrix, "vocab": vocab_index, "idf": idf})
 
     def _effective_threshold(self, threshold: float) -> float:
         if self.mode != "hash-bigram":
@@ -360,6 +434,9 @@ class VectorIndex:
             mode = self.mode
             matrix = self._matrix
             ids = self._ids
+            positions = self._positions
+            kp_array = self._kp_array
+            course_array = self._course_array
         if not _clean(query):
             return []
         query_vector, _ = embed_texts([query])
@@ -378,19 +455,29 @@ class VectorIndex:
         with self._lock:
             if (_np is not None and matrix is not None
                     and matrix.shape[0] == len(ids) and len(qv) == dim):
-                # ---- numpy 快路径：Y = M·q 单次 GEMV + 倒排索引算 BM25 ----
-                # 向量分全部一次算出；BM25 只对与查询有 bigram 重合的文档计算
-                # （倒排并集），零重合文档 kw_score=0 与原逐文档循环数学等价。
+                # ---- numpy 快路径：向量通道一次 GEMV；BM25 走 CSR 或倒排候选 ----
+                # CSR 可用时一次稀疏乘法算完全部文档；不可用时只对与查询有
+                # bigram 重合的文档打分（零重合文档 kw_score=0，与原循环等价）。
                 qv_np = _np.asarray(qv, dtype=_np.float32)
                 vec_all = _np.maximum(0.0, matrix @ qv_np).astype(_np.float64)
-                position = {cid: i for i, cid in enumerate(ids)}
                 kw_arr = _np.zeros(len(ids), dtype=_np.float64)
-                if stats:
+                sparse_bm25 = stats.get("sparse") if stats else None
+                if sparse_bm25 is not None:
+                    # 稀疏矩阵快路径：一次 CSR·向量乘法算完 N 篇文档的 BM25
+                    vocab = stats["vocab"]
+                    idf = stats["idf"]
+                    query_vec = _np.zeros(sparse_bm25.shape[1], dtype=_np.float64)
+                    for gram, qf in query_counts.items():
+                        pos = vocab.get(gram)
+                        if pos is not None:
+                            query_vec[pos] = idf[pos] * (1.0 + math.log(qf))
+                    kw_arr = _np.minimum(1.0, (sparse_bm25 @ query_vec) / self_score)
+                elif stats:
                     candidates: set[str] = set()
                     for gram in query_counts:
                         candidates.update(stats["gram_docs"].get(gram, ()))
                     for cid in candidates:
-                        pos = position.get(cid)
+                        pos = positions.get(cid)
                         if pos is None:
                             continue
                         bm25 = _bm25(query_counts, stats["counts"].get(cid, {}),
@@ -398,20 +485,23 @@ class VectorIndex:
                                      stats["lengths"].get(cid, 0))
                         kw_arr[pos] = min(1.0, bm25 / self_score)
                 finals = vector_weight * vec_all + (1.0 - vector_weight) * kw_arr
-                for i, cid in enumerate(ids):
+                # 阈值与 kp/课程过滤合成布尔掩码，一次向量化；只遍历真正入选的行
+                mask = finals >= effective_threshold
+                if kp_id:
+                    mask &= kp_array == kp_id
+                if course_id is not None:
+                    mask &= course_array == course_id
+                for raw_index in _np.nonzero(mask)[0]:
+                    i = int(raw_index)
+                    cid = ids[i]
                     chunk = self._chunks.get(cid)
                     if chunk is None:  # 已被并发 add 删除
                         continue
-                    if kp_id and chunk.kp_id != kp_id:
-                        continue
-                    if course_id is not None and chunk.course_id != course_id:
-                        continue
-                    final = float(finals[i])
-                    if final >= effective_threshold:
-                        # 排序用未取整分数，避免四舍五入制造并列、改变 top-k 顺序
-                        hits.append((final, Hit(chunk, round(final, 4),
-                                                round(float(vec_all[i]), 4),
-                                                round(float(kw_arr[i]), 4))))
+                    # 排序用未取整分数，避免四舍五入制造并列、改变 top-k 顺序
+                    hits.append((float(finals[i]),
+                                 Hit(chunk, round(float(finals[i]), 4),
+                                     round(float(vec_all[i]), 4),
+                                     round(float(kw_arr[i]), 4))))
             else:
                 # ---- 纯 Python 回退路径（无 numpy 环境，如 CI requirements-dev）----
                 for chunk_id, chunk in snapshot:

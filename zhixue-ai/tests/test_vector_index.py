@@ -1,6 +1,8 @@
 """RAG 向量索引最小测试：切片、字符 bigram、阈值、过滤与持久化。"""
 from __future__ import annotations
 
+import pytest
+
 from app.config import settings
 from app.services import vector_index
 
@@ -231,6 +233,37 @@ def test_fast_path_matches_fallback_ranking_and_scores(monkeypatch):
             assert abs(f.score - s.score) < 1e-3, (query, f.chunk.chunk_id)
             assert abs(f.vector_score - s.vector_score) < 1e-3
             assert abs(f.keyword_score - s.keyword_score) < 1e-3
+
+
+def test_inverted_candidate_branch_matches_csr_ranking(monkeypatch):
+    """scipy 缺失（numpy 可用）时的倒排候选回退路径，与 CSR 快路径等价。
+
+    CI 无 numpy 只覆盖纯 Python 路径，本机有 scipy 只覆盖 CSR 路径；
+    "有 numpy 无 scipy"这条生产回退路径若无测试将零覆盖。
+    """
+    pytest.importorskip("scipy")
+    chunks, vectors = _build_equivalence_corpus()
+
+    csr = vector_index.VectorIndex()
+    csr.add(chunks, vectors, "hash-bigram")
+    assert csr._stats is not None and csr._stats["sparse"] is not None  # CSR 路径
+
+    monkeypatch.setattr(vector_index, "_sparse_module", lambda: None)
+    fallback = vector_index.VectorIndex()
+    fallback.add(chunks, [list(v) for v in vectors], "hash-bigram")
+    assert fallback._matrix is not None  # numpy 通道仍在
+    assert fallback._stats is not None and fallback._stats["sparse"] is None  # 走倒排候选
+
+    queries = ["什么是SQL的标准语言", "事务的特性有哪些", "B+树叶子节点",
+               "主属性空值", "查询优化目标", "完全无关的查询词xyz"]
+    for query in queries:
+        csr_hits = csr.search(query, top_k=5, threshold=0.0)
+        fallback_hits = fallback.search(query, top_k=5, threshold=0.0)
+        assert [h.chunk.chunk_id for h in csr_hits] == \
+               [h.chunk.chunk_id for h in fallback_hits], query
+        for c, f in zip(csr_hits, fallback_hits):
+            assert abs(c.score - f.score) < 1e-3, (query, c.chunk.chunk_id)
+            assert abs(c.keyword_score - f.keyword_score) < 1e-3
 
 
 def test_fast_path_respects_kp_and_course_filters():

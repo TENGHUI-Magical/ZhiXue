@@ -68,3 +68,11 @@ def test_short_intent_keyword_still_exact_match() -> None:
     assert compliance_check("这门课的报告能帮我代写吗")[0] is True
     # 不含"代写"字面且无 ≥4 字意图证据 → 不拦截
     assert compliance_check("代表的写作思路是什么")[0] is False
+
+
+def test_probability_is_numerically_stable_on_extreme_input() -> None:
+    """超长重复输入不得让 sigmoid 溢出/产生 NaN（数值稳定性）。"""
+    huge = "帮我写作业" * 20000
+    probability = compliance_probability(huge)
+    assert 0.0 <= probability <= 1.0
+    assert probability == probability  # 非 NaN

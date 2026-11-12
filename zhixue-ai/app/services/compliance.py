@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import math
-import re
 import unicodedata
 
 # 原骨架版关键词（契约行为基线，任何情况下精确命中即拦截）
@@ -39,7 +38,6 @@ BLOCK_TIP = "检测到代写请求倾向。本系统仅提供启发式讲解与�
 # T=0.05（温度，控制 sigmoid 陡峭度，仅影响概率输出的平滑性不影响判决）
 _DECISION_TAU = 0.75
 _TEMPERATURE = 0.05
-_PUNCT_RE = re.compile(r"\s+")
 
 
 def _normalize(text: str) -> str:
