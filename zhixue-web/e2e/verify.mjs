@@ -1479,14 +1479,20 @@ try {
   // 回归：章节下拉与筛选说明必须显示教材章号（mock 中 chapterId 2→第1章、3→第2章）
   await open(page, '/knowledge-graph')
   const chapterSelect = page.locator('.el-select').filter({ has: page.locator('input[aria-label="按章节筛选知识点"]') })
-  await chapterSelect.click(); await sleep(300)
-  const chapterOptionTexts = await page.locator('.el-select-dropdown__item:visible').allTextContents()
+  await chapterSelect.click()
+  // 固定 sleep 在 CI 慢机上不足（实测下拉项尚未渲染就读到 []）；等首项出现再取，
+  // 超时则按空列表继续断言（失败信息不变，断言强度不变）。
+  const chapterOptions = page.locator('.el-select-dropdown__item:visible')
+  await chapterOptions.first().waitFor({ timeout: 5000 }).catch(() => {})
+  const chapterOptionTexts = await chapterOptions.allTextContents()
   check('图谱：章节选项章号等于教材章号（两章）',
     chapterOptionTexts.length >= 2
       && chapterOptionTexts[0].startsWith('第 1 章 · 绪论')
       && chapterOptionTexts[1].startsWith('第 2 章 · 关系模型'),
     JSON.stringify(chapterOptionTexts))
-  await page.locator('.el-select-dropdown__item:visible').first().click(); await sleep(400)
+  if (chapterOptionTexts.length) await chapterOptions.first().click()
+  else await page.keyboard.press('Escape')
+  await sleep(400)
   check('图谱：筛选说明使用教材章号',
     (await page.locator('.graph-note').innerText()).includes('已筛选第 1 章'),
     (await page.locator('.graph-note').innerText()).slice(0, 120))
