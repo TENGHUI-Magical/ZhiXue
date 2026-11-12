@@ -3,7 +3,8 @@
 """异步网页采集器：公开课程资料/题库页 → 结构化 JSONL（供 OCR/训练集管线消费）。
 
 工程特性：
-- 限速           每域名最小间隔（令牌间隔控制，默认 1.5s/域）；
+- 有界并发       默认 4 个 worker 共享队列（concurrency 可调），限速/robots 仍然生效；
+- 限速           每域名最小间隔（令牌间隔控制，默认 1.5s/域，域内用锁串行化避免并发穿透）；
 - robots.txt     每域缓存解析，禁止路径直接跳过；
 - 指数退避       429/5xx/网络错误按 base·2^k + 均匀抖动重试，最多 N 次；
 - 断点续传       已抓取 URL 记录在 checkpoint JSON，重跑自动跳过；
@@ -27,8 +28,10 @@ import random
 import sys
 import time
 import urllib.robotparser
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from html import unescape as _html_unescape
 from pathlib import Path
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -53,6 +56,8 @@ USER_AGENTS = [
 ]
 _TAG_RE = _re.compile(r"<[^>]+>")
 _WS_RE = _re.compile(r"\s+")
+# 退化路径（无 bs4）只抽 <a href>：属性级别正则足够可靠，保证前沿爬取不因缺 bs4 失效
+_LINK_RE = _re.compile(r"<a\b[^>]*?\bhref\s*=\s*[\"']([^\"']+)[\"']", _re.I | _re.S)
 
 
 def extract_text(html: str) -> tuple[str, str, list[str]]:
@@ -69,8 +74,9 @@ def extract_text(html: str) -> tuple[str, str, list[str]]:
     title_match = _re.search(r"<title[^>]*>(.*?)</title>", html, _re.S | _re.I)
     title = _WS_RE.sub(" ", title_match.group(1)).strip() if title_match else ""
     text = _WS_RE.sub(" ", _TAG_RE.sub(" ", html)).strip()
-    links = _TAG_RE.findall(html)  # 退化路径不抽链接，只保文本
-    return title, text, []
+    # 退化路径用属性级正则抽链接（不做 DOM 解析，但能保证同站顺延可用）
+    links = [_html_unescape(href).strip() for href in _LINK_RE.findall(html)]
+    return title, text, links
 
 
 @dataclass
@@ -104,15 +110,20 @@ class WebCrawler:
         self.backoff_base = backoff_base
         self.respect_robots = respect_robots
         self._last_hit: dict[str, float] = {}
+        self._domain_locks: dict[str, asyncio.Lock] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        # 每域一把锁：同域只拉一次 robots.txt（single-flight），跨域互不阻塞
+        self._robots_locks: dict[str, asyncio.Lock] = {}
 
     async def _throttle(self, domain: str) -> None:
-        """每域名最小间隔（异步限速：距上次请求不足间隔则补睡）。"""
-        last = self._last_hit.get(domain, 0.0)
-        wait = self.min_interval - (time.monotonic() - last)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        self._last_hit[domain] = time.monotonic()
+        """每域名最小间隔；域内加锁，避免并发 worker 同时读到过期时间戳。"""
+        lock = self._domain_locks.setdefault(domain, asyncio.Lock())
+        async with lock:
+            last = self._last_hit.get(domain, 0.0)
+            wait = self.min_interval - (time.monotonic() - last)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_hit[domain] = time.monotonic()
 
     async def _robots_allows(self, client: httpx.AsyncClient,
                              url: str) -> bool:
@@ -120,16 +131,19 @@ class WebCrawler:
             return True
         parsed = urlparse(url)
         base = f"{parsed.scheme}://{parsed.netloc}"
-        if base not in self._robots:
-            parser = urllib.robotparser.RobotFileParser()
-            try:
-                response = await client.get(base + "/robots.txt",
-                                            headers={"User-Agent": USER_AGENTS[0]})
-                parser.parse(response.text.splitlines() if response.status_code == 200 else [])
-                self._robots[base] = parser
-            except Exception:
-                self._robots[base] = None  # robots 拉取失败按允许处理（公开页）
-        parser = self._robots[base]
+        lock = self._robots_locks.setdefault(base, asyncio.Lock())
+        async with lock:  # 同域并发时只拉一次 robots.txt；不同域各用各的锁
+            if base not in self._robots:
+                parser = urllib.robotparser.RobotFileParser()
+                try:
+                    response = await client.get(base + "/robots.txt",
+                                                headers={"User-Agent": USER_AGENTS[0]})
+                    parser.parse(response.text.splitlines()
+                                 if response.status_code == 200 else [])
+                    self._robots[base] = parser
+                except Exception:
+                    self._robots[base] = None  # robots 拉取失败按允许处理（公开页）
+            parser = self._robots[base]
         return True if parser is None else parser.can_fetch(USER_AGENTS[0], url)
 
     async def fetch(self, client: httpx.AsyncClient, url: str) -> httpx.Response:
@@ -156,55 +170,110 @@ class WebCrawler:
 
     async def crawl(self, seeds: list[str], *, max_pages: int = 20,
                     same_domain: bool = True, allow_patterns: list[str] | None = None,
-                    checkpoint: Path | None = None) -> list[dict]:
-        """广度优先抓取：种子页正文 + 顺延同站链接（受 max_pages 约束）。"""
+                    checkpoint: Path | None = None,
+                    concurrency: int = 4) -> list[dict]:
+        """有界并发的广度优先抓取：种子页正文 + 顺延同站链接（受 max_pages 约束）。
+
+        N 个 worker 共享队列；出队时预占配额（reserved），保证
+        `成功记录数 ≤ max_pages` 严格成立，而不是并发下超发。
+        worker 不在队列暂时为空时退出，而是等 Condition 唤醒：链接是抓完
+        当前页后才入队的，若立刻退出，"种子页→链接波次"只剩 1 个 worker 串行。
+        输出按 URL 排序，保证同种子集合的结果可复现。
+        """
         state = CrawlState.load(checkpoint) if checkpoint else CrawlState()
         records: list[dict] = []
-        queue = [urldefrag(url)[0] for url in seeds]
+        queue = deque(urldefrag(url)[0] for url in seeds)
         seen = set(queue) | set(state.done)
         seed_domains = {urlparse(url).netloc for url in seeds}
+        condition = asyncio.Condition()
+        reserved = 0
+        workers = max(1, concurrency)
+
+        async def take_url() -> str | None:
+            """取下一个 URL 并预占配额；队列空但仍有在飞请求时等待唤醒。
+
+            只有「队列空且 reserved=0」（彻底没活干）才返回 None 让 worker 退出。
+            """
+            nonlocal reserved
+            async with condition:
+                while True:
+                    if len(records) + reserved >= max_pages:
+                        if reserved == 0:
+                            return None  # 配额用尽且无在飞请求
+                        await condition.wait()  # 等失败任务释放配额
+                        continue
+                    if queue:
+                        url = queue.popleft()
+                        if url in state.done or url in state.failed:
+                            continue
+                        reserved += 1
+                        return url
+                    if reserved == 0:
+                        return None
+                    await condition.wait()
 
         async with httpx.AsyncClient(
                 timeout=self.timeout, follow_redirects=True) as client:
-            while queue and len(records) < max_pages:
-                url = queue.pop(0)
-                if url in state.done or url in state.failed:
-                    continue
-                if not await self._robots_allows(client, url):
-                    state.failed[url] = "robots-disallow"
-                    continue
-                try:
-                    response = await self.fetch(client, url)
-                except Exception as exc:
-                    state.failed[url] = f"{type(exc).__name__}: {exc}"[:200]
-                    continue
-                if "text/html" not in response.headers.get("content-type", "text/html"):
-                    state.done[url] = "non-html"
-                    continue
-                title, text, links = extract_text(response.text)
-                digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
-                state.done[url] = digest
-                records.append({
-                    "url": url, "title": title[:200],
-                    "text": text[:20000], "contentHash": digest,
-                    "fetchedAt": datetime.now(timezone.utc).isoformat(),
-                })
-                for link in links:
-                    absolute = urldefrag(urljoin(url, link))[0]
-                    parsed = urlparse(absolute)
-                    if parsed.scheme not in ("http", "https"):
-                        continue
-                    if same_domain and parsed.netloc not in seed_domains:
-                        continue
-                    if allow_patterns and not any(p in absolute for p in allow_patterns):
-                        continue
-                    if absolute not in seen:
-                        seen.add(absolute)
-                        queue.append(absolute)
-                if checkpoint:
-                    state.save(checkpoint)
+
+            async def worker() -> None:
+                nonlocal reserved
+                while True:
+                    url = await take_url()
+                    if url is None:
+                        return
+                    try:
+                        if not await self._robots_allows(client, url):
+                            async with condition:
+                                state.failed[url] = "robots-disallow"
+                            continue
+                        try:
+                            response = await self.fetch(client, url)
+                        except Exception as exc:
+                            async with condition:
+                                state.failed[url] = f"{type(exc).__name__}: {exc}"[:200]
+                            continue
+                        if "text/html" not in response.headers.get(
+                                "content-type", "text/html"):
+                            async with condition:
+                                state.done[url] = "non-html"
+                            continue
+                        title, text, links = extract_text(response.text)
+                        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+                        fresh: list[str] = []
+                        for link in links:
+                            absolute = urldefrag(urljoin(url, link))[0]
+                            parsed = urlparse(absolute)
+                            if parsed.scheme not in ("http", "https"):
+                                continue
+                            if same_domain and parsed.netloc not in seed_domains:
+                                continue
+                            if allow_patterns and not any(
+                                    p in absolute for p in allow_patterns):
+                                continue
+                            fresh.append(absolute)
+                        async with condition:
+                            state.done[url] = digest
+                            records.append({
+                                "url": url, "title": title[:200],
+                                "text": text[:20000], "contentHash": digest,
+                                "fetchedAt": datetime.now(timezone.utc).isoformat(),
+                            })
+                            for absolute in fresh:
+                                if absolute not in seen:
+                                    seen.add(absolute)
+                                    queue.append(absolute)
+                            if checkpoint:
+                                state.save(checkpoint)
+                            condition.notify_all()  # 新链接入队，唤醒等待中的 worker
+                    finally:
+                        async with condition:
+                            reserved -= 1
+                            condition.notify_all()  # 释放配额，可能让等待者继续取任务
+
+            await asyncio.gather(*(worker() for _ in range(workers)))
         if checkpoint:
             state.save(checkpoint)
+        records.sort(key=lambda item: item["url"])
         return records
 
 
@@ -216,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--min-interval", type=float, default=1.5,
                         help="每域名最小请求间隔秒（限速）")
     parser.add_argument("--no-same-domain", action="store_true", help="允许跨域顺延")
+    parser.add_argument("--concurrency", type=int, default=4, help="并发 worker 数")
     parser.add_argument("--checkpoint", default=None, help="断点续传状态文件")
     args = parser.parse_args(argv)
 
@@ -225,7 +295,8 @@ def main(argv: list[str] | None = None) -> int:
         seed_config["seeds"], max_pages=args.max_pages,
         same_domain=not args.no_same_domain,
         allow_patterns=seed_config.get("allow_patterns"),
-        checkpoint=Path(args.checkpoint) if args.checkpoint else None))
+        checkpoint=Path(args.checkpoint) if args.checkpoint else None,
+        concurrency=args.concurrency))
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

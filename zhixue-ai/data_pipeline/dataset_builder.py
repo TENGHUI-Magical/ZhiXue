@@ -7,7 +7,8 @@
 1. SimHash 近重复检测（Charikar 2002）：字符二元组为特征、词频为权，
    64 位分段签名；海明距离 ≤ 6 视为候选，再用精确 Jaccard 复核：
    $J(A,B)=|B_g(A)\\cap B_g(B)|/|B_g(A)\\cup B_g(B)| \\ge 0.85$ 判重复。
-   复杂度：签名 O(Σ|d|)；候选对按块向量化 XOR + popcount，避免 O(n²) Python 循环。
+   复杂度：签名 O(Σ|d|)；候选对按块向量化 XOR + popcount，
+   峰值内存 O(block·n) 而非 O(n²)，不随样本数平方膨胀。
 2. IQR 异常清洗：字段 x 的界为 $[Q_1-1.5\\,\\mathrm{IQR},\\ Q_3+1.5\\,\\mathrm{IQR}]$。
 3. 分层抽样：按标签分组内先 shuffle 再按比例切分（最大余数法配平整数配额），
    保证 train/val/test 标签分布一致（避免分布漂移）。
@@ -31,6 +32,8 @@ import unicodedata
 from pathlib import Path
 
 import numpy as np
+
+from data_pipeline.calibration import make_sampler
 
 # ---------- 文本归一化与二元组（与 app/services/vector_index._bigram_counts 同口径） ----------
 
@@ -78,16 +81,34 @@ def simhash(text: str) -> int:
 _POPCOUNT_TABLE = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
 
-def _hamming_matrix(signatures: np.ndarray, block: int = 1024) -> np.ndarray:
-    """分块计算 n×n 海明距离矩阵（uint64 → uint8 视图查表 popcount）。"""
+def _stable_bucket(text: str) -> int:
+    """跨进程稳定的分桶：不用内置 hash()（受 PYTHONHASHSEED 随机化，换进程即漂移）。"""
+    digest = hashlib.blake2b(text.encode("utf-8"), digest_size=4).digest()
+    return int.from_bytes(digest, "big") % 1000
+
+
+def _near_duplicate_pairs(signatures: np.ndarray, max_hamming: int = 6,
+                          block: int = 256) -> list[tuple[int, int]]:
+    """分块枚举海明距离 ≤ max_hamming 的候选对 (i, j)，i < j。
+
+    只保留块内上三角区域，峰值内存 O(block·n·8B) 而非 O(n²)：
+    1 万条记录时距离矩阵需 100MB，分块 256 只需约 20MB（且不再存整张矩阵）。
+    """
     n = signatures.shape[0]
-    distances = np.zeros((n, n), dtype=np.uint8)
+    if n < 2:
+        return []
+    pairs: list[tuple[int, int]] = []
     for start in range(0, n, block):
-        chunk = signatures[start:start + block]  # (b,1) XOR (1,n) → (b,n)
-        xor = chunk[:, None] ^ signatures[None, :]
-        distances[start:start + block] = _POPCOUNT_TABLE[
-            xor.view(np.uint8).reshape(chunk.shape[0], n, 8)].sum(axis=2)
-    return distances
+        stop = min(n, start + block)
+        xor = signatures[start:stop, None] ^ signatures[None, start:]
+        bits = _POPCOUNT_TABLE[
+            xor.view(np.uint8).reshape(stop - start, n - start, 8)].sum(axis=2)
+        rows, cols = np.nonzero(bits <= max_hamming)
+        for row, col in zip(rows.tolist(), cols.tolist()):
+            i, j = start + row, start + col
+            if j > i:
+                pairs.append((i, j))
+    return pairs
 
 
 def dedup(records: list[dict], *, threshold: float = 0.85,
@@ -102,11 +123,12 @@ def dedup(records: list[dict], *, threshold: float = 0.85,
     """
     if len(records) <= 1:
         return list(records), []
-    hashes = np.array([simhash(r.get("text", "")) for r in records],
-                      dtype=np.uint64)
-    distances = _hamming_matrix(hashes)
+    digests = [hashlib.sha256(_normalize(r.get("text", "")).encode("utf-8")).hexdigest()
+               for r in records]
+    representative: dict[str, int] = {}
+    for i, digest in enumerate(digests):
+        representative.setdefault(digest, i)
 
-    exact: dict[str, int] = {}
     parent = list(range(len(records)))
 
     def find(i: int) -> int:
@@ -118,26 +140,28 @@ def dedup(records: list[dict], *, threshold: float = 0.85,
     def union(i: int, j: int) -> None:
         parent[find(i)] = find(j)
 
-    for i, record in enumerate(records):
-        digest = hashlib.sha256(
-            _normalize(record.get("text", "")).encode("utf-8")).hexdigest()
-        if digest in exact:
-            union(i, exact[digest])
-        else:
-            exact[digest] = i
+    # 精确重复（归一化后同文）先归组：同组文本完全相同，后续近重复只需看代表
+    for i, digest in enumerate(digests):
+        if representative[digest] != i:
+            union(i, representative[digest])
 
-    candidates = np.argwhere(np.triu(distances <= max_hamming, k=1))
-    for i, j in candidates:
-        i, j = int(i), int(j)
-        if find(i) == find(j):
-            continue
-        left, right = bigram_set(records[i].get("text", "")), \
-            bigram_set(records[j].get("text", ""))
-        if not left or not right:
-            continue
-        jaccard = len(left & right) / len(left | right)
-        if jaccard >= threshold:
-            union(i, j)
+    # 近重复只在「非空文本的代表记录」之间枚举：若对全部 n 条枚举，
+    # k 条同文（或空文本，SimHash 全 0）会产出 C(k,2) 个候选对，
+    # 内存重新退化为 O(n²)——这正是分块枚举要消除的情形。
+    candidates = [i for i in sorted(representative.values())
+                  if bigram_set(records[i].get("text", ""))]
+    if len(candidates) >= 2:
+        hashes = np.array([simhash(records[i].get("text", "")) for i in candidates],
+                          dtype=np.uint64)
+        grams = {i: bigram_set(records[i].get("text", "")) for i in candidates}
+        for a, b in _near_duplicate_pairs(hashes, max_hamming=max_hamming):
+            i, j = candidates[a], candidates[b]
+            if find(i) == find(j):
+                continue
+            left, right = grams[i], grams[j]
+            jaccard = len(left & right) / len(left | right)
+            if jaccard >= threshold:
+                union(i, j)
 
     groups: dict[int, list[int]] = {}
     for i in range(len(records)):
@@ -189,7 +213,7 @@ def stratified_split(records: list[dict], *, label_key: str = "label",
     for label in sorted(groups):
         members = sorted(groups[label], key=lambda r: json.dumps(r, ensure_ascii=False,
                                                                  sort_keys=True))
-        random.Random(seed + hash(label) % 1000).shuffle(members)
+        random.Random(seed + _stable_bucket(label)).shuffle(members)
         n = len(members)
         raw = [r * n for r in ratios]
         counts = [int(x) for x in raw]
@@ -218,10 +242,13 @@ _INSERT_CHARS = "。，、；：mn土士日干l1o0"
 
 
 def corrupt_text(text: str, rng: random.Random, *, p_delete: float = 0.02,
-                 p_insert: float = 0.02, p_substitute: float = 0.04) -> str:
-    """几何分布字符级扰动：独立伯努利算子 删除/插入/形近替换。
+                 p_insert: float = 0.02, p_substitute: float = 0.04,
+                 sampler=None) -> str:
+    """字符级扰动：独立伯努利算子 删除/插入/形近替换。
 
     E[编辑数] = |text|·(p_d+p_i+p_s)，默认 8%，模拟中等质量扫描件 OCR 输出。
+    sampler 为校准后的混淆采样器（`calibration.make_sampler`）；为 None 时
+    退回内置 CONFUSABLE 表（默认行为与旧版逐位一致）。
     """
     out: list[str] = []
     i = 0
@@ -238,9 +265,19 @@ def corrupt_text(text: str, rng: random.Random, *, p_delete: float = 0.02,
             continue
         if u < p_delete + p_insert + p_substitute:
             pair = text[i:i + 2] if i + 1 < len(text) else ch
-            options = CONFUSABLE.get(pair) or CONFUSABLE.get(ch)
+            options = CONFUSABLE.get(pair)
+            if options:
+                out.append(rng.choice(options))
+                i += 2
+                continue
+            if sampler is not None:
+                replacement = sampler(ch)
+                out.append(ch if replacement is None else replacement)
+                i += 1
+                continue
+            options = CONFUSABLE.get(ch)
             out.append(rng.choice(options) if options else ch)
-            i += 2 if CONFUSABLE.get(pair) else 1
+            i += 1
             continue
         out.append(ch)
         i += 1
@@ -248,9 +285,12 @@ def corrupt_text(text: str, rng: random.Random, *, p_delete: float = 0.02,
 
 
 def monte_carlo_augment(records: list[dict], n: int, *, seed: int = 42,
-                        label_key: str = "label") -> list[dict]:
+                        label_key: str = "label",
+                        calibration: dict | None = None) -> list[dict]:
     """自举采样 + 字符级蒙特卡洛扰动，产出 (corrupt, clean) 序列对。
 
+    calibration 为 `calibration.fit` 的输出：有则用拟合出的编辑率与混淆矩阵
+    采样（真实 OCR 错误分布），无则用内置默认参数（向后兼容）。
     用途：OCR 后处理纠错模型的监督训练数据；synthetic=true 标记来源，
     下游入库前必须人工抽检（AGENTS.md 红线 1）。
     """
@@ -260,18 +300,26 @@ def monte_carlo_augment(records: list[dict], n: int, *, seed: int = 42,
     pool = [r for r in records if r.get("text")]
     if not pool:
         return []
+    rates = (calibration or {}).get("errorRates", {})
+    p_delete = rates.get("p_delete", 0.02)
+    p_insert = rates.get("p_insert", 0.02)
+    p_substitute = rates.get("p_substitute", 0.04)
+    sampler = make_sampler(calibration["confusion"], rng) if calibration else None
     augmented = []
     for i in range(n):
         base = pool[int(rng.random() * len(pool))]
         clean = base["text"]
         record = {
             "id": f"synth-{seed}-{i}",
-            "input": corrupt_text(clean, rng),
+            "input": corrupt_text(clean, rng, p_delete=p_delete, p_insert=p_insert,
+                                  p_substitute=p_substitute, sampler=sampler),
             "target": clean,
             "label": base.get(label_key, "SYNTHETIC"),
             "synthetic": True,
             "source": "monte-carlo",
         }
+        if calibration:
+            record["calibrated"] = True
         augmented.append(record)
     return augmented
 
@@ -311,7 +359,8 @@ def write_outputs(name: str, records: list[dict], out_dir: Path,
 
 def build(input_paths: list[Path], out_dir: Path, *, label_key: str = "source",
           dedup_threshold: float = 0.90, augment: int = 0, seed: int = 42,
-          ratios: tuple[float, float, float] = (0.8, 0.1, 0.1)) -> dict:
+          ratios: tuple[float, float, float] = (0.8, 0.1, 0.1),
+          calibration: dict | None = None) -> dict:
     records: list[dict] = []
     for path in input_paths:
         with path.open(encoding="utf-8") as handle:
@@ -328,7 +377,8 @@ def build(input_paths: list[Path], out_dir: Path, *, label_key: str = "source",
     records, outliers = iqr_filter(records)
     stats["iqr_outliers_removed"] = len(outliers)
 
-    synthetic = monte_carlo_augment(records, augment, seed=seed, label_key=label_key)
+    synthetic = monte_carlo_augment(records, augment, seed=seed, label_key=label_key,
+                                    calibration=calibration)
     all_records = records + synthetic
     train, val, test = stratified_split(all_records, label_key=label_key,
                                         ratios=ratios, seed=seed)
@@ -349,11 +399,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--label-key", default="source")
     parser.add_argument("--dedup-threshold", type=float, default=0.90)
     parser.add_argument("--augment", type=int, default=0, help="蒙特卡洛增广条数")
+    parser.add_argument("--calibration", default=None,
+                        help="混淆矩阵 JSON（data_pipeline.calibration 输出）")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args(argv)
+    calibration = None
+    if args.calibration:
+        from data_pipeline.calibration import load_model
+        calibration = load_model(Path(args.calibration))
     stats = build([Path(p) for p in args.input], Path(args.out_dir),
                   label_key=args.label_key, dedup_threshold=args.dedup_threshold,
-                  augment=args.augment, seed=args.seed)
+                  augment=args.augment, seed=args.seed, calibration=calibration)
     print(json.dumps(stats, ensure_ascii=False, indent=2))
     return 0
 

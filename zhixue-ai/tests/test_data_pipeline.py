@@ -1,6 +1,7 @@
 """data_pipeline 与 ocr_quality 的数学正确性测试（无网络、无 OCR 引擎依赖）。"""
 from __future__ import annotations
 
+import asyncio
 import json
 import random
 
@@ -8,9 +9,10 @@ import numpy as np
 import pytest
 
 from app.services.ocr_quality import aggregate_confidence, wilson_lower_bound
+from data_pipeline import calibration as cal
 from data_pipeline import dataset_builder as ds
 from data_pipeline import image_math as im
-from data_pipeline.web_crawler import extract_text
+from data_pipeline.web_crawler import WebCrawler, extract_text
 
 
 # ---------- image_math ----------
@@ -158,6 +160,17 @@ def test_dedup_removes_exact_and_near_duplicates():
     assert removed_ids == {"b", "c"}
 
 
+def test_dedup_handles_many_empty_and_identical_texts():
+    """空文本 SimHash 全 0、同文距离 0：不得对 k 条产生 C(k,2) 候选对（O(n²) 内存）。"""
+    records = [{"id": f"empty{i}", "text": ""} for i in range(200)]
+    records += [{"id": f"same{i}", "text": "事务的ACID特性包括原子性、一致性" * 3}
+                for i in range(200)]
+    records.append({"id": "other", "text": "B+树索引的所有关键字都出现在叶子节点" * 3})
+    kept, removed = ds.dedup(records)
+    assert {r["id"] for r in kept} == {"empty0", "same0", "other"}
+    assert len(removed) == 398  # 401 条 → 3 组，每组保留 1 条
+
+
 def test_iqr_filter_removes_length_outlier():
     records = [{"id": i, "text": "x" * n, "textLen": n}
                for i, n in enumerate([100] * 20 + [10000])]
@@ -177,6 +190,27 @@ def test_stratified_split_preserves_label_proportions():
     # 确定性：同种子两次切分完全一致
     again = ds.stratified_split(records, label_key="label", seed=7)
     assert [r["id"] for r in train] == [r["id"] for r in again[0]]
+
+
+def test_stable_bucket_is_pinned_across_processes():
+    """分桶不得依赖内置 hash()（PYTHONHASHSEED 随机化会让分层抽样跨进程漂移）。"""
+    assert ds._stable_bucket("A") == 291
+    assert ds._stable_bucket("B") == 438
+    assert ds._stable_bucket("wiki") == 111
+
+
+def test_near_duplicate_pairs_matches_bruteforce():
+    """分块候选对枚举与全量海明距离暴力解一致（含块边界）。"""
+    base = np.uint64(0xDEADBEEF12345678)
+    signatures = [base ^ np.uint64((1 << k) - 1) for k in range(12)]
+    rng = np.random.default_rng(11)
+    signatures.extend(rng.integers(0, 2 ** 63, size=9, dtype=np.uint64).tolist())
+    signatures = np.asarray(signatures, dtype=np.uint64)
+    fast = set(ds._near_duplicate_pairs(signatures, max_hamming=8, block=5))
+    brute = {(i, j) for i in range(len(signatures)) for j in range(i + 1, len(signatures))
+             if bin(int(signatures[i]) ^ int(signatures[j])).count("1") <= 8}
+    assert fast == brute
+    assert brute  # 构造数据必须真的产生近重复对，否则测试无意义
 
 
 def test_monte_carlo_augment_deterministic_and_corrupts():
@@ -204,6 +238,47 @@ def test_corrupt_text_expected_edit_rate():
     assert abs(np.mean(distances) - len(text)) < len(text) * 0.15
 
 
+# ---------- calibration：训练对 → 混淆矩阵 → 增广（闭环） ----------
+
+def test_align_errors_extracts_substitutions_and_indels():
+    subs, dropped, added = cal.align_errors("数据库糸统", "数据库系统")
+    assert subs == [("糸", "系")] and dropped == 0 and added == 0
+    subs, dropped, added = cal.align_errors("数据库", "数据库系统")  # OCR 漏识 2 字
+    assert subs == [] and dropped == 2 and added == 0
+    subs, dropped, added = cal.align_errors("数据库系统概论", "数据库系统")  # OCR 多识 2 字
+    assert subs == [] and dropped == 0 and added == 2
+
+
+def test_fit_confusion_is_smoothed_and_normalized():
+    model = cal.fit([("糸统", "系统")] * 8 + [("关糸", "关系")] * 2)
+    assert model["substitutionCount"] == 10
+    # Beta 先验收缩：(10 + 0.04×100) / (20 + 100)
+    assert model["errorRates"]["p_substitute"] == pytest.approx(14 / 120, abs=1e-6)
+    row = model["confusion"]["系"]
+    assert set(row) == {"糸"}
+    assert row["糸"] == pytest.approx(11 / 12)  # (10+α)/(10+α(|V|+1))
+
+
+def test_fit_shrinks_zero_error_sample_toward_prior():
+    """少量完全正确的 OCR 样本不得把扰动率估成 0（否则增广退化）。"""
+    model = cal.fit([("关系数据库系统", "关系数据库系统")] * 5)
+    rates = model["errorRates"]
+    assert 0 < rates["p_substitute"] < cal.DEFAULT_RATES["p_substitute"]
+    # 足够多干净样本时，先验仍保留但被明显压低
+    big = cal.fit([("关系数据库系统", "关系数据库系统")] * 500)
+    assert big["errorRates"]["p_substitute"] < rates["p_substitute"]
+
+
+def test_calibrated_augmentation_is_deterministic_and_uses_model():
+    records = [{"text": "关系数据库系统", "source": "s"}]
+    model = cal.fit([("关系数据库糸统", "关系数据库系统")] * 20)
+    first = ds.monte_carlo_augment(records, 30, seed=5, calibration=model)
+    second = ds.monte_carlo_augment(records, 30, seed=5, calibration=model)
+    assert first == second
+    assert all(r["calibrated"] for r in first)
+    assert any("糸" in r["input"] for r in first)  # 拟合出的混淆字符真的进入增广
+
+
 # ---------- web_crawler.extract_text（离线） ----------
 
 def test_extract_text_strips_script_and_style():
@@ -215,6 +290,96 @@ def test_extract_text_strips_script_and_style():
     assert title == "关系模型 - 维基百科"
     assert "关系模型三要素" in text
     assert "alert" not in text and "color:red" not in text
+
+
+def test_extract_text_regex_fallback_still_follows_links(monkeypatch):
+    """无 bs4 时（生产 requirements 不含 bs4）仍需抽出同站链接，否则前沿爬取失效。"""
+    from data_pipeline import web_crawler as wc
+
+    monkeypatch.setattr(wc, "BeautifulSoup", None)
+    html = ('<html><head><title>T</title></head><body><p>正文</p>'
+            '<a class="nav" href="/a?x=1&amp;y=2">A</a>'
+            "<a href='b.html'>B</a><a>无 href</a></body></html>")
+    title, text, links = extract_text(html)
+    assert title == "T" and "正文" in text
+    assert links == ["/a?x=1&y=2", "b.html"]
+
+
+class _FakeResponse:
+    status_code = 200
+    headers = {"content-type": "text/html"}
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _FakeCrawler(WebCrawler):
+    """不发网络请求的爬虫：记录并发峰值，验证 worker 池确实并行。"""
+
+    def __init__(self, delay: float = 0.03) -> None:
+        super().__init__(respect_robots=False, min_interval=0.0)
+        self.delay = delay
+        self.active = 0
+        self.peak = 0
+
+    async def fetch(self, client, url):
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        await asyncio.sleep(self.delay)
+        self.active -= 1
+        return _FakeResponse(f"<html><head><title>{url}</title></head>"
+                             f"<body><p>{url} 正文</p></body></html>")
+
+
+def test_crawler_is_bounded_concurrent_and_respects_max_pages():
+    crawler = _FakeCrawler()
+    seeds = [f"https://example.com/p{i}" for i in range(8)]
+    records = asyncio.run(crawler.crawl(seeds, max_pages=8, concurrency=4))
+    assert len(records) == 8
+    assert 2 <= crawler.peak <= 4  # 真并发，且不超过 worker 数
+
+    capped = _FakeCrawler()
+    capped_records = asyncio.run(capped.crawl(
+        [f"https://example.com/q{i}" for i in range(8)], max_pages=3, concurrency=4))
+    assert len(capped_records) == 3  # 出队预占配额，并发下也严格不超发
+
+
+class _WaveCrawler(WebCrawler):
+    """单种子页 → 抓完才抽出子链接：记录"链接波次"的并发峰值。"""
+
+    def __init__(self, delay: float = 0.05) -> None:
+        super().__init__(respect_robots=False, min_interval=0.0)
+        self.delay = delay
+        self.active = 0
+        self.wave_peak = 0
+
+    async def fetch(self, client, url):
+        is_root = url.endswith("/root")
+        self.active += 1
+        if not is_root:
+            self.wave_peak = max(self.wave_peak, self.active)
+        await asyncio.sleep(self.delay)
+        self.active -= 1
+        return _FakeResponse(f"<html><body><p>{url} 正文</p></body></html>")
+
+
+def test_crawler_workers_survive_empty_queue_for_link_wave(monkeypatch):
+    """种子页抓完才发现链接时，其余 worker 必须等待而非退出，第二波仍并发。"""
+    from data_pipeline import web_crawler as wc
+
+    def fake_extract(html: str) -> tuple[str, str, list[str]]:
+        if "/root" in html:
+            return "root", "根页正文", [f"/c{i}" for i in range(6)]
+        return "child", "子页正文", []
+
+    monkeypatch.setattr(wc, "extract_text", fake_extract)
+    crawler = _WaveCrawler()
+    records = asyncio.run(crawler.crawl(
+        ["https://example.com/root"], max_pages=7, concurrency=4))
+    assert len(records) == 7  # 根页 + 6 个子页
+    assert crawler.wave_peak >= 2  # 旧实现只有 1 个 worker 存活，此处置 1
+    assert crawler.wave_peak <= 4  # 仍受 worker 数约束
+
 
 
 def test_dataset_build_end_to_end(tmp_path):
