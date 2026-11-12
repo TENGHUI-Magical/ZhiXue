@@ -49,7 +49,19 @@ public class SystemController {
                             RedisConnectionFactory redisConnectionFactory,
                             AiClientProperties aiClientProperties) {
         this(jdbcTemplate, redisConnectionFactory,
-                WebClient.builder().baseUrl(aiClientProperties.baseUrl()).build());
+                buildAiWebClient(aiClientProperties));
+    }
+
+    /** 构建带超时的 WebClient（P0 修复：连接 2s / 响应 10s）。 */
+    private static WebClient buildAiWebClient(AiClientProperties props) {
+        var httpClient = reactor.netty.http.client.HttpClient.create()
+                .option(io.netty.channel.ChannelOption.CONNECT_TIMEOUT_MILLIS, 2000)
+                .responseTimeout(Duration.ofSeconds(10));
+        return WebClient.builder()
+                .baseUrl(props.baseUrl())
+                .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(httpClient))
+                .defaultHeader("X-Internal-Token", props.internalToken() == null ? "" : props.internalToken())
+                .build();
     }
 
     /** 测试用构造：允许注入已 mock 的 WebClient，避免真实网络探测。 */

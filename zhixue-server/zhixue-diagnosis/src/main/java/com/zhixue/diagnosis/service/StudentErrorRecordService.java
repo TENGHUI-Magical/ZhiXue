@@ -152,7 +152,7 @@ public class StudentErrorRecordService {
      * @param request 确认内容
      * @return 更新后的记录视图
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ErrorRecordView confirm(String logId, ConfirmRequest request) {
         StudentErrorRecord record = getById(logId);
         if (CONFIRMED.equals(record.getStatus())) {

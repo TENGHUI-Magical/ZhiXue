@@ -87,8 +87,8 @@ public class PortraitService {
     }
 
     /**
-     * 当前学生最新画像；优先读最新快照（预留，当前无写入方），无快照时实时聚合；
-     * 无作答时返回 null。
+     * 当前学生最新画像；优先读最新快照（P0 修复：新鲜度门限 3 天），
+     * 快照过期或不存在时实时聚合；无作答时返回 null。
      */
     public PortraitView me() {
         long userId = StpUtil.getLoginIdAsLong();
@@ -97,7 +97,9 @@ public class PortraitService {
                         .eq(LearningPortraitSnapshot::getUserId, userId)
                         .orderByDesc(LearningPortraitSnapshot::getStatDate)
                         .last("LIMIT 1"));
-        if (snapshot != null) {
+        // P0 修复：新鲜度门限——快照超过 3 天视为过期，回落实时聚合
+        if (snapshot != null && snapshot.getStatDate() != null
+                && !snapshot.getStatDate().isBefore(LocalDate.now(ZONE).minusDays(3))) {
             return fromSnapshot(snapshot);
         }
         return transientPortrait(userId);
@@ -449,5 +451,75 @@ public class PortraitService {
 
     /** 班级维度聚合结果（仅统计单学生样本量达标的学生）。 */
     private record KpAgg(String kpId, int errors, double mastery) {
+    }
+
+    // ===== P0 修复：每日快照写入方 =====
+
+    /**
+     * 每日凌晨 2:00 为所有有作答记录的学生生成画像快照。
+     * 使用 INSERT ... ON DUPLICATE KEY UPDATE（uk_user_date 唯一键）保证幂等。
+     * 无分布式锁（单体架构），依赖唯一键兜底并发写入。
+     */
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 2 * * ?")
+    public void writeDailySnapshots() {
+        log.info("开始生成每日画像快照...");
+        LocalDate today = LocalDate.now(ZONE);
+        // 查询所有有作答记录的学生（近 180 天活跃）
+        List<Long> userIds = practiceRecordMapper.aggregateByUser(null, null,
+                        LocalDateTime.now(ZONE).minusDays(aggregateWindowDays)).stream()
+                .map(UserPracticeAgg::getUserId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        int written = 0;
+        for (Long userId : userIds) {
+            try {
+                PortraitView portrait = transientPortrait(userId);
+                if (portrait == null) {
+                    continue;
+                }
+                saveSnapshot(userId, today, portrait);
+                written++;
+            } catch (Exception e) {
+                log.warn("生成快照失败 userId={}: {}", userId, e.getMessage());
+            }
+        }
+        log.info("每日画像快照完成：{}/{} 条", written, userIds.size());
+    }
+
+    /** 保存单个学生的画像快照（幂等：uk_user_date 冲突时更新）。 */
+    private void saveSnapshot(long userId, LocalDate statDate, PortraitView portrait) {
+        LearningPortraitSnapshot snapshot = new LearningPortraitSnapshot();
+        snapshot.setUserId(userId);
+        snapshot.setStatDate(statDate);
+        snapshot.setDimensionScores(toJson(portrait.dimensionScores()));
+        snapshot.setWeakestKps(toJson(portrait.weakestKps().stream()
+                .map(kp -> Map.of("kpId", kp.kpId(), "name", kp.name(),
+                        "mastery", kp.mastery(), "sampleCount", kp.sampleCount()))
+                .toList()));
+        snapshot.setErrorDist(toJson(portrait.errorDist()));
+        snapshot.setTotalPractice(portrait.totalPractice());
+        snapshot.setTotalError(portrait.totalError());
+        try {
+            snapshotMapper.insert(snapshot);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // 幂等：同 user_id + stat_date 已存在则更新
+            snapshotMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<LearningPortraitSnapshot>()
+                    .eq(LearningPortraitSnapshot::getUserId, userId)
+                    .eq(LearningPortraitSnapshot::getStatDate, statDate)
+                    .set(LearningPortraitSnapshot::getDimensionScores, snapshot.getDimensionScores())
+                    .set(LearningPortraitSnapshot::getWeakestKps, snapshot.getWeakestKps())
+                    .set(LearningPortraitSnapshot::getErrorDist, snapshot.getErrorDist())
+                    .set(LearningPortraitSnapshot::getTotalPractice, snapshot.getTotalPractice())
+                    .set(LearningPortraitSnapshot::getTotalError, snapshot.getTotalError()));
+        }
+    }
+
+    private String toJson(Object value) {
+        try {
+            return new tools.jackson.databind.ObjectMapper().writeValueAsString(value);
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 }

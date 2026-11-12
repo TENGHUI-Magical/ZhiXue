@@ -1,6 +1,7 @@
 package com.zhixue.course.controller;
 
 import com.zhixue.course.dto.QuestionBriefView;
+import com.zhixue.course.mapper.PracticeAccessMapper;
 import com.zhixue.course.service.QuestionBankService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +27,15 @@ class QuestionControllerTest {
     @Mock
     private QuestionBankService questionBankService;
 
+    @Mock
+    private PracticeAccessMapper practiceAccessMapper;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new QuestionController(questionBankService))
+        mockMvc = MockMvcBuilders.standaloneSetup(
+                new QuestionController(questionBankService, practiceAccessMapper))
                 .build();
     }
 

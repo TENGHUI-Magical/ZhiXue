@@ -4,10 +4,11 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 
+from app.deps import require_internal
 from app.schemas import (RagEmbedRequest, RagEmbedResponse, RagExplainRequest, RagRetrieveRequest,
                          RagRetrieveResponse, RagSource)
 from app.services import rag_service, vector_index
@@ -15,7 +16,7 @@ from app.services import rag_service, vector_index
 router = APIRouter()
 
 
-@router.post("/explain")
+@router.post("/explain", dependencies=[Depends(require_internal)])
 async def explain(req: RagExplainRequest) -> StreamingResponse:
     """流式讲解（SSE）：meta → chunk* → done；合规拦截时发 error 60004（契约 §2）。"""
     return StreamingResponse(
@@ -25,7 +26,7 @@ async def explain(req: RagExplainRequest) -> StreamingResponse:
     )
 
 
-@router.post("/retrieve", response_model=RagRetrieveResponse)
+@router.post("/retrieve", response_model=RagRetrieveResponse, dependencies=[Depends(require_internal)])
 async def retrieve(req: RagRetrieveRequest):
     """检索知识点切片（内部接口）：topK=5、阈值 0.35；无命中返回空 sources。"""
     query = (req.text or "").strip()
@@ -47,7 +48,7 @@ async def retrieve(req: RagRetrieveRequest):
     return RagRetrieveResponse(sources=sources)
 
 
-@router.post("/embed", response_model=RagEmbedResponse)
+@router.post("/embed", response_model=RagEmbedResponse, dependencies=[Depends(require_internal)])
 async def embed_document(req: RagEmbedRequest):
     """按 kpId 将文本切片（300—500 字、重叠 50）并写入 numpy 向量索引。"""
     if not req.text.strip():

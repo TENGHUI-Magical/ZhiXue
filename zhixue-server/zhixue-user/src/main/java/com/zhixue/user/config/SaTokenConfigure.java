@@ -11,6 +11,8 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * Sa-Token 拦截器：/api/** 默认要求登录，登录与健康检查除外。
  * 登录态校验之外再查账号状态：停用账号即使 token 未过期也立即失效。
+ * P0 修复：/api/teacher/** 与 /api/portraits/class/** 增加路由级 TEACHER 角色校验，
+ * 防止新增教师端接口漏写 checkRole 导致垂直越权。
  */
 @Configuration
 public class SaTokenConfigure implements WebMvcConfigurer {
@@ -23,6 +25,7 @@ public class SaTokenConfigure implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // 通用登录态拦截
         registry.addInterceptor(new SaInterceptor(handle -> {
                     StpUtil.checkLogin();
                     long userId = StpUtil.getLoginIdAsLong();
@@ -34,5 +37,9 @@ public class SaTokenConfigure implements WebMvcConfigurer {
                 }))
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/auth/login", "/api/system/health");
+
+        // 教师端路由级角色校验（P0 修复：纵深防御，不依赖各 Service 手写 checkRole）
+        registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkRole("TEACHER")))
+                .addPathPatterns("/api/teacher/**", "/api/portraits/class/**");
     }
 }

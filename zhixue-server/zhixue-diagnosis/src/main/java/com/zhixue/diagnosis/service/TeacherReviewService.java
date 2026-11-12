@@ -254,7 +254,7 @@ public class TeacherReviewService {
      * 提交评阅：课程范围与读侧队列/导出同一口径（{@link #scopedCourseIds()}，勿另造口径）；
      * reviewed_at IS NULL 才允许写；重复/并发抢先返回 40900。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void submit(long logPk, ReviewSubmitRequest request) {
         StpUtil.checkRole("TEACHER");
         AiGenerationLog row = logMapper.selectById(logPk);

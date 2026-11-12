@@ -23,6 +23,7 @@ PAYLOAD = {
     "misconception": "混淆主键与候选键",
     "textbookPage": "P34",
     "questionText": "关系模型的三要素是什么？",
+    "answerText": "关系、域、笛卡尔积",  # P0 修复：有 questionText 时必须提供 answerText
     "errorType": "CONCEPT_CONFUSION",
     "courseId": 1,
     "logId": "EL_1",

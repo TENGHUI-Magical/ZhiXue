@@ -12,7 +12,7 @@ def _hit(kp_id: str, content: str) -> Hit:
 
 def test_prompt_includes_retrieved_chunks():
     req = RagExplainRequest(kpId="KP0201", kpName="关系模型", conceptText="概念原文",
-                            questionText="三要素是什么")
+                            questionText="三要素是什么", answerText="关系、域、笛卡尔积")
     messages = _prompt(req, [_hit("KP0202", "候选码的定义"), _hit("KP0203", "主码的选择")])
     user = messages[1]["content"]
     assert "检索切片" in user
@@ -40,6 +40,7 @@ def test_prompt_v2_assembles_student_evidence_in_fixed_order():
         kpId="KP0201", kpName="关系模型", conceptText="概念原文",
         misconception="误区一\n误区二\n误区三", textbookPage="P34",
         questionText="题干原文", myAnswer="学生作答原文",
+        answerText="标准答案",  # P0 修复：有 questionText 时必须提供 answerText
         attemptCount=4, wrongCount=3, errorType="CONCEPT_CONFUSION",
         prereqWeakness=PrereqWeakness(
             kpId="KP0101", kpName="集合", mastery=0.25,
@@ -87,7 +88,8 @@ def test_prompt_budget_truncates_retrieval_before_prereq_and_preserves_answer():
     req = RagExplainRequest(
         kpId="KP0201", kpName="关系模型", conceptText="概" * 900,
         misconception="误" * 400, textbookPage="P34", questionText="题" * 1000,
-        myAnswer="答" * 500, attemptCount=4, wrongCount=3,
+        myAnswer="答" * 500, answerText="标准答案",
+        attemptCount=4, wrongCount=3,
         prereqWeakness=PrereqWeakness(
             kpId="KP0101", kpName="集合", mastery=0.25,
             sampleCount=3, conceptText="先" * 300,

@@ -102,7 +102,7 @@ class RagExplainServiceTest {
 
     @BeforeEach
     void setUp() {
-        AiClientProperties properties = new AiClientProperties("http://127.0.0.1:1", 1);
+        AiClientProperties properties = new AiClientProperties("http://127.0.0.1:1", 1, "");
         service = new RagExplainService(knowledgePointService, errorRecordService, questionBankService,
                 properties, new ObjectMapper(), aiGenerationLogMapper, explainCacheService,
                 practiceRecordMapper, portraitService, 30.0);
@@ -530,7 +530,7 @@ class RagExplainServiceTest {
     }
 
     private MockMvc mvcFor(String baseUrl, int timeoutSeconds) {
-        AiClientProperties properties = new AiClientProperties(baseUrl, timeoutSeconds);
+        AiClientProperties properties = new AiClientProperties(baseUrl, timeoutSeconds, "");
         RagExplainService upstreamService = new RagExplainService(knowledgePointService, errorRecordService,
                 questionBankService, properties, new ObjectMapper(), aiGenerationLogMapper,
                 explainCacheService, practiceRecordMapper, portraitService, 30.0);

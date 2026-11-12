@@ -14,7 +14,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * 阈值：单账号 5 次失败锁定，单 IP 20 次失败锁定（防同一出口 IP 换账号爆破）。
  * 账号锁按时长递增：60s 起，每多失败 1 次翻倍，封顶 15 分钟；IP 锁固定 15 分钟。
  * 登录成功清零账号失败计数与账号锁；IP 聚合计数不清零（避免用合法账号重置爆破计数）。
- * Redis 不可用时降级放行，与讲解限流同一策略，不因限流组件故障阻断登录。
+ * P0 修复：Redis 不可用时降级为本地进程内限流（fail-closed），不再静默放行。
  */
 @Service
 public class LoginAttemptLimiter {
@@ -41,6 +41,10 @@ public class LoginAttemptLimiter {
     private static final String IP_FAIL_PREFIX = "zhixue:auth:fail:ip:";
     private static final String IP_LOCK_PREFIX = "zhixue:auth:lock:ip:";
 
+    /** P0 修复：本地降级计数器（Redis 不可用时使用，fail-closed） */
+    private final java.util.concurrent.ConcurrentHashMap<String, LocalCounter> localCounters =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final StringRedisTemplate redisTemplate;
 
     public LoginAttemptLimiter(StringRedisTemplate redisTemplate) {
@@ -49,6 +53,7 @@ public class LoginAttemptLimiter {
 
     /**
      * 登录前检查：账号锁或 IP 锁任一命中即拒绝。
+     * P0 修复：Redis 不可用时降级为本地限流检查（fail-closed）。
      *
      * @param username  登录名
      * @param clientIp  客户端 IP
@@ -61,14 +66,15 @@ public class LoginAttemptLimiter {
             long retryAfter = Math.max(accountLock, ipLock);
             return retryAfter > 0 ? Decision.blocked(retryAfter) : Decision.allow();
         } catch (Exception e) {
-            log.warn("登录前检查 Redis 不可用，降级放行 username={} ip={} reason={}",
+            log.warn("登录前检查 Redis 不可用，降级为本地限流 username={} ip={} reason={}",
                     username, clientIp, e.toString());
-            return Decision.allow();
+            return localCheck(username, clientIp);
         }
     }
 
     /**
      * 记录一次失败；命中阈值时写入递增锁并直接返回拒绝。
+     * P0 修复：Redis 不可用时降级为本地计数（fail-closed）。
      *
      * @param username 登录名
      * @param clientIp 客户端 IP
@@ -90,9 +96,9 @@ public class LoginAttemptLimiter {
             }
             return Decision.allow();
         } catch (Exception e) {
-            log.warn("登录限流 Redis 不可用，降级放行 username={} ip={} reason={}",
+            log.warn("登录限流 Redis 不可用，降级为本地计数 username={} ip={} reason={}",
                     username, clientIp, e.toString());
-            return Decision.allow();
+            return localRecordFailure(username, clientIp);
         }
     }
 
@@ -149,5 +155,51 @@ public class LoginAttemptLimiter {
         static Decision blocked(long retryAfterSeconds) {
             return new Decision(false, Math.max(1L, retryAfterSeconds));
         }
+    }
+
+    // ===== P0 修复：本地降级限流（Redis 不可用时 fail-closed） =====
+
+    /** 本地计数器：窗口内失败次数 + 锁定截止时间。 */
+    private static final class LocalCounter {
+        volatile long failures;
+        volatile long lockUntilEpochSeconds;
+    }
+
+    /** 本地降级检查：账号锁或 IP 锁任一命中即拒绝。 */
+    private Decision localCheck(String username, String clientIp) {
+        long now = System.currentTimeMillis() / 1000L;
+        LocalCounter account = localCounters.get("account:" + username);
+        LocalCounter ip = localCounters.get("ip:" + clientIp);
+        long retryAfter = 0;
+        if (account != null && account.lockUntilEpochSeconds > now) {
+            retryAfter = Math.max(retryAfter, account.lockUntilEpochSeconds - now);
+        }
+        if (ip != null && ip.lockUntilEpochSeconds > now) {
+            retryAfter = Math.max(retryAfter, ip.lockUntilEpochSeconds - now);
+        }
+        return retryAfter > 0 ? Decision.blocked(retryAfter) : Decision.allow();
+    }
+
+    /** 本地降级记录失败：命中阈值时设置锁定。 */
+    private Decision localRecordFailure(String username, String clientIp) {
+        long now = System.currentTimeMillis() / 1000L;
+        LocalCounter account = localCounters.computeIfAbsent("account:" + username, k -> new LocalCounter());
+        LocalCounter ip = localCounters.computeIfAbsent("ip:" + clientIp, k -> new LocalCounter());
+        synchronized (account) {
+            account.failures++;
+            if (account.failures >= ACCOUNT_MAX_FAILURES) {
+                long lockSeconds = lockSecondsFor(account.failures);
+                account.lockUntilEpochSeconds = now + lockSeconds;
+                return Decision.blocked(lockSeconds);
+            }
+        }
+        synchronized (ip) {
+            ip.failures++;
+            if (ip.failures >= IP_MAX_FAILURES) {
+                ip.lockUntilEpochSeconds = now + LOCK_MAX_SECONDS;
+                return Decision.blocked(LOCK_MAX_SECONDS);
+            }
+        }
+        return Decision.allow();
     }
 }

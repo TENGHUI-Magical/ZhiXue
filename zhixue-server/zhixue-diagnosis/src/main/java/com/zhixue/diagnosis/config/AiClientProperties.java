@@ -9,7 +9,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @param baseUrl        AI 服务地址，如 http://localhost:8000（不对外网暴露）
  * @param timeoutSeconds 调用超时秒数，契约约定 10s
+ * @param internalToken  内部服务鉴权令牌，随 X-Internal-Token 头传递（P0 修复）
  */
 @ConfigurationProperties(prefix = "zhixue.ai")
-public record AiClientProperties(String baseUrl, int timeoutSeconds) {
+public record AiClientProperties(String baseUrl, int timeoutSeconds, String internalToken) {
 }

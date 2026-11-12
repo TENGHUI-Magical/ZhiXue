@@ -108,7 +108,7 @@ public class PlanService {
     /**
      * 生成一周 7 条日计划；已存在的日期复用，不覆盖已打卡计划。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public List<PlanView> generate(PlanGenerateRequest request) {
         long userId = StpUtil.getLoginIdAsLong();
         int daily = request.dailyQuestionCount() == null ? 3 : request.dailyQuestionCount();
@@ -210,7 +210,7 @@ public class PlanService {
      * answered=false 仅推进度、不写 practice_record（不计正确率/不入可信闭环）。
      * 同一 clientToken 重放返回成功（duplicate=true）；不同 token 打同一已完成题返回 40900。
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CheckinResult checkin(Long planId, CheckinRequest request) {
         long userId = StpUtil.getLoginIdAsLong();
         StudyPlan plan = planMapper.selectById(planId);

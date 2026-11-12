@@ -70,6 +70,7 @@ zhixue:
   ai:
     base-url: ${AI_BASE_URL:http://127.0.0.1:8000}
     timeout-seconds: 10 # 首字节超时；整体超时与连接超时见契约 5.2 节
+    internal-token: ${AI_INTERNAL_TOKEN:} # P0 修复：内部服务鉴权令牌，随 X-Internal-Token 头传递
   ocr:
     save-dir: ${OCR_SAVE_DIR:./data/upload}
     max-image-bytes: ${OCR_MAX_IMAGE_BYTES:5242880}  # 5MB（契约 §4）

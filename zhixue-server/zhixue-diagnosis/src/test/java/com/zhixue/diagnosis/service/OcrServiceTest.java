@@ -60,7 +60,7 @@ class OcrServiceTest {
     @BeforeEach
     void setUp() {
         service = new OcrService(ocrTaskMapper,
-                new AiClientProperties("http://127.0.0.1:1", 1), new ObjectMapper());
+                new AiClientProperties("http://127.0.0.1:1", 1, ""), new ObjectMapper());
         // @Value 在纯单测下不注入，maxImageBytes 会保持 0；显式设为 5MB 才能测到后续校验分支
         org.springframework.test.util.ReflectionTestUtils.setField(service, "maxImageBytes", 5_242_880L);
     }

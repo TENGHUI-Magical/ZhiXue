@@ -11,11 +11,12 @@ import time
 from typing import Any
 
 import numpy as np
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from PIL import Image, ImageOps
 
 from app.config import settings
+from app.deps import require_internal
 from app.schemas import OcrLine, OcrRecognizeOut
 from app.services.ocr_quality import aggregate_confidence
 
@@ -61,14 +62,18 @@ def _recognize(data: bytes) -> OcrRecognizeOut:
     )
 
 
-@router.post("/recognize", response_model=OcrRecognizeOut)
+@router.post("/recognize", response_model=OcrRecognizeOut, dependencies=[Depends(require_internal)])
 async def recognize(image: UploadFile = File(..., description="错题图片，字段名 image")):
     """识别单张图片并返回原文 + 平均置信度。失败由 Java 侧映射 60002。"""
-    data = await image.read()
-    if not data:
+    # P1 修复：先读有限字节检查大小，避免全量 read() 后才查大小导致内存放大 DoS
+    chunk = await image.read(settings.ocr_max_image_bytes + 1)
+    if not chunk:
         raise HTTPException(status_code=400, detail="图片为空")
-    if len(data) > settings.ocr_max_image_bytes:
+    if len(chunk) > settings.ocr_max_image_bytes:
         raise HTTPException(status_code=413, detail="图片超过大小上限")
+    # 读剩余部分（如果文件刚好超过一个 chunk 边界）
+    remaining = await image.read()
+    data = chunk + remaining if remaining else chunk
     try:
         return await run_in_threadpool(_recognize, data)
     except Exception as exc:  # 图片损坏、引擎异常等

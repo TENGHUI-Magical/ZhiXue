@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ===== /api/ocr =====
@@ -44,6 +44,7 @@ class PrereqWeakness(BaseModel):
 
 class RagExplainRequest(BaseModel):
     """RAG 讲解请求：Java 侧已从 MySQL 取出知识点上下文，Python 不再查库。"""
+    model_config = {"extra": "forbid"}  # P0 修复：禁止未知字段，防止 answerText 拼错被静默忽略
     kpId: str = Field(description="知识点编号，如 KP0201")
     kpName: str = Field(default="", description="知识点名称，用于 prompt 与模板")
     conceptText: str = Field(default="", description="300—500 字概念切片，L1 与 L3 共用")
@@ -59,6 +60,16 @@ class RagExplainRequest(BaseModel):
     courseId: int = Field(default=1, description="课程 ID")
     logId: Optional[str] = Field(default=None, description="错题记录编号；竖切阶段可为空")
     traceId: Optional[str] = Field(default=None, description="Java 生成的链路追踪 ID（契约 §1.2），优先回显")
+
+    @model_validator(mode="after")
+    def _require_answer_for_question(self) -> "RagExplainRequest":
+        """P0 修复：有 questionText 时必须提供 answerText，否则答案泄露过滤会 fail-open。"""
+        if self.questionText and self.questionText.strip() and not self.answerText:
+            raise ValueError(
+                "answerText 必填：当提供 questionText 时，必须同时提供 answerText 用于输出泄露校验；"
+                "缺失 answerText 将导致答案泄露过滤被静默关闭"
+            )
+        return self
 
 
 class RagRetrieveRequest(BaseModel):

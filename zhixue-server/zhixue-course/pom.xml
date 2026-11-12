@@ -22,6 +22,11 @@
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>
         </dependency>
+        <!-- 取当前登录用户：答案接口角色 + 作答回执校验（P0 修复） -->
+        <dependency>
+            <groupId>cn.dev33</groupId>
+            <artifactId>sa-token-spring-boot4-starter</artifactId>
+        </dependency>
         <!-- 契约响应 required 注解：DimensionDef.key/name 在 openapi 中必填 -->
         <dependency>
             <groupId>io.swagger.core.v3</groupId>

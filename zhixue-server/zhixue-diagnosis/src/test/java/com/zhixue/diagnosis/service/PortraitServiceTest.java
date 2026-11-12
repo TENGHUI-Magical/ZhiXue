@@ -168,7 +168,7 @@ class PortraitServiceTest {
     @Test
     void snapshotIsMappedToContractView() {
         LearningPortraitSnapshot snapshot = new LearningPortraitSnapshot();
-        snapshot.setStatDate(LocalDate.of(2026, 10, 28));
+        snapshot.setStatDate(LocalDate.now()); // P0 修复：新鲜度门限要求快照在 3 天内
         snapshot.setDimensionScores("{\"concept\":0.72}");
         snapshot.setWeakestKps("[{\"kpId\":\"KP0201\",\"mastery\":0.4,\"sampleCount\":3}]");
         snapshot.setErrorDist("{\"CONCEPT_CONFUSION\":2}");
@@ -182,7 +182,7 @@ class PortraitServiceTest {
         try (MockedStatic<StpUtil> stp = mockStatic(StpUtil.class)) {
             stp.when(StpUtil::getLoginIdAsLong).thenReturn(2L);
             PortraitView view = service.me();
-            assertEquals(LocalDate.of(2026, 10, 28), view.statDate());
+            assertEquals(LocalDate.now(), view.statDate());
             assertEquals(0.72, view.dimensionScores().get("concept"));
             assertEquals("关系模型", view.weakestKps().get(0).name());
             assertEquals(2, view.errorDist().get("CONCEPT_CONFUSION"));

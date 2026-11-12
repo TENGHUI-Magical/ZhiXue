@@ -37,5 +37,9 @@ class Settings(BaseSettings):
     ocr_max_image_bytes: int = 5 * 1024 * 1024
     ocr_max_side: int = 1600
 
+    # 内部服务鉴权（P0 修复）：Java 调用 Python 三路由时必须携带 X-Internal-Token
+    # 为空时拒绝所有请求（fail-closed），生产环境必须配置
+    internal_token: str = ""
+
 
 settings = Settings()
