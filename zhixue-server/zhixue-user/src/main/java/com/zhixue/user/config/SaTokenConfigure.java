@@ -36,7 +36,7 @@ public class SaTokenConfigure implements WebMvcConfigurer {
                     }
                 }))
                 .addPathPatterns("/api/**")
-                .excludePathPatterns("/api/auth/login", "/api/system/health");
+                .excludePathPatterns("/api/auth/login");
 
         // 教师端路由级角色校验（P0 修复：纵深防御，不依赖各 Service 手写 checkRole）
         registry.addInterceptor(new SaInterceptor(handle -> StpUtil.checkRole("TEACHER")))

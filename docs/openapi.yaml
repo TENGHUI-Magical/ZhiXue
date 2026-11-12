@@ -158,7 +158,11 @@ paths:
   /api/questions/{qId}/answer:
     get:
       tags: [question]
-      summary: 查看参考答案与解析（学生点击“查看答案”后显式调用）
+      summary: 查看参考答案与解析（学生须先完成作答，教师直接放行）
+      description: >
+        P0 安全修复（V2.3.1）：双条件放行——教师角色（TEACHER）直接返回；
+        学生必须已有该题的非空作答记录（作答回执），否则返回 40300。
+        防止学生在作答前批量拉取标准答案。
       parameters:
         - name: qId
           in: path
@@ -166,7 +170,7 @@ paths:
           schema: { type: string, example: Q_0201 }
       responses:
         '200':
-          description: 成功
+          description: 成功（code=0 返回答案；code=40300 表示学生未完成作答）
           content:
             application/json:
               schema: { $ref: '#/components/schemas/QuestionAnswerResponse' }

@@ -8,6 +8,9 @@ import cn.dev33.satoken.exception.NotRoleException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -97,6 +100,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoResourceFoundException.class)
     public ApiResponse<Void> handleNoResource(NoResourceFoundException e) {
         return ApiResponse.fail(ErrorCode.NOT_FOUND);
+    }
+
+    /**
+     * P1 修复：并发冲突/重复提交 → 40900（ErrorCode.DUPLICATE_SUBMIT）。
+     * 原先这些异常落入兜底 50000，客户端无法区分「重复提交」与「系统故障」。
+     */
+    @ExceptionHandler({DuplicateKeyException.class, ConcurrencyFailureException.class})
+    public ApiResponse<Void> handleConflict(Exception e) {
+        log.warn("并发冲突/重复提交: {}", e.getMessage());
+        return ApiResponse.fail(ErrorCode.DUPLICATE_SUBMIT);
+    }
+
+    /** 数据完整性约束违规（外键/非空/长度）→ 40000 参数错误，而非 50000 */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ApiResponse<Void> handleDataIntegrity(DataIntegrityViolationException e) {
+        log.warn("数据完整性约束违规: {}", e.getMessage());
+        return ApiResponse.fail(ErrorCode.PARAM_ERROR, "数据不符合约束（重复/长度/关联）");
     }
 
     @ExceptionHandler(Exception.class)
