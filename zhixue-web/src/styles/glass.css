@@ -387,9 +387,12 @@ html[data-theme="glass-dark"] .el-button:not(.el-button--primary):not(.el-button
   background: var(--app-surface);
   border-color: color-mix(in srgb, var(--app-primary) 24%, var(--app-border-strong));
 }
-html[data-theme="glass"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover,
-html[data-theme="glass-dark"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
-  transform: translateY(-1px);
+/* 抬升只在细指针设备生效：触摸设备 :hover 会粘住，按钮停在抬起位 */
+@media (hover: hover) and (pointer: fine) {
+  html[data-theme="glass"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover,
+  html[data-theme="glass-dark"] .el-button:not(.is-disabled):not(.is-text):not(.is-link):hover {
+    transform: translateY(-1px);
+  }
 }
 html[data-theme="glass"] .el-button:not(.is-disabled):not(.is-link):active,
 html[data-theme="glass-dark"] .el-button:not(.is-disabled):not(.is-link):active {
@@ -659,6 +662,8 @@ html[data-theme="glass-dark"] .login-page {
   display: grid;
   place-items: center;
   min-height: 100vh;
+  /* 移动端浏览器地址栏收放时用动态视口，避免底部被裁 */
+  min-height: 100dvh;
   padding: clamp(24px, 4vw, 56px);
   background:
     radial-gradient(58vw 52vw at 16% 34%, rgba(37, 99, 235, 0.1), transparent 62%),

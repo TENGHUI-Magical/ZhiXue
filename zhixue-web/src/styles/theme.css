@@ -412,8 +412,18 @@ a {
     min-height: 44px;
   }
   .el-input__wrapper,
-  .el-select__wrapper {
+  .el-select__wrapper,
+  .el-textarea__inner {
     min-height: 44px;
+    /* 手机端输入字号 ≥16px：低于 16px 时 iOS Safari 聚焦会自动放大页面 */
+    font-size: 16px;
+  }
+  /* 移动端隐藏自定义滚动条，保留滚动能力 */
+  .main {
+    scrollbar-width: none;
+  }
+  .main::-webkit-scrollbar {
+    display: none;
   }
   .el-radio-button__inner {
     min-height: 44px;
