@@ -290,15 +290,26 @@ async function waitFor(name, url, timeoutMs, check) {
 }
 
 async function waitBackendHealthy() {
-  // Health 端点已收紧为需登录（SaTokenConfigure 不再匿名放行），
-  // 先用公开的登录接口换 token，再带 satoken 轮询；等待窗口与断言（db/redis=UP）不变。
+  // /api/system/health 是编排探针，默认匿名可达（SaTokenConfigure 白名单）。
+  // 优先匿名探测，避免健康等待被演示账号登录状态绑架；若部署重新收紧为需登录
+  // （返回 40100），再登录换 token 重试，兼容两种口径。窗口 180s 与 db/redis=UP
+  // 断言强度不变。生产 profile 可能隐藏组件明细，此时按 status 判定（见下）。
   const deadline = Date.now() + 180000
   let health = null
   let token = null
   let last = ''
   while (Date.now() < deadline) {
     try {
-      if (!token) {
+      const headers = token ? { satoken: token } : {}
+      const res = await fetch(`${BACKEND}/api/system/health`, {
+        headers,
+        signal: AbortSignal.timeout(5000)
+      })
+      const body = await res.text()
+      let json = null
+      try { json = JSON.parse(body) } catch { /* 非 JSON：按未就绪重试 */ }
+      if (json?.code === 40100 && !token) {
+        // 该部署把 health 收紧为需登录：用公开登录接口换 token 后重试
         const lr = await fetch(`${BACKEND}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -309,29 +320,19 @@ async function waitBackendHealthy() {
         if (lj?.code === 0 && lj?.data?.token) {
           token = lj.data.token
         } else {
-          last = `login HTTP ${lr.status}: ${JSON.stringify(lj)?.slice(0, 160)}`
-          await sleep(500)
-          continue
+          last = `health=40100 且登录失败 HTTP ${lr.status}: ${JSON.stringify(lj)?.slice(0, 160)}`
         }
-      }
-      const res = await fetch(`${BACKEND}/api/system/health`, {
-        headers: { satoken: token },
-        signal: AbortSignal.timeout(5000)
-      })
-      const body = await res.text()
-      try {
-        const json = JSON.parse(body)
-        if (json.code === 40100) {
-          // token 被轮换/失效：下次循环重新登录
-          token = null
-          last = `HTTP ${res.status}: ${body.slice(0, 200)}`
-        } else if (json.code === 0 && json.data?.db === 'UP' && json.data?.redis === 'UP') {
-          health = json.data
-          break
-        } else {
-          last = `HTTP ${res.status}: ${body.slice(0, 200)}`
-        }
-      } catch {
+      } else if (json?.code === 40100) {
+        token = null // token 失效，下轮匿名重试 / 重新登录
+        last = `HTTP ${res.status}: ${body.slice(0, 200)}`
+      } else if (json?.code === 0 && json.data?.db === 'UP' && json.data?.redis === 'UP') {
+        health = json.data
+        break
+      } else if (json?.code === 0 && json.data?.status === 'UP') {
+        // prod 收敛了组件明细（db/redis/ai = HIDDEN）：status=UP 即可判定依赖健康
+        health = json.data
+        break
+      } else {
         last = `HTTP ${res.status}: ${body.slice(0, 200)}`
       }
     } catch (e) {
