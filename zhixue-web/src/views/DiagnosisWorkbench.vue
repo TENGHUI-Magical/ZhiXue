@@ -250,11 +250,23 @@
             {{
               recommendLoading
                 ? "讲解已生成，正在按巩固、变式、进阶取题。"
-                : explainText
-                  ? "推荐接口本次未返回结果；可稍后重试，或先去错题本查看已确认错题。"
-                  : "确认知识点并生成讲解后，系统会按三层给出练习，而不是一次堆题。"
+                : recommendFailed
+                  ? "推荐服务本次未成功返回，可点下方按钮重试；也可先去错题本查看已确认错题。"
+                  : explainText
+                    ? "推荐接口本次未返回结果；可稍后重试，或先去错题本查看已确认错题。"
+                    : "确认知识点并生成讲解后，系统会按三层给出练习，而不是一次堆题。"
             }}
           </p>
+          <el-button
+            v-if="recommendFailed && !recommendLoading"
+            size="small"
+            type="primary"
+            plain
+            class="recommend-retry"
+            @click="loadRecommend"
+          >
+            重新获取推荐
+          </el-button>
         </div>
         <div class="layer-preview">
           <div v-for="(label, key) in LAYER_LABELS" :key="key" class="layer-chip">
@@ -393,6 +405,8 @@ const draftLogId = ref("");
 const latencyMs = ref(0);
 const questions = ref<Recommendation[]>([]);
 const recommendLoading = ref(false);
+/** 推荐请求失败时提供可点重试出口，避免「失败」与「无推荐」在界面上不可区分 */
+const recommendFailed = ref(false);
 const practiceVisible = ref(false);
 const practiceQId = ref("");
 const practiceRecommendationId = ref<number | null>(null);
@@ -584,6 +598,7 @@ const resetExplainState = () => {
   recSeq += 1;
   explainQuerySeq += 1;
   recommendLoading.value = false;
+  recommendFailed.value = false;
   explainText.value = "";
   sources.value = [];
   degraded.value = false;
@@ -883,6 +898,7 @@ const onPracticeCompleted = async () => {
 const loadRecommend = async () => {
   const seq = ++recSeq;
   recommendLoading.value = true;
+  recommendFailed.value = false;
   try {
     // 契约参数是 logId；没有记录时才退回 kpId（理论上不会发生）
     const params = logId.value
@@ -892,6 +908,7 @@ const loadRecommend = async () => {
     if (seq === recSeq) questions.value = data;
   } catch (error) {
     // 推荐失败不影响讲解展示，但静默会让人误以为“本题没有同类练习”
+    if (seq === recSeq) recommendFailed.value = true;
     reportError(error, "diagnosis.recommend");
   } finally {
     if (seq === recSeq) recommendLoading.value = false;
@@ -1316,6 +1333,9 @@ useStudyDataRefresh(() => {
   color: var(--app-text-secondary);
   font-size: var(--app-fs-sm);
   line-height: 1.65;
+}
+.recommend-retry {
+  margin-top: var(--app-space-3);
 }
 .layer-preview {
   display: grid;
